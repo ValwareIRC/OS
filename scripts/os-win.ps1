@@ -87,13 +87,14 @@ if ($Disk -and (Test-Path $Disk) -and ((Get-Item $Disk).Length -lt 32GB)) {
 }
 
 $facetArgs = @()
+$snapshot = $false
 if ($Facet) {
     if (-not (Test-Path $Facet)) { Write-Host "No design at $Facet"; exit 1 }
-    $trial = Join-Path $env:TEMP "os-theme-disk.img"
-    if ($Disk -and (Test-Path $Disk)) { Copy-Item $Disk $trial -Force } else { New-OSDisk $trial }
-    $Disk = $trial
+    # The disk in snapshot mode: QEMU keeps this session's writes in a
+    # throwaway file, so nothing is copied and the disk itself never changes.
+    $snapshot = $true
     $facetArgs = @("-fw_cfg", ("name=opt/os/facet.xml,file=" + ((Resolve-Path $Facet).Path -replace ",", ",,")))
-    Write-Host "Trying $Facet on a copy of the disk; your own desktop is not changed"
+    Write-Host "Trying $Facet; your own desktop is not changed (this session's changes are thrown away)"
 }
 
 # kernel-irqchip=on: Hyper-V keeps the guest's timers and interrupts itself,
@@ -141,7 +142,8 @@ $args = @("-name", "Operating System", "-M", "q35,vmport=on", "-m", $mem, "-smp"
 if ($Disk) {
     # QEMU option syntax: forward slashes are fine, commas must be doubled.
     $qdisk = ($Disk -replace "\\", "/") -replace ",", ",,"
-    $args += @("-drive", "id=disk0,file=$qdisk,format=raw,if=none", "-device", "ide-hd,drive=disk0,bus=ide.0")
+    $snap = if ($snapshot) { ",snapshot=on" } else { "" }
+    $args += @("-drive", "id=disk0,file=$qdisk,format=raw,if=none$snap", "-device", "ide-hd,drive=disk0,bus=ide.0")
 } else {
     Write-Host "No disk: nothing will be remembered anything after this session."
 }
