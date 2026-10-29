@@ -129,3 +129,7 @@ The OS ships **Prism**, Valerie Liu's agentic IDE, as a bundled app. `make` copi
 which appears inside the OS as `/apps/prism/`. Running it needs the graphical Linux apps milestone:
 glibc-style dynamic linking, the system calls Chromium uses (threads, futex, epoll, eventfd, memfd) and a
 Wayland display server. Until then the OS lists it as installed but cannot open it yet.
+
+## License
+
+MIT (see LICENSE). Files under `kernel/third_party/` keep their own licenses: `limine.h` is BSD Zero Clause, `font8x8_basic.h` is public domain. Libraries fetched at build time (Limine, musl, mbed TLS, stb, Lua, fonts, llama.cpp and others) come under their own licenses.
