@@ -1,0 +1,104 @@
+# Builds the bootable image on GitHub's machines.
+#
+# A pushed tag like v0.8.0 builds it and publishes a release with the ISO.
+# Run by hand (Actions > Build the image > Run workflow) it builds the ISO as
+# a downloadable artifact, and makes a release too if you tick "release".
+#
+# What CI images leave out: Prism, which is built from its own project
+# (scripts/build-prism-flatpak.sh) and isn't in this repository.
+name: Build the image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Also publish a GitHub release (tag v<version>)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room on the disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential musl-tools busybox-static xorriso cpio mtools git curl ca-certificates rsync \
+            flatpak flatpak-builder meson ninja-build cmake pkg-config python3 libostree-dev ostree
+          # Ubuntu 24.04 keeps unprivileged user namespaces from bubblewrap, which
+          # the SDK builds run in
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: The Freedesktop runtime and SDK (the base system is built against them)
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
+
+      - name: Which version
+        id: ver
+        run: |
+          v=$(sed -n 's/^#define OS_VERSION "\(.*\)"/\1/p' userland/shell/app.h)
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$v" ]; then
+            echo "The tag ${GITHUB_REF_NAME} doesn't match OS_VERSION $v in userland/shell/app.h" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: The built-in model
+        run: bash scripts/get-builtin-model.sh
+
+      - name: The base system
+        run: bash scripts/build-base.sh
+
+      - name: The image
+        run: |
+          make iso
+          mkdir -p out
+          name=Operating-System-${{ steps.ver.outputs.version }}.iso
+          mv build/os.iso "out/$name"
+          (cd out && sha256sum "$name" > "$name.sha256")
+          ls -la out
+          size=$(stat -c %s "out/$name")
+          # GitHub keeps release files up to 2 GiB
+          [ "$size" -lt 2147483648 ] || { echo "the image is $size bytes, over GitHub's 2 GiB limit" >&2; exit 1; }
+
+      - name: Keep the image (artifact)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Operating-System-${{ steps.ver.outputs.version }}
+          path: out/
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish the release
+        if: github.ref_type == 'tag' || inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${{ steps.ver.outputs.version }}
+          tag=v$v
+          notes="Operating System $v. Boot the ISO in a VM (8 GB of memory, 4 CPUs, an e1000 network card), or write it to a USB stick. Built by GitHub Actions; Prism isn't included in CI images."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" out/* --clobber
+          else
+            gh release create "$tag" out/* --title "Operating System $v" --notes "$notes" --target "${GITHUB_SHA}"
+          fi
