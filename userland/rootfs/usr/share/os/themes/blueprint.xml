@@ -1,0 +1,120 @@
+<facet>
+<meta ai-name="Draughtsman" user-name="Sam" greeting="Drawing no. 1, rev. A" tagline="measure twice"
+      rationale="Your desktop is a technical drawing: white lines on blueprint blue, every app a labelled part with its dimensions."
+      theme-about="engineering blueprint: a full-screen canvas of cyanotype blue paper with a fine and a coarse grid, a title block in the bottom-right corner (drawing name, the person, the date, the time, a scale), the apps drawn as isometric white line-art boxes (parts) with callout bubbles, leader lines and dimension arrows giving each its name; hover a part and its lines thicken, click to open; white monospace annotations, windows like drafting sheets with a white border. Technical, precise, hand-drafted. (#sheet, #block)"/>
+<apps>
+  <app id="files" label="PART A  STORAGE"/><app id="companion" label="DRAUGHTSMAN"/><app id="notes" label="PART C  NOTES"/>
+  <app id="settings" label="PART D  ADJUST"/><app id="about" label="SPEC SHEET"/><app id="terminal" label="PART B  CONSOLE"/>
+  <app id="redesign" label="REVISE"/><app id="power" label="SHUT DOWN"/>
+</apps>
+<wallpaper kind="gradient" colors="#1b4f8a #1e5696 #174679 #123a66" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#1b4f8a; --surface:#1d4f88; --surface-2:#2a62a0; --surface-text:#eaf3ff; --text:#eaf3ff; --muted:#b8d2f0;
+        --accent:#ffffff; --accent2:#ffd84a; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:line; }
+desktop { color:#eaf3ff; font-family:JetBrainsMono; font-size:13; }
+#sheet { size:full; }
+#block { margin:0 40 40 0; width:420; direction:column; border:2 #eaf3ff; background:rgba(20,60,110,0.9); }
+#block .r { height:34; padding:0 12; gap:12; border:1 rgba(234,243,255,0.6); }
+#block .k { width:90; font:"JetBrainsMono 11"; color:#b8d2f0; }
+#block .v { font:"JetBrainsMono 14"; color:#ffffff; }
+#block clock { font:"JetBrainsMono 14"; color:#ffffff; padding:4 0; }
+#block button { height:30; padding:0 10; gap:6; radius:0; border:1 #eaf3ff; color:#ffffff; font:"JetBrainsMono 12"; icon-size:12; }
+#block button:hover { background:#ffffff; color:#1b4f8a; }
+#bom { width:440; padding:12; gap:8; radius:0; background:#1d4f88; border:2 #eaf3ff; }
+#bom search { grow:0; height:36; padding:0 10; radius:0; border:1 #eaf3ff; background:#174679; color:#ffffff; }
+#bom applist { direction:column; align:stretch; gap:0; }
+#bom item { direction:row; gap:10; padding:5 8; icon-size:18; color:#eaf3ff; font-size:13; border:1 rgba(234,243,255,0.2); }
+#bom item:hover { background:rgba(255,255,255,0.15); }
+frame { direction:column; radius:0; overflow:hidden; background:#1d4f88; color:#eaf3ff; border:2 #eaf3ff; }
+titlebar { height:30; padding:0 4 0 10; gap:4; background:#174679; color:#b8d2f0; font:"JetBrainsMono 12"; border:1 rgba(234,243,255,0.5); }
+frame:focus titlebar { color:#ffffff; background:#2a62a0; }
+titlebar text { grow:1; text-transform:uppercase; }
+titlebar button { size:26; radius:0; icon-size:10; color:#ffffff; border:1 rgba(234,243,255,0.6); }
+titlebar button:hover { background:#ffffff; color:#1b4f8a; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="sheet" place="fill" over="screen">
+    local parts, hot = {}, nil
+    local W = "#eaf3ff"
+    local function iso(x, y, z, ox, oy) return ox + (x - y) * 0.866, oy + (x + y) * 0.5 - z end
+    local function boxw(ox, oy, a, b, c, col, lw)
+      local P = {{0,0,0},{a,0,0},{a,b,0},{0,b,0},{0,0,c},{a,0,c},{a,b,c},{0,b,c}}
+      local S = {}
+      for i, p in ipairs(P) do S[i] = {iso(p[1], p[2], p[3], ox, oy)} end
+      g.poly({S[5][1],S[5][2],S[6][1],S[6][2],S[7][1],S[7][2],S[8][1],S[8][2]}, "rgba(255,255,255,0.06)")
+      for _, e in ipairs({{1,2},{2,3},{3,4},{5,6},{6,7},{7,8},{8,5},{2,6},{3,7},{4,8}}) do
+        g.line(S[e[1]][1], S[e[1]][2], S[e[2]][1], S[e[2]][2], col, lw)
+      end
+      return S
+    end
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#1b4f8a")
+      for x = 0, w, 20 do g.line(x, 0, x, h, "rgba(234,243,255,0.06)", 1) end
+      for y = 0, h, 20 do g.line(0, y, w, y, "rgba(234,243,255,0.06)", 1) end
+      for x = 0, w, 100 do g.line(x, 0, x, h, "rgba(234,243,255,0.13)", 1) end
+      for y = 0, h, 100 do g.line(0, y, w, y, "rgba(234,243,255,0.13)", 1) end
+      g.rect(20, 20, w - 40, 2, W)
+      g.rect(20, h - 22, w - 40, 2, W)
+      g.rect(20, 20, 2, h - 40, W)
+      g.rect(w - 22, 20, 2, h - 40, W)
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      parts, hot = {}, nil
+      for i, a in ipairs(apps) do
+        if i > 8 then break end
+        local col, row = (i - 1) % 4, (i - 1) // 4
+        local ox, oy = 210 + col * 300, 170 + row * 300
+        parts[#parts + 1] = {ox = ox, oy = oy, a = 70 + (i * 23 % 4) * 14, b = 60 + (i * 17 % 3) * 16, c = 50 + (i * 11 % 4) * 18,
+                             name = a.name, id = a.id, n = i}
+      end
+      for _, p in ipairs(parts) do
+        if over and math.abs(px - p.ox) < 110 and py > p.oy - 110 and py < p.oy + 110 then hot = p.id end
+      end
+      for _, p in ipairs(parts) do
+        local on = p.id == hot
+        local S = boxw(p.ox, p.oy, p.a, p.b, p.c, on and "#ffd84a" or W, on and 2.5 or 1.5)
+        local dx1, dy1 = S[1][1], S[1][2] + 24
+        local dx2, dy2 = S[2][1], S[2][2] + 24
+        g.line(dx1, dy1, dx2, dy2, "rgba(234,243,255,0.7)", 1)
+        g.line(dx1, dy1 - 6, dx1, dy1 + 6, "rgba(234,243,255,0.7)", 1)
+        g.line(dx2, dy2 - 6, dx2, dy2 + 6, "rgba(234,243,255,0.7)", 1)
+        g.text((dx1 + dx2) / 2 - 12, (dy1 + dy2) / 2 + 2, tostring(p.a), "#b8d2f0", 11, "JetBrainsMono")
+        local tx, ty = S[7][1], S[7][2]
+        g.line(tx, ty, tx + 40, ty - 50, W, 1)
+        g.line(tx + 40, ty - 50, tx + 150, ty - 50, W, 1)
+        g.arc(tx + 24, ty - 66, 14, 0, 6.29, W, 1.5)
+        g.text(tx + 19, ty - 75, tostring(p.n), W, 13, "JetBrainsMono")
+        g.text(tx + 44, ty - 70, p.name, on and "#ffd84a" or "#ffffff", 13, "JetBrainsMono")
+      end
+    end
+    function click(x, y)
+      for _, p in ipairs(parts) do
+        if math.abs(x - p.ox) < 110 and y > p.oy - 110 and y < p.oy + 110 then return "open:" .. p.id end
+      end
+    end
+  </canvas>
+  <column id="block" place="bottom-right">
+    <row class="r"><text class="k">DRAWING</text><text class="v" bind="greeting"/></row>
+    <row class="r"><text class="k">DRAWN BY</text><text class="v" bind="user.name"/></row>
+    <row class="r"><text class="k">TIME</text><clock format="%Y-%m-%d  %H:%M"/></row>
+    <row class="r"><text class="k">SCALE</text><text class="v">1:1</text><spacer/>
+      <button what="toggle:#bom" icon="grid" hotkey="meta">PARTS LIST</button></row>
+  </column>
+  <popover id="bom" placement="above" align="end">
+    <search placeholder="find part no., or ask the draughtsman"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

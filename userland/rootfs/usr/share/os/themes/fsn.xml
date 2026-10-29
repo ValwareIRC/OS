@@ -1,0 +1,218 @@
+<facet>
+<meta ai-name="Nedry" user-name="Sam" greeting="It's a Unix system. You know this." tagline="fly through your files"
+      rationale="Your files as a landscape: folders are platforms you fly into, files are blocks as tall as they are big."
+      theme-about="3D file system navigator, after the one in Jurassic Park: a full-screen canvas flying over the real home folder in perspective; folders are teal platforms you click to fly inside, files are blocks sized by their size, apps are tall blue towers along the left; SGI/IRIX look, monospace type, a path readout and a clock. (#fsn, #hud, #launch)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Nedry"/><app id="notes" label="Jot"/>
+  <app id="settings" label="Setup"/><app id="about" label="Hinv"/><app id="terminal" label="Shell"/>
+  <app id="redesign" label="Rebuild"/><app id="power" label="Shutdown"/>
+</apps>
+<wallpaper kind="gradient" colors="#000000 #031426 #06243d #000000" seed="1" intensity="0.4"/>
+<style>
+:root { --bg:#02070d; --surface:#c9ccd3; --surface-2:#aeb3bd; --surface-text:#101418; --text:#d8f4ff; --muted:#7fa6b8;
+        --accent:#2fb7d6; --accent2:#e8d44d; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:2; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:14; }
+#fsn { size:full; }
+#hud { margin:18 22 0 0; gap:14; align:center; }
+#hud clock { font:"JetBrainsMono 15"; color:#e8d44d; padding:5 2; }
+#hud button { height:30; padding:0 12; gap:8; radius:2; border:1 rgba(47,183,214,0.7); background:rgba(2,16,28,0.75);
+              color:#d8f4ff; font-size:13; icon-size:14; transition:100; }
+#hud button:hover { background:rgba(47,183,214,0.3); }
+#launch { padding:70 0 0 0; gap:28; align:center; background:rgba(0,6,12,0.9); }
+#launch title { font:"JetBrainsMono 22"; color:#e8d44d; letter-spacing:0.2em; text-transform:uppercase; }
+#launch search { grow:0; width:460; height:42; padding:0 16; radius:2; background:#02101c; border:1 #2fb7d6;
+                 color:#d8f4ff; font-size:15; }
+#launch applist { display:grid; columns:5; gap:18; }
+#launch item { width:150; padding:14 8; gap:10; radius:2; border:1 rgba(47,183,214,0.35); icon-size:44;
+               icon-style:mono; color:#d8f4ff; font-size:13; transition:100; }
+#launch item:hover { background:rgba(47,183,214,0.22); border:1 #2fb7d6; }
+#launch .ends { gap:10; }
+#launch .ends button { height:34; padding:0 14; gap:8; radius:2; border:1 rgba(232,212,77,0.6); color:#e8d44d;
+                       font-size:13; icon-size:14; }
+#launch .ends button:hover { background:rgba(232,212,77,0.16); }
+frame { direction:column; background:var(--surface); color:var(--surface-text); radius:0; border:2 #6d7380;
+        shadow:4 4 0 rgba(0,0,0,0.6); overflow:hidden; }
+titlebar { height:30; padding:0 4 0 10; gap:4; background:linear-gradient(180deg,#5d7f99,#3e5f78); color:#e9f1f7;
+           font:"JetBrainsMono 13"; }
+frame:focus titlebar { background:linear-gradient(180deg,#d7a048,#a8702a); color:#1b1206; }
+titlebar text { grow:1; }
+titlebar button { size:24; radius:0; icon-size:10; background:#c9ccd3; color:#202428; border:1 #6d7380; }
+titlebar button:hover { background:#ffffff; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="fsn" place="fill" over="screen">
+    local cwd, born, lt, hits, hot = "~", nil, 0, {}, nil
+    local F = 640
+    local function shade(hex, k)
+      local r = tonumber(hex:sub(2,3),16) * k
+      local gg = tonumber(hex:sub(4,5),16) * k
+      local b = tonumber(hex:sub(6,7),16) * k
+      return string.format("#%02x%02x%02x", math.min(255,math.floor(r)), math.min(255,math.floor(gg)), math.min(255,math.floor(b)))
+    end
+    local KIND = {"#d94c3a", "#e8a33a", "#7cc35a", "#e8d44d", "#b46ad9", "#3aa0d9"}
+    local function kind(name)
+      local h = 0
+      local ext = name:match("%.([%w]+)$") or name
+      for i = 1, #ext do h = (h * 31 + ext:byte(i)) % 997 end
+      return KIND[h % #KIND + 1]
+    end
+    local W, H, yaw, cy, sy = 1, 1, 0, 1, 0
+    local CAMY, CAMZ, PZ, CP, SP = 8.5, -11, 8, math.cos(0.5), math.sin(0.5)
+    local function proj(x, y, z)
+      local dx, dz = x, z - PZ
+      local rx, rz = dx * cy - dz * sy, dx * sy + dz * cy + PZ
+      local X, Y, Z = rx, y - CAMY, rz - CAMZ
+      local Y2, Z2 = Y * CP + Z * SP, Z * CP - Y * SP
+      if Z2 < 0.5 then Z2 = 0.5 end
+      return W / 2 + F * X / Z2, H * 0.46 - F * Y2 / Z2, Z2
+    end
+    local function box(b)
+      local x0, x1, z0, z1, y0, y1 = b.x - b.w / 2, b.x + b.w / 2, b.z - b.d / 2, b.z + b.d / 2, b.y or 0, (b.y or 0) + b.h
+      local P = {}
+      local C = {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1},{x0,y1,z0},{x1,y1,z0},{x1,y1,z1},{x0,y1,z1}}
+      local minx, miny, maxx, maxy, zs = 1e9, 1e9, -1e9, -1e9, 0
+      for i = 1, 8 do
+        local sx, sy2, z = proj(C[i][1], C[i][2], C[i][3])
+        P[i] = {sx, sy2, z}
+        zs = zs + z
+        if sx < minx then minx = sx end
+        if sx > maxx then maxx = sx end
+        if sy2 < miny then miny = sy2 end
+        if sy2 > maxy then maxy = sy2 end
+      end
+      local faces = {{1,2,6,5,0.62},{2,3,7,6,0.5},{4,1,5,8,0.5},{3,4,8,7,0.4},{5,6,7,8,1.0}}
+      for _, f in ipairs(faces) do f.z = (P[f[1]][3] + P[f[2]][3] + P[f[3]][3] + P[f[4]][3]) / 4 end
+      table.sort(faces, function(a, c) return a.z > c.z end)
+      local col = b.hot and shade(b.c, 1.35) or b.c
+      for _, f in ipairs(faces) do
+        local q = {P[f[1]][1],P[f[1]][2],P[f[2]][1],P[f[2]][2],P[f[3]][1],P[f[3]][2],P[f[4]][1],P[f[4]][2]}
+        g.poly(q, shade(col, f[5]))
+      end
+      b.sx, b.sy, b.minx, b.miny, b.maxx, b.maxy, b.depth = P[5][1], P[5][2], minx, miny, maxx, maxy, zs / 8
+    end
+    local function parent(p)
+      if p == "~" then return "~" end
+      local q = p:match("^(.*)/[^/]+$")
+      return (q == nil or q == "~" or q == "") and "~" or q
+    end
+    function draw(w, h, t)
+      W, H, lt = w, h, t
+      yaw = math.sin(t * 0.07) * 0.32
+      cy, sy = math.cos(yaw), math.sin(yaw)
+      g.gradient(0, 0, w, h * 0.5, "#000000", "#06243d")
+      g.gradient(0, h * 0.5, w, h * 0.5, "#06243d", "#010a12")
+      for i = -12, 12 do
+        local ax, ay = proj(i * 2, 0, -4)
+        local bx, by = proj(i * 2, 0, 40)
+        g.line(ax, ay, bx, by, "rgba(47,183,214,0.18)", 1)
+      end
+      for k = -2, 20 do
+        local ax, ay = proj(-24, 0, k * 2)
+        local bx, by = proj(24, 0, k * 2)
+        g.line(ax, ay, bx, by, "rgba(47,183,214,0.18)", 1)
+      end
+      born = born or (t - 1)
+      local rise = math.min(1, (t - born) / 0.7)
+      rise = 1 - (1 - rise) * (1 - rise)
+      local list, blocks, links = g.files(cwd), {}, {}
+      local dirs, files = {}, {}
+      for _, e in ipairs(list) do
+        if e.dir then if #dirs < 9 then dirs[#dirs + 1] = e end
+        elseif #files < 20 then files[#files + 1] = e end
+      end
+      local cols = math.max(1, math.min(5, #files))
+      local rows = math.max(1, (#files + cols - 1) // cols)
+      local pw, pd = cols * 1.9 + 1.2, rows * 1.9 + 1.2
+      blocks[#blocks + 1] = {x = 0, z = 6, w = pw, d = pd, h = 0.35, c = "#1f8fa8", label = "", floor = true}
+      for k, e in ipairs(files) do
+        local col, row = (k - 1) % cols, (k - 1) // cols
+        local hh = (0.3 + math.min(2.6, math.log(e.size + 10) / 5)) * rise
+        blocks[#blocks + 1] = {x = (col - (cols - 1) / 2) * 1.9, z = 6 - pd / 2 + 1.55 + row * 1.9, y = 0.35, w = 1.0, d = 1.0,
+                               h = hh, c = kind(e.name), label = e.name, act = "file:" .. e.path}
+      end
+      for k, e in ipairs(dirs) do
+        local a = (k - (#dirs + 1) / 2) * 0.36
+        local bx, bz = math.sin(a) * 15, 6 + math.cos(a) * 15
+        blocks[#blocks + 1] = {x = bx, z = bz, w = 2.8, d = 2.8, h = 0.9 * rise, c = "#1c7f96", label = e.name .. "/",
+                               go = e.path, dir = true}
+        links[#links + 1] = {bx, bz}
+      end
+      for _, l in ipairs(links) do
+        local ax, ay = proj(0, 0.36, 6 + pd / 2)
+        local bx, by = proj(l[1], 0.5, l[2])
+        g.line(ax, ay, bx, by, "rgba(232,212,77,0.5)", 1.5)
+      end
+      local apps = g.apps()
+      for i, a in ipairs(apps) do
+        if i > 8 then break end
+        blocks[#blocks + 1] = {x = -12.5 + (i - 1) * 0.5, z = 3 + (i - 1) * 2.3, w = 1.0, d = 1.0, h = 2.8 * rise,
+                               c = "#2b5fd0", label = a.name, act = "open:" .. a.id}
+      end
+      local px, py, over = g.pointer()
+      for _, b in ipairs(blocks) do b.depth = (b.z - CAMZ) end
+      table.sort(blocks, function(a, c) return a.depth > c.depth end)
+      hot = nil
+      for i = #hits, 1, -1 do
+        local b = hits[i]
+        if over and px >= b.minx and px <= b.maxx and py >= b.miny and py <= b.maxy then hot = b.label break end
+      end
+      for _, b in ipairs(blocks) do
+        b.hot = (b.label ~= "" and b.label == hot)
+        box(b)
+        if b.hot then g.glow(b.sx, b.sy, 60, "rgba(232,212,77,0.35)") end
+        if b.floor then goto continue end
+        local lab = #b.label > 18 and (b.label:sub(1, 17) .. "~") or b.label
+        g.text(b.sx - 4, b.sy - 22, lab, b.hot and "#e8d44d" or "#d8f4ff", b.dir and 14 or 12, "JetBrainsMono")
+        ::continue::
+      end
+      hits = blocks
+      local shown = cwd == "~" and "~" or cwd:gsub("^.*/root", "~")
+      g.text(24, 22, "fsn  " .. shown, "#e8d44d", 17, "JetBrainsMono")
+      if cwd ~= "~" then
+        g.rect(24, 54, 92, 28, "rgba(47,183,214,0.25)", 2)
+        g.text(36, 59, "^ up", "#d8f4ff", 14, "JetBrainsMono")
+      end
+      g.text(24, h - 34, "click a block to open it; a platform takes you inside", "rgba(216,244,255,0.55)", 13, "JetBrainsMono")
+    end
+    function click(x, y)
+      if cwd ~= "~" and x >= 24 and x <= 116 and y >= 54 and y <= 82 then
+        cwd, born = parent(cwd), lt
+        return nil
+      end
+      for i = #hits, 1, -1 do
+        local b = hits[i]
+        if x >= b.minx and x <= b.maxx and y >= b.miny and y <= b.maxy then
+          if b.dir then cwd, born = b.go, lt return nil end
+          return b.act
+        end
+      end
+    end
+  </canvas>
+  <row id="hud" place="top-right">
+    <clock format="%a %H:%M:%S"/>
+    <button what="toggle:#launch" icon="grid" hotkey="meta">apps</button>
+  </row>
+  <sheet id="launch">
+    <title>Programs</title>
+    <search placeholder="type a program, or ask Nedry"/>
+    <applist/>
+    <row class="ends">
+      <button what="redesign" icon="sparkle">Rebuild</button>
+      <button what="power:restart" icon="moon">Restart</button>
+      <button what="power:off" icon="power">Shutdown</button>
+    </row>
+  </sheet>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button id="x" what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

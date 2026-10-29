@@ -1,0 +1,94 @@
+<facet>
+<meta ai-name="i3" user-name="sam" greeting="sam@os" tagline="keyboard first"
+      rationale="A thin status line, numbered workspaces and nothing decorative: the screen belongs to your windows."
+      theme-about="tiling window manager: a single thin dark status line across the TOP in small monospace (numbered workspace boxes 1-5 at the left, the app names as plain lowercase words, then cpu/mem style readouts and the date and time at the right), a flat near-black desktop with a faint grid, windows with a 2px coloured border and a tiny title strip, no icons anywhere. Minimal, technical, hacker. (#status, #ws, #run)"/>
+<apps>
+  <app id="files" label="files"/><app id="companion" label="ask"/><app id="notes" label="notes"/>
+  <app id="settings" label="config"/><app id="about" label="sysinfo"/><app id="terminal" label="term"/>
+  <app id="redesign" label="rice"/><app id="power" label="poweroff"/>
+</apps>
+<wallpaper kind="gradient" colors="#0d0f12 #111418 #0b0d10 #08090b" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#0d0f12; --surface:#14171c; --surface-2:#1c2027; --surface-text:#d6dde6; --text:#c7d0db; --muted:#6c7684;
+        --accent:#7aa2f7; --accent2:#9ece6a; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:mono; }
+desktop { color:var(--text); font-family:JetBrainsMono; font-size:13; }
+#status { height:26; padding:0 6; gap:6; background:#0a0b0d; border:1 #1c2027; font:"JetBrainsMono 13"; color:#c7d0db; }
+#ws { gap:2; }
+#ws button { size:24; padding:0; radius:0; justify:center; color:#8a93a0; background:#14171c; }
+#ws button:hover { color:#ffffff; }
+#ws #cur { background:#7aa2f7; color:#0a0b0d; }
+#status applist { gap:2; }
+#status item { height:24; padding:0 8; color:#9aa5b4; }
+#status item icon { display:none; }
+#status item:hover { color:#9ece6a; background:#14171c; }
+#status .sep { color:#757980; }
+#status .stat { color:#9ece6a; }
+#status clock { color:#e0af68; padding:4 6; }
+#run { height:26; padding:0 8; color:#7aa2f7; }
+#run:hover, #run:open { background:#7aa2f7; color:#0a0b0d; }
+#grid { size:full; }
+#dmenu { width:1000; padding:4 6; gap:8; background:#0a0b0d; border:1 #7aa2f7; }
+#dmenu search { grow:0; width:220; height:24; padding:0 6; radius:0; background:#0a0b0d; color:#ffffff; border:0; font:"JetBrainsMono 13"; }
+#dmenu applist { gap:2; }
+#dmenu item { height:24; padding:0 8; color:#9aa5b4; }
+#dmenu item icon { display:none; }
+#dmenu item:hover { background:#7aa2f7; color:#0a0b0d; }
+frame { direction:column; background:var(--surface); color:var(--surface-text); radius:0; border:2 #2a2f38; overflow:hidden; }
+frame:focus { border:2 #7aa2f7; }
+titlebar { height:20; padding:0 2 0 6; gap:2; background:#1c2027; color:#6c7684; font:"JetBrainsMono 12"; }
+frame:focus titlebar { background:#7aa2f7; color:#0a0b0d; }
+titlebar text { grow:1; }
+titlebar button { size:24; radius:0; icon-size:9; color:inherit; }
+slot { padding:0; }
+</style>
+<desktop>
+  <canvas id="grid" place="fill" over="screen">
+    function draw(w, h, t)
+      for x = 0, w, 32 do g.line(x, 0, x, h, "rgba(122,162,247,0.035)", 1) end
+      for y = 0, h, 32 do g.line(0, y, w, y, "rgba(122,162,247,0.035)", 1) end
+      g.text(w - 330, h - 60, "$mod+d  run    $mod+enter  term", "rgba(108,118,132,0.6)", 13, "JetBrainsMono")
+      local L = {{"sam@os", "#7aa2f7"}, {"------", "#3a404a"}, {"os      Operating System", "#9aa5b4"},
+                 {"kernel  its own", "#9aa5b4"}, {"wm      facet (tiling)", "#9aa5b4"}, {"shell   os-shell", "#9aa5b4"},
+                 {"font    JetBrains Mono", "#9aa5b4"}, {"uptime  " .. math.floor(t / 60) .. " min", "#9aa5b4"}}
+      local x0, y0 = 90, h - 330
+      for k = 0, 5 do
+        for j = 0, 5 do
+          if (k + j) % 3 ~= 0 then g.rect(x0 + k * 22, y0 + j * 22, 18, 18, k < 3 and "#7aa2f7" or "#9ece6a", 2) end
+        end
+      end
+      for i, l in ipairs(L) do g.text(x0 + 170, y0 - 6 + (i - 1) * 20, l[1], l[2], 14, "JetBrainsMono") end
+      local cols = {"#f7768e", "#e0af68", "#9ece6a", "#7dcfff", "#7aa2f7", "#bb9af7"}
+      for i, c in ipairs(cols) do g.rect(x0 + 170 + (i - 1) * 26, y0 + 168, 22, 14, c, 0) end
+    end
+  </canvas>
+  <bar id="status" dock="top" width="full">
+    <row id="ws">
+      <button id="cur" what="open:terminal">1</button>
+      <button what="open:files">2</button>
+      <button what="open:notes">3</button>
+      <button what="open:companion">4</button>
+      <button what="open:settings">5</button>
+    </row>
+    <text class="sep">|</text>
+    <applist apps="terminal,files,notes,companion" labels="below"/>
+    <button id="run" what="toggle:#dmenu" hotkey="meta">run</button>
+    <spacer/>
+    <text class="stat">cpu 3%</text><text class="sep">|</text><text class="stat">mem 1.2G</text><text class="sep">|</text>
+    <clock format="%Y-%m-%d %H:%M"/>
+  </bar>
+  <popover id="dmenu" placement="below" align="start" anchor="#status">
+    <search placeholder="run:"/>
+    <applist labels="below"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

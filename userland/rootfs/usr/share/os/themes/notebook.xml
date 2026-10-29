@@ -1,0 +1,109 @@
+<facet>
+<meta ai-name="Margot" user-name="Sam" greeting="Dear Sam," tagline="today's page"
+      rationale="An open notebook on a desk: the date at the top in ink, your apps as a little handwritten to-do list, doodles in the margin."
+      theme-about="paper notebook: a full-screen canvas of an open spiral-bound notebook lying on a wooden desk (two cream pages with ruled blue lines and a red margin line, spiral rings down the middle, a pencil beside it, a coffee ring stain), the left page has the date and a greeting written in handwriting, the right page lists the apps as a handwritten checklist with drawn tick boxes (each line a button), little doodles in the margins; Caveat handwriting throughout, windows like taped-in index cards. Personal, analogue, warm. (#desk, #left, #todo)"/>
+<apps>
+  <app id="files" label="sort out my files"/><app id="companion" label="talk to Margot"/><app id="notes" label="write something"/>
+  <app id="settings" label="fiddle with settings"/><app id="about" label="about this notebook"/><app id="terminal" label="terminal stuff"/>
+  <app id="redesign" label="new notebook"/><app id="power" label="close it for today"/>
+</apps>
+<wallpaper kind="gradient" colors="#6b4a30 #7a5638 #5e3f28 #4a3020" seed="1" intensity="0.2"/>
+<style>
+:root { --bg:#6b4a30; --surface:#fffbf0; --surface-2:#f4edd8; --surface-text:#1f2a44; --text:#1f2a44; --muted:#5a6680;
+        --accent:#d64545; --accent2:#2a4fa8; --font-heading:Caveat; --font-body:Caveat; --radius:2; icon-style:line; }
+desktop { color:#1f2a44; font-family:Caveat; font-size:22; }
+#desk { size:full; }
+#left { margin:120 0 0 200; width:520; gap:6; align:start; }
+#left clock.day { font:"Caveat 54"; color:#1f2a44; padding:2 0; }
+#left text.dear { font:"Caveat 40"; color:#2a4fa8; margin:16 0 0 0; }
+#left text.p { font:"Caveat 28"; color:#1f2a44; }
+#todo { margin:150 0 0 924; width:520; gap:0; align:start; }
+#todo .h { height:52; font:"Caveat 40"; color:#ab3737; }
+#todo applist { direction:column; align:start; gap:0; }
+#todo item { height:34; padding:0; font:"Caveat 30"; color:#1f2a44; transition:100; }
+#todo item icon { display:none; }
+#todo item:hover { color:#d64545; transform:translate(6, 0); }
+#todo button { height:34; padding:0; font:"Caveat 30"; color:#5a6680; }
+#todo button:hover { color:#d64545; }
+#index { width:420; padding:16; gap:8; radius:2; background:#fffbf0; color:#1f2a44; shadow:3 8 20 rgba(0,0,0,0.4); }
+#index search { grow:0; height:42; padding:0 10; radius:2; background:#f4edd8; color:#1f2a44; font:"Caveat 24"; }
+#index applist { direction:column; align:stretch; gap:0; }
+#index item { direction:row; gap:10; padding:4 8; icon-size:20; color:#1f2a44; font:"Caveat 24"; }
+#index item:hover { background:#f4edd8; }
+frame { direction:column; radius:2; overflow:hidden; background:#fffbf0; color:#1f2a44; shadow:3 10 30 rgba(0,0,0,0.45); }
+titlebar { height:42; padding:0 8 0 16; gap:6; background:rgba(240,220,140,0.75); color:#5a6680; font:"Caveat 26"; }
+frame:focus titlebar { color:#1f2a44; background:rgba(250,225,120,0.9); }
+titlebar text { grow:1; }
+titlebar button { size:28; radius:14; icon-size:10; color:#1f2a44; }
+titlebar button:hover { background:#d64545; color:#ffffff; }
+slot { padding:4 16 16 16; font-family:Inter; }
+</style>
+<desktop>
+  <canvas id="desk" place="fill" over="screen">
+    function draw(w, h, t)
+      g.gradient(0, 0, w, h, "#7a5638", "#4a3020")
+      for i = 0, 40 do g.line(0, i * h / 40 + math.sin(i) * 6, w, i * h / 40 + math.cos(i) * 6, "rgba(40,20,10,0.12)", 2) end
+      local x0, y0, pw, ph = w * 0.09, h * 0.07, w * 0.41, h * 0.86
+      g.rect(x0 + 10, y0 + 14, pw * 2, ph, "rgba(0,0,0,0.35)", 6)
+      g.rect(x0, y0, pw, ph, "#fdf8ea", 4)
+      g.rect(x0 + pw, y0, pw, ph, "#fffbf0", 4)
+      g.gradient(x0 + pw - 30, y0, 30, ph, "rgba(0,0,0,0)", "rgba(0,0,0,0.08)")
+      for k = 0, 26 do
+        local y = y0 + 90 + k * 34
+        if y < y0 + ph - 20 then
+          g.line(x0 + 20, y, x0 + pw - 30, y, "rgba(80,120,200,0.32)", 1)
+          g.line(x0 + pw + 30, y, x0 + 2 * pw - 20, y, "rgba(80,120,200,0.32)", 1)
+        end
+      end
+      g.line(x0 + 80, y0, x0 + 80, y0 + ph, "rgba(220,70,70,0.6)", 1.5)
+      g.line(x0 + pw + 110, y0, x0 + pw + 110, y0 + ph, "rgba(220,70,70,0.6)", 1.5)
+      for k = 0, 22 do
+        local y = y0 + 30 + k * (ph - 60) / 22
+        g.arc(x0 + pw, y, 12, 3.4, 6.0, "#8a8a92", 3)
+      end
+      local tx, ty = 884, 202
+      for k = 0, 6 do
+        g.rect(tx, ty + k * 34 + 8, 20, 20, "rgba(0,0,0,0)", 2)
+        g.line(tx, ty + k * 34 + 8, tx + 20, ty + k * 34 + 8, "#1f2a44", 1.5)
+        g.line(tx + 20, ty + k * 34 + 8, tx + 20, ty + k * 34 + 28, "#1f2a44", 1.5)
+        g.line(tx + 20, ty + k * 34 + 28, tx, ty + k * 34 + 28, "#1f2a44", 1.5)
+        g.line(tx, ty + k * 34 + 28, tx, ty + k * 34 + 8, "#1f2a44", 1.5)
+      end
+      g.arc(x0 + pw - 120, y0 + ph - 140, 46, 0, 6.29, "rgba(120,70,30,0.25)", 7)
+      for k = 0, 4 do
+        g.arc(x0 + 40, y0 + 400 + k * 18, 10 + k * 4, 0.5, 5.8, "rgba(42,79,168,0.6)", 1.5)
+      end
+      g.line(x0 + 2 * pw + 40, y0 + 120, x0 + 2 * pw + 70, y0 + 640, "#e8b84a", 14)
+      g.line(x0 + 2 * pw + 70, y0 + 640, x0 + 2 * pw + 74, y0 + 668, "#e8c8a0", 12)
+      g.circle(x0 + 2 * pw + 74, y0 + 672, 3, "#333333")
+    end
+  </canvas>
+  <column id="left" place="top-left">
+    <clock class="day" format="%A %d %B"/>
+    <text class="dear" bind="greeting"/>
+    <text class="p" bind="tagline"/>
+    <text class="p">Remember to drink water.</text>
+  </column>
+  <column id="todo" place="top-left">
+    <text class="h">to do</text>
+    <applist apps="notes,companion,files,terminal,settings" labels="below"/>
+    <button what="toggle:#index" hotkey="meta">... and everything else</button>
+    <button what="power:off">close it for today</button>
+  </column>
+  <popover id="index" placement="above" align="start">
+    <search placeholder="look it up..."/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

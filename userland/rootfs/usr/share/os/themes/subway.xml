@@ -1,0 +1,111 @@
+<facet>
+<meta ai-name="Beck" user-name="Sam" greeting="Mind the gap, Sam." tagline="all lines running"
+      rationale="Your computer as a transit map: every app is a station, the lines are how things connect. Tap a station to go there."
+      theme-about="subway map: a full-screen canvas of a clean transit diagram on off-white (Harry Beck style: thick coloured lines at 0/45/90 degrees, round white station markers with black rings, interchange pills where lines cross, a river in pale blue), each app a station with its name in bold sans type beside it, the station under the pointer fills with colour, clicking it opens the app; a line legend and a departures board with the time in the corner. Graphic, orderly, urban. (#map, #board)"/>
+<apps>
+  <app id="files" label="Archive Sq"/><app id="companion" label="Beck Junction"/><app id="notes" label="Notebook Lane"/>
+  <app id="settings" label="Signal Works"/><app id="about" label="Terminus"/><app id="terminal" label="Shell Cross"/>
+  <app id="redesign" label="New Lines"/><app id="power" label="Depot"/>
+</apps>
+<wallpaper kind="gradient" colors="#f4f1ea #f4f1ea #efece4 #e8e4da" seed="1" intensity="0.05"/>
+<style>
+:root { --bg:#f4f1ea; --surface:#ffffff; --surface-2:#efece4; --surface-text:#111111; --text:#111111; --muted:#555555;
+        --accent:#dc241f; --accent2:#0019a8; --font-heading:Outfit; --font-body:Outfit; --radius:6; }
+desktop { color:#111111; font-family:Outfit; font-size:15; }
+#map { size:full; }
+#board { margin:32 36 0 0; width:300; padding:14 18; gap:4; align:stretch; radius:6; background:#111111; color:#ffcc00; }
+#board .h { font:"bold 13px Outfit"; color:#999999; letter-spacing:0.15em; }
+#board clock { font:"JetBrainsMono 30"; color:#ffcc00; }
+#board text.dep { font:"JetBrainsMono 14"; color:#ffcc00; }
+#board button { margin:8 0 0 0; height:32; padding:0 12; gap:8; radius:16; background:#ffcc00; color:#111111; font:"bold 14px Outfit"; icon-size:14; }
+#board button:hover { background:#ffffff; }
+#finder { width:400; padding:14; gap:10; radius:8; background:#ffffff; border:2 #111111; }
+#finder search { grow:0; height:40; padding:0 14; radius:20; background:#efece4; color:#111111; }
+#finder applist { direction:column; align:stretch; gap:2; }
+#finder item { direction:row; gap:12; padding:6 8; radius:6; icon-size:22; icon-style:line; color:#111111; font:"Outfit 15"; }
+#finder item:hover { background:#efece4; }
+frame { direction:column; radius:6; overflow:hidden; background:var(--surface); color:var(--surface-text); border:2 #111111; shadow:6 6 0 rgba(0,0,0,0.12); }
+titlebar { height:38; padding:0 8 0 14; gap:6; background:#0019a8; color:#ffffff; font:"bold 15px Outfit"; }
+frame:focus titlebar { background:#dc241f; }
+titlebar text { grow:1; }
+titlebar button { size:26; radius:13; icon-size:10; color:#111111; background:#ffffff; }
+slot { padding:6 14 14 14; }
+</style>
+<desktop>
+  <canvas id="map" place="fill" over="screen">
+    local stations, hot = {}, nil
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#f4f1ea")
+      g.poly({0, h * 0.62, w * 0.3, h * 0.58, w * 0.5, h * 0.7, w * 0.75, h * 0.64, w, h * 0.72, w, h * 0.8,
+              w * 0.75, h * 0.72, w * 0.5, h * 0.78, w * 0.3, h * 0.66, 0, h * 0.7}, "#cfe3f2")
+      local u = math.min(w / 16, h / 9)
+      local function P(x, y) return x * u, y * u end
+      local lines = {
+        {"#dc241f", {{2, 2}, {5, 2}, {7, 4}, {11, 4}, {13, 6}}},
+        {"#0019a8", {{3, 7}, {5, 5}, {7, 4}, {7, 2}}},
+        {"#00782a", {{9, 7}, {9, 5}, {11, 4}, {14, 4}}},
+        {"#ffd300", {{2, 5}, {5, 5}, {9, 5}, {11, 7}}},
+      }
+      for _, l in ipairs(lines) do
+        for k = 1, #l[2] - 1 do
+          local ax, ay = P(l[2][k][1], l[2][k][2])
+          local bx, by = P(l[2][k + 1][1], l[2][k + 1][2])
+          g.line(ax, ay, bx, by, l[1], 12)
+          g.circle(bx, by, 6, l[1])
+        end
+      end
+      local spots = {{5, 2}, {7, 4}, {11, 4}, {5, 5}, {9, 5}, {13, 6}, {3, 7}, {9, 7}, {2, 2}, {14, 4}, {11, 7}}
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      stations, hot = {}, nil
+      for i, a in ipairs(apps) do
+        local s = spots[i]
+        if not s then break end
+        local x, y = P(s[1], s[2])
+        stations[#stations + 1] = {x = x, y = y, name = a.name, id = a.id, big = (i == 2 or i == 3 or i == 5)}
+      end
+      for _, s in ipairs(stations) do
+        if over and (px - s.x) ^ 2 + (py - s.y) ^ 2 < 26 * 26 then hot = s.id end
+      end
+      for _, s in ipairs(stations) do
+        local r = s.big and 16 or 12
+        g.circle(s.x, s.y, r + 4, "#111111")
+        g.circle(s.x, s.y, r, s.id == hot and "#dc241f" or "#ffffff")
+        g.text(s.x + r + 10, s.y - 26, s.name, "#111111", s.big and 19 or 16, "Outfit")
+      end
+      local L = {{"#dc241f", "Central"}, {"#0019a8", "Piccadilly"}, {"#00782a", "District"}, {"#ffd300", "Circle"}}
+      for i, l in ipairs(L) do
+        g.rect(40, h - 170 + i * 28, 46, 10, l[1])
+        g.text(98, h - 178 + i * 28, l[2], "#111111", 15, "Outfit")
+      end
+    end
+    function click(x, y)
+      for _, s in ipairs(stations) do
+        if (x - s.x) ^ 2 + (y - s.y) ^ 2 < 26 * 26 then return "open:" .. s.id end
+      end
+    end
+  </canvas>
+  <column id="board" place="top-right">
+    <text class="h">DEPARTURES</text>
+    <clock format="%H:%M"/>
+    <text class="dep">1  Beck Junction   due</text>
+    <text class="dep">2  Shell Cross     3 min</text>
+    <button what="toggle:#finder" icon="search" hotkey="meta">Journey planner</button>
+  </column>
+  <popover id="finder" placement="below" align="end">
+    <search placeholder="Where to? Or ask Beck"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

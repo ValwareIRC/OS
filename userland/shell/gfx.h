@@ -58,6 +58,8 @@ void stroke_round_vgradient(canvas *c, rect r, float radius, float width, color 
 /* Boost saturation and lift brightness inside a rounded rect (vibrancy). */
 void vibrancy(canvas *c, rect r, float radius, float saturate, float lift);
 void draw_arc(canvas *c, float cx, float cy, float radius, float a0, float a1, float width, color col);
+/* A filled polygon of n points (x0,y0,x1,y1,...), anti-aliased, even-odd. */
+void fill_polygon(canvas *c, const float *xy, int n, color col);
 /* Faster large blurs: work at half resolution. */
 void blur_fast(canvas *c, rect r, float corner_radius, int strength);
 /* Bilinear upscale of src onto all of dst. */

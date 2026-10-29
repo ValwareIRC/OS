@@ -1397,6 +1397,8 @@ void fm_host_action(fm_doc *d, fm_node *src, const char *a) {
         } else {
             toast("Nothing called \"%s\" here yet.", id);
         }
+    } else if (!strncasecmp(a, "file:", 5)) {
+        desktop_open_path(a + 5); /* a folder in Files, anything else in Notes (a canvas's own file view) */
     } else if (!strncasecmp(a, "tray:", 5)) {
         tray_action(a + 5, src ? src->vis : (rect){A.W - 60, 0, 40, 40});
     } else if (!strcasecmp(a, "redesign")) {

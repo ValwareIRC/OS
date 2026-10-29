@@ -1,0 +1,128 @@
+<facet>
+<meta ai-name="Kepler" user-name="Sam" greeting="Clear skies tonight, Sam." tagline="everything in its orbit"
+      rationale="Your apps are planets turning slowly round a warm sun; reach out and pick the one you want."
+      theme-about="orrery: a full-screen animated canvas of a solar system seen from slightly above, each app a planet on its own tilted elliptical orbit (sizes and colours differ, some with rings or moons), the planet under the pointer glows and shows its name, click a planet to open it; a brass-and-ink almanac panel in the top-left with the date and time. Astronomical, slow, wondrous. (#sky, #almanac, #index)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Kepler"/><app id="notes" label="Logbook"/>
+  <app id="settings" label="Settings"/><app id="about" label="Observatory"/><app id="terminal" label="Console"/>
+  <app id="redesign" label="Recalculate"/><app id="power" label="Close the dome"/>
+</apps>
+<wallpaper kind="constellation" colors="#03040c #c9b27a #6f86d6 #01020a" seed="12" intensity="0.6"/>
+<style>
+:root { --bg:#03040c; --surface:#f4ecd8; --surface-2:#e7dcc1; --surface-text:#22190d; --text:#f2e6c9; --muted:#b8a57c;
+        --accent:#d8a64a; --accent2:#6f86d6; --font-heading:PlayfairDisplay; --font-body:Lora; --radius:4; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
+#sky { size:full; }
+#almanac { margin:36 0 0 40; padding:18 22; gap:4; align:start; radius:4; background:rgba(6,6,16,0.72);
+           border:1 rgba(216,166,74,0.55); }
+#almanac clock.big { font:"PlayfairDisplay 40"; color:#f2e6c9; }
+#almanac clock.day { font:"italic 16px Lora"; color:#d8a64a; padding:3 4 3 0; }
+#almanac text { font:"italic 15px Lora"; color:#b8a57c; margin:6 0 0 0; }
+#almanac button { margin:10 0 0 0; height:30; padding:0 12; gap:8; radius:3; border:1 rgba(216,166,74,0.6);
+                  color:#f2e6c9; font:"Lora 14"; icon-size:14; }
+#almanac button:hover { background:rgba(216,166,74,0.2); }
+#index { width:420; padding:18; gap:10; radius:4; background:var(--surface); color:var(--surface-text);
+         border:1 #b08a3e; shadow:0 18 50 rgba(0,0,0,0.6); }
+#index title { font:"PlayfairDisplay 22"; color:#22190d; }
+#index search { grow:0; height:38; padding:0 12; radius:3; background:#fffaf0; border:1 #c8b48a; color:#22190d; }
+#index applist { direction:column; align:stretch; gap:2; }
+#index item { direction:row; gap:12; padding:6 8; radius:3; icon-size:24; icon-style:line; icon-shape:none; font:"Lora 15"; color:#22190d; }
+#index item:hover { background:#e7dcc1; }
+frame { direction:column; radius:4; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        border:1 #b08a3e; shadow:0 20 60 rgba(0,0,0,0.6); }
+titlebar { height:38; padding:0 8 0 16; gap:6; font:"italic 15px Lora"; color:#6b5a3a; background:#e7dcc1;
+           border-gradient:none; }
+frame:focus titlebar { background:#d8a64a; color:#22190d; }
+titlebar text { grow:1; }
+titlebar button { size:26; radius:13; icon-size:11; color:#22190d; border:1 rgba(34,25,13,0.4); }
+titlebar button:hover { background:#fffaf0; }
+slot { padding:6 14 14 14; }
+</style>
+<desktop>
+  <canvas id="sky" place="fill" over="screen">
+    local COL = {"#c9774a", "#e0c27a", "#6f86d6", "#d65a4a", "#d9b57a", "#9fd6c8", "#a78bd6", "#7ab05a"}
+    local hits, hot = {}, nil
+    function draw(w, h, t)
+      local cx, cy = w * 0.56, h * 0.54
+      local px, py, over = g.pointer()
+      g.glow(cx, cy, 170, "rgba(255,190,90,0.35)")
+      local apps = g.apps()
+      local bodies = {}
+      for i, a in ipairs(apps) do
+        if i > 8 then break end
+        local rx = 110 + i * 68
+        local ry = rx * 0.36
+        g.arc(cx, cy, 1, 0, 0, "#000000", 0)
+        local seg, prevx, prevy = 64, nil, nil
+        for k = 0, seg do
+          local an = k / seg * math.pi * 2
+          local x, y = cx + math.cos(an) * rx, cy + math.sin(an) * ry
+          if prevx then g.line(prevx, prevy, x, y, "rgba(201,178,122,0.22)", 1) end
+          prevx, prevy = x, y
+        end
+        local sp = 0.5 / (1 + i * 0.6)
+        local an = t * sp + i * 1.9
+        local x, y = cx + math.cos(an) * rx, cy + math.sin(an) * ry
+        local r = 9 + (i * 37 % 11) + (i == 5 and 10 or 0)
+        bodies[#bodies + 1] = {x = x, y = y, r = r, c = COL[(i - 1) % #COL + 1], name = a.name, id = a.id, i = i, behind = math.sin(an) < 0}
+      end
+      table.sort(bodies, function(a, b) return a.y < b.y end)
+      local sunDrawn = false
+      hot = nil
+      for _, b in ipairs(bodies) do
+        if over and (px - b.x) ^ 2 + (py - b.y) ^ 2 < (b.r + 10) ^ 2 then hot = b.id end
+      end
+      for _, b in ipairs(bodies) do
+        if not sunDrawn and b.y > cy then
+          g.circle(cx, cy, 46, "#ffcf6a")
+          g.circle(cx - 8, cy - 8, 30, "#ffe6a8")
+          sunDrawn = true
+        end
+        if b.id == hot then g.glow(b.x, b.y, b.r * 3.2, "rgba(255,230,160,0.45)") end
+        g.circle(b.x, b.y, b.r, b.c)
+        g.circle(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.55, "rgba(255,255,255,0.22)")
+        if b.i == 5 or b.i == 7 then
+          g.arc(b.x, b.y, b.r * 1.7, 3.3, 6.1, "rgba(240,225,190,0.7)", 2)
+        end
+        if b.i % 3 == 0 then
+          local ma = t * 1.3 + b.i
+          g.circle(b.x + math.cos(ma) * (b.r + 9), b.y + math.sin(ma) * (b.r + 6) * 0.5, 3, "#d8d0c0")
+        end
+        g.text(b.x + b.r + 8, b.y - 9, b.name, b.id == hot and "#ffe6a8" or "rgba(242,230,201,0.75)", b.id == hot and 16 or 13, "Lora")
+      end
+      if not sunDrawn then
+        g.circle(cx, cy, 46, "#ffcf6a")
+        g.circle(cx - 8, cy - 8, 30, "#ffe6a8")
+      end
+      hits = bodies
+    end
+    function click(x, y)
+      for _, b in ipairs(hits) do
+        if (x - b.x) ^ 2 + (y - b.y) ^ 2 < (b.r + 10) ^ 2 then return "open:" .. b.id end
+      end
+    end
+  </canvas>
+  <column id="almanac" place="top-left">
+    <clock class="big" format="%H:%M"/>
+    <clock class="day" format="%A %d %B"/>
+    <text bind="greeting"/>
+    <button what="toggle:#index" icon="search" hotkey="meta">Index of everything</button>
+  </column>
+  <popover id="index" placement="below" align="start">
+    <title>Index</title>
+    <search placeholder="Find a planet, or ask Kepler"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

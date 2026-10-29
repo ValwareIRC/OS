@@ -1,0 +1,97 @@
+<facet>
+<meta ai-name="Cortana" user-name="Sam" greeting="Start" tagline="live tiles"
+      rationale="Big flat coloured tiles of different sizes fill the screen; every app is a square you can't miss."
+      theme-about="Windows 8 Metro start screen: a solid deep purple backdrop, a huge thin 'Start' heading and the person's name at the top, the apps as flat solid-coloured live tiles of mixed sizes (one wide clock tile, one big companion tile, small squares) laid out in a left-to-right grid, white glyph icons and labels at the tile's bottom-left, no shadows or rounding; borderless flat windows with a coloured top. Bold, flat, touch-first. (#start, #tiles)"/>
+<apps>
+  <app id="files" label="File Explorer"/><app id="companion" label="Cortana"/><app id="notes" label="OneNote"/>
+  <app id="settings" label="PC settings"/><app id="about" label="This PC"/><app id="terminal" label="Command Prompt"/>
+  <app id="redesign" label="Personalize"/><app id="power" label="Power"/>
+</apps>
+<wallpaper kind="gradient" colors="#2d0a4a #34105a #2a0944 #1f0636" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#2d0a4a; --surface:#ffffff; --surface-2:#f0f0f0; --surface-text:#1a1a1a; --text:#ffffff; --muted:#cbb8e0;
+        --accent:#00a300; --accent2:#2d89ef; --font-heading:Outfit; --font-body:Outfit; --radius:0; icon-style:mono; }
+desktop { color:#ffffff; font-family:Outfit; font-size:15; }
+#start { margin:56 0 0 120; gap:0; align:start; }
+#start .head { font:"Outfit 64"; color:#ffffff; }
+#me { margin:0 80 0 0; gap:12; align:center; }
+#me text { font:"Outfit 22"; color:#ffffff; }
+#me button { size:44; radius:0; icon-size:20; color:#ffffff; background:#5a2d82; }
+#me button:hover { background:#7a4da2; }
+#tiles { margin:170 0 0 120; gap:48; align:start; }
+.grp { gap:8; align:start; }
+.pair { gap:8; }
+.t { padding:12; direction:column; justify:end; align:start; gap:6; color:#ffffff; font:"Outfit 15"; icon-size:40; transition:90; }
+.t:hover { transform:scale(1.03); border:2 rgba(255,255,255,0.6); }
+.s { size:150; }
+.w { width:308; height:150; }
+.b { size:308; }
+#t1 { background:#1b5fb4; } #t2 { background:#007a00; } #t3 { background:#b23a1c; } #t4 { background:#8a0091; }
+#t5 { background:#1e7145; } #t6 { background:#956200; } #t7 { background:#b91d47; } #t8 { background:#00807e; }
+#t9 { background:#603cba; }
+#t2 clock.big { font:"Outfit 54"; color:#ffffff; }
+#t2 clock.small { font:"Outfit 18"; color:#ffffff; padding:3 0; }
+#t4 orb { size:120; }
+#all { padding:60 0 0 0; gap:26; align:center; background:#2d0a4a; }
+#all search { grow:0; width:520; height:44; padding:0 14; radius:0; background:#ffffff; color:#1a1a1a; }
+#all applist { display:grid; columns:6; gap:8; }
+#all item { size:150; padding:12; justify:end; align:start; gap:6; background:#5a2d82; color:#ffffff; icon-size:36; font-size:14; }
+#all item:hover { background:#7a4da2; }
+frame { direction:column; background:var(--surface); color:var(--surface-text); radius:0; overflow:hidden; shadow:0 0 0 rgba(0,0,0,0); border:1 #5a2d82; }
+titlebar { height:34; padding:0 0 0 14; gap:0; background:#5a2d82; color:#ffffff; font:"Outfit 15"; }
+frame:focus titlebar { background:#1b5fb4; }
+titlebar text { grow:1; }
+titlebar button { width:46; height:34; radius:0; icon-size:11; color:#ffffff; }
+titlebar button:hover { background:rgba(255,255,255,0.2); }
+titlebar #x:hover { background:#e81123; }
+slot { padding:0; }
+</style>
+<desktop>
+  <column id="start" place="top-left">
+    <text class="head">Start</text>
+  </column>
+  <row id="me" place="top-right">
+    <text bind="user.name"/>
+    <button what="toggle:#all" icon="search" hotkey="meta"/>
+    <button what="power:off" icon="power"/>
+  </row>
+  <row id="tiles" place="top-left">
+    <column class="grp">
+      <row class="pair">
+        <button id="t1" class="t s" what="open:files" icon="files">File Explorer</button>
+        <button id="t3" class="t s" what="open:notes" icon="notes">OneNote</button>
+      </row>
+      <column id="t2" class="t w" what="open:settings"><clock class="big" format="%H:%M"/><clock class="small" format="%A %d %B"/></column>
+      <row class="pair">
+        <button id="t5" class="t s" what="open:terminal" icon="terminal">Command Prompt</button>
+        <button id="t6" class="t s" what="open:about" icon="about">This PC</button>
+      </row>
+    </column>
+    <column class="grp">
+      <column id="t4" class="t b" what="open:companion"><orb/><text>Cortana</text></column>
+      <row class="pair">
+        <button id="t7" class="t s" what="open:prism" icon="prism">Prism</button>
+        <button id="t8" class="t s" what="redesign" icon="sparkle">Personalize</button>
+      </row>
+    </column>
+    <column class="grp">
+      <button id="t9" class="t s" what="toggle:#all" icon="grid">All apps</button>
+    </column>
+  </row>
+  <sheet id="all">
+    <search placeholder="Search everywhere"/>
+    <applist labels="below"/>
+  </sheet>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button id="x" what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

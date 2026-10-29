@@ -1,0 +1,132 @@
+<facet>
+<meta ai-name="Pip" user-name="Sam" greeting="Pinned for you, Sam." tagline="everything within reach"
+      rationale="A big cork board: your apps are notes and polaroids pinned up wherever they fell, a little crooked, like a real wall."
+      theme-about="corkboard: the whole screen is a cork board (a canvas with cork grain and a wooden frame), each app a paper card pinned with a coloured pushpin, cards of different paper (yellow sticky notes, white index cards, a polaroid with a photo-like gradient) scattered at slightly different angles and positions, red string tying two of them together, handwritten Caveat labels; a torn ticket shows the time. Tactile, messy, homely. (#board, #pins)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Pip"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Re-pin"/><app id="power" label="Lights off"/>
+</apps>
+<wallpaper kind="gradient" colors="#a87a4a #b88a58 #9a6c3e #7a5430" seed="1" intensity="0.2"/>
+<style>
+:root { --bg:#a87a4a; --surface:#fffdf6; --surface-2:#f4efe2; --surface-text:#2a2218; --text:#2a2218; --muted:#5a4a36;
+        --accent:#d63b3b; --accent2:#2a6fd6; --font-heading:Caveat; --font-body:Manrope; --radius:2; }
+desktop { color:var(--text); font-family:Manrope; font-size:15; }
+#board { size:full; }
+#drawer { width:420; padding:16; gap:10; radius:2; background:#fffdf6; color:#2a2218; shadow:4 8 20 rgba(0,0,0,0.4); }
+#drawer title { font:"Caveat 34"; color:#2a2218; }
+#drawer search { grow:0; height:40; padding:0 12; radius:2; background:#f4efe2; color:#2a2218; }
+#drawer applist { display:grid; columns:3; gap:8; }
+#drawer item { padding:10; gap:6; icon-size:36; color:#2a2218; font:"Caveat 20"; }
+#drawer item:hover { background:#f7e98e; }
+#ticket { margin:44 60 0 0; padding:10 22; background:#fffdf6; color:#c42a2a; font:"Caveat 34"; shadow:3 6 14 rgba(0,0,0,0.4); border:1 #e0d6c0; }
+#tack { margin:0 40 36 0; height:44; padding:0 18; gap:10; radius:2; background:#f7e98e; color:#2a2218; font:"Caveat 26";
+        shadow:2 4 10 rgba(0,0,0,0.35); }
+#tack:hover, #tack:open { background:#ffe45c; }
+frame { direction:column; radius:2; overflow:hidden; background:var(--surface); color:var(--surface-text); shadow:4 10 30 rgba(0,0,0,0.45); }
+titlebar { height:40; padding:0 8 0 16; gap:6; font:"Caveat 24"; color:#5a4a36; background:#f4efe2; }
+frame:focus titlebar { background:#f7e98e; color:#2a2218; }
+titlebar text { grow:1; }
+titlebar button { size:26; radius:13; icon-size:10; color:#2a2218; }
+titlebar button:hover { background:#d63b3b; color:#ffffff; }
+slot { padding:4 14 14 14; }
+</style>
+<desktop>
+  <canvas id="board" place="fill" over="screen">
+    local PAPER = {"#f7e98e", "#fffdf6", "#bfe3f0", "#f9c6c9", "#c8f0c0", "#fffdf6", "#ffd8a8", "#e6dcff"}
+    local PIN = {"#d63b3b", "#2a6fd6", "#2f9a4a", "#e0a020", "#8a3bd6"}
+    local cards, hot = {}, nil
+    local function rot(cx, cy, x, y, a)
+      local c, s = math.cos(a), math.sin(a)
+      return cx + x * c - y * s, cy + x * s + y * c
+    end
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#5a3a20")
+      g.rect(18, 18, w - 36, h - 36, "#b88a58")
+      for i = 0, 900 do
+        local x = (i * 97.13) % (w - 40) + 20
+        local y = (i * 53.71 + (i * i) % 37) % (h - 40) + 20
+        g.rect(x, y, 2 + i % 3, 2, i % 2 == 0 and "rgba(90,60,30,0.35)" or "rgba(230,200,150,0.3)")
+      end
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      cards, hot = {}, nil
+      for i, a in ipairs(apps) do
+        if i > 8 then break end
+        local col, row = (i - 1) % 4, (i - 1) // 4
+        local cx = w * (0.2 + col * 0.19) + ((i * 37) % 50) - 25
+        local cy = h * (0.3 + row * 0.38) + ((i * 53) % 60) - 30
+        local ang = (((i * 29) % 13) - 6) * 0.025
+        local polaroid = (i % 5 == 2)
+        cards[#cards + 1] = {x = cx, y = cy, a = ang, w = polaroid and 190 or 210, h = polaroid and 220 or 150,
+                             paper = polaroid and "#fdfdfb" or PAPER[(i - 1) % #PAPER + 1], polaroid = polaroid,
+                             pin = PIN[(i - 1) % #PIN + 1], name = a.name, id = a.id}
+      end
+      for _, c in ipairs(cards) do
+        if over and math.abs(px - c.x) < c.w / 2 and math.abs(py - c.y) < c.h / 2 then hot = c.id end
+      end
+      if cards[2] and cards[6] then
+        g.line(cards[2].x, cards[2].y - cards[2].h / 2 + 12, cards[6].x, cards[6].y - cards[6].h / 2 + 12, "#c42a2a", 2)
+      end
+      for _, c in ipairs(cards) do
+        local lift = c.id == hot and 6 or 0
+        local hw, hh = c.w / 2, c.h / 2
+        local sx1, sy1 = rot(c.x + 8, c.y + 10, -hw, -hh, c.a)
+        local sx2, sy2 = rot(c.x + 8, c.y + 10, hw, -hh, c.a)
+        local sx3, sy3 = rot(c.x + 8, c.y + 10, hw, hh, c.a)
+        local sx4, sy4 = rot(c.x + 8, c.y + 10, -hw, hh, c.a)
+        g.poly({sx1, sy1, sx2, sy2, sx3, sy3, sx4, sy4}, "rgba(40,20,5,0.35)")
+        local x1, y1 = rot(c.x, c.y - lift, -hw, -hh, c.a)
+        local x2, y2 = rot(c.x, c.y - lift, hw, -hh, c.a)
+        local x3, y3 = rot(c.x, c.y - lift, hw, hh, c.a)
+        local x4, y4 = rot(c.x, c.y - lift, -hw, hh, c.a)
+        g.poly({x1, y1, x2, y2, x3, y3, x4, y4}, c.paper)
+        if c.polaroid then
+          local a1, b1 = rot(c.x, c.y - lift, -hw + 14, -hh + 14, c.a)
+          local a2, b2 = rot(c.x, c.y - lift, hw - 14, -hh + 14, c.a)
+          local a3, b3 = rot(c.x, c.y - lift, hw - 14, hh - 50, c.a)
+          local a4, b4 = rot(c.x, c.y - lift, -hw + 14, hh - 50, c.a)
+          g.poly({a1, b1, a2, b2, a3, b3, a4, b4}, "#3f6f9a")
+          g.circle((a1 + a3) / 2 + 20, (b1 + b3) / 2 - 20, 16, "#f6d06a")
+        else
+          for k = 1, 3 do
+            local l1, m1 = rot(c.x, c.y - lift, -hw + 18, -hh + 50 + k * 26, c.a)
+            local l2, m2 = rot(c.x, c.y - lift, hw - 18, -hh + 50 + k * 26, c.a)
+            g.line(l1, m1, l2, m2, "rgba(60,90,160,0.25)", 1)
+          end
+        end
+        local tx, ty = rot(c.x, c.y - lift, -hw + 18, c.polaroid and (hh - 44) or (-hh + 32), c.a)
+        g.text(tx, ty, c.name, "#2a2218", c.id == hot and 34 or 30, "Caveat")
+        local pxn, pyn = rot(c.x, c.y - lift, 0, -hh + 10, c.a)
+        g.circle(pxn + 2, pyn + 3, 9, "rgba(0,0,0,0.35)")
+        g.circle(pxn, pyn, 9, c.pin)
+        g.circle(pxn - 3, pyn - 3, 3, "rgba(255,255,255,0.6)")
+      end
+    end
+    function click(x, y)
+      for i = #cards, 1, -1 do
+        local c = cards[i]
+        if math.abs(x - c.x) < c.w / 2 and math.abs(y - c.y) < c.h / 2 then return "open:" .. c.id end
+      end
+    end
+  </canvas>
+  <clock id="ticket" place="top-right" format="%H:%M  %a %d"/>
+  <button id="tack" place="bottom-right" what="toggle:#drawer" hotkey="meta">everything else...</button>
+  <popover id="drawer" placement="above" align="end">
+    <title>The drawer</title>
+    <search placeholder="Find or ask Pip"/>
+    <applist labels="below"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

@@ -1,77 +1,91 @@
 <facet>
-<meta ai-name="Vex" user-name="Sam" greeting="Night shift, Sam." tagline="the city hums, you build"
-      rationale="Dark and electric for late hours: light only where your hands go."
-      theme-about="neon night: near-black with magenta and cyan light lines, a glowing vertical dock on the left, a big glowing clock, a full-screen launcher, dark glass windows with a cyan edge. Late-night and energetic. (#rail, #now, #grid)"/>
+<meta ai-name="Vex" user-name="Sam" greeting="Night drive, Sam." tagline="the road goes on forever"
+      rationale="A sunset that never ends over a grid that never stops moving: your apps are the signs along the road."
+      theme-about="synthwave drive: a full-screen animated canvas of a striped setting sun, purple mountains and a glowing perspective grid racing towards you; the apps are a row of neon words floating over the horizon, a chrome italic clock above, hot-pink framed windows. Retro, loud, moving. (#road, #signs, #chrome)"/>
 <apps>
-  <app id="files" label="Files"/><app id="companion" label="Vex"/><app id="notes" label="Scratch"/>
-  <app id="settings" label="Tune"/><app id="about" label="System"/><app id="terminal" label="Shell"/>
-  <app id="redesign" label="Remix"/><app id="power" label="Power"/>
+  <app id="files" label="Files"/><app id="companion" label="Vex"/><app id="notes" label="Tapes"/>
+  <app id="settings" label="Tune"/><app id="about" label="Engine"/><app id="terminal" label="Shell"/>
+  <app id="redesign" label="Remix"/><app id="power" label="Park"/>
 </apps>
-<wallpaper kind="flow" colors="#06040d #ff2bd6 #19e6ff #110a26" seed="5" intensity="0.75"/>
+<wallpaper kind="gradient" colors="#12002a #ff2bd6 #19e6ff #05000f" seed="5" intensity="0.5"/>
 <style>
-:root { --bg:#06040d; --surface:rgba(14,10,30,0.94); --surface-2:#1d1636; --surface-text:#efeaff; --text:#f3eeff;
-        --muted:#a49cc4; --accent:#ff2bd6; --accent2:#19e6ff; --font-heading:Unbounded; --font-body:SpaceGrotesk;
-        --radius:14; }
+:root { --bg:#0b0018; --surface:rgba(20,6,40,0.95); --surface-2:#2a0f4f; --surface-text:#ffe9fb; --text:#fff0fb;
+        --muted:#c9a4d8; --accent:#ff2bd6; --accent2:#19e6ff; --font-heading:Unbounded; --font-body:SpaceGrotesk; --radius:6; }
 desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
-
-#rail { direction:column; padding:14 10; gap:10; radius:26; blur:22; saturate:1.4; background:rgba(10,6,24,0.72);
-        border:1 rgba(255,43,214,0.55); glow:18 rgba(255,43,214,0.28); margin:0 0 0 22; }
-#rail item { padding:4; icon-size:44; icon-shape:circle; icon-style:glow; transition:140; }
-#rail item:hover { glow:20 rgba(25,230,255,0.55); radius:50%; transform:scale(1.12); }
-#rail divider { height:1; width:36; margin:4 0; background:rgba(255,43,214,0.4); }
-#rail button { size:52; radius:26; icon-size:22; color:#19e6ff; border:1 rgba(25,230,255,0.6); transition:140; }
-#rail button:hover { background:rgba(25,230,255,0.16); glow:18 rgba(25,230,255,0.5); }
-
-#now { gap:4; align:end; margin:44 56 0 0; }
-#time { font:"Unbounded 76"; color:#ffffff; }
-#date { font:"SpaceGrotesk 18"; color:#19e6ff; text-transform:uppercase; }
-#greet { margin:14 0 0 0; padding:8 16; radius:18; font:"SpaceGrotesk 18"; color:#ffffff; background:rgba(10,6,24,0.66);
-         border:1 rgba(255,43,214,0.45); }
-
-#grid { padding:64 0 0 0; gap:40; align:center; blur:30; background:rgba(6,4,13,0.82); }
-#grid title { font:"Unbounded 30"; color:#ffffff; }
-#grid search { grow:0; width:440; height:46; padding:0 20; radius:23; background:rgba(25,230,255,0.08);
-               border:1 rgba(25,230,255,0.6); color:#ffffff; font-size:16; }
-#grid applist { display:grid; columns:6; gap:30; }
-#grid item { width:128; gap:12; icon-size:66; icon-shape:circle; icon-style:glow; font-size:14; color:#e9e3ff;
-             transition:140; }
-#grid item:hover { transform:scale(1.08); glow:24 rgba(255,43,214,0.45); radius:24; }
-#grid .ends { gap:12; }
-#grid .ends button { height:40; padding:0 18; gap:8; radius:20; border:1 rgba(255,43,214,0.55); color:#ffffff;
-                     font-size:14; icon-size:16; }
-#grid .ends button:hover { background:rgba(255,43,214,0.18); glow:14 rgba(255,43,214,0.4); }
-
-frame { direction:column; radius:16; overflow:hidden; background:var(--surface); color:var(--surface-text);
-        border:1 rgba(25,230,255,0.55); glow:16 rgba(25,230,255,0.18); shadow:0 24 60 rgba(0,0,0,0.6); }
-titlebar { height:44; padding:0 10 0 18; gap:6; font:"SpaceGrotesk 14"; color:var(--muted); text-transform:uppercase;
-           background:rgba(255,255,255,0.03); }
-frame:focus titlebar { color:#19e6ff; }
+#road { size:full; }
+#chrome { margin:60 0 0 0; align:center; gap:2; }
+#chrome clock { font:"italic bold 84px Unbounded"; color:#ffe3fa; text-shadow:0 0 26 #ff2bd6; }
+#chrome text { font:"italic 18px SpaceGrotesk"; color:#19e6ff; letter-spacing:0.3em; text-transform:uppercase; }
+#signs { margin:0 0 300 0; gap:30; padding:8 26; radius:30; background:rgba(12,0,30,0.7); border:1 rgba(255,43,214,0.5); }
+#signs applist { gap:34; }
+#signs item { padding:6 10; font:"italic bold 26px Unbounded"; color:#ff7ae6; text-shadow:0 0 18 #ff2bd6; transition:140; }
+#signs item icon { display:none; }
+#signs item:hover { color:#9ff6ff; text-shadow:0 0 22 #19e6ff; transform:scale(1.08); }
+#signs button { padding:6 10; font:"italic bold 26px Unbounded"; color:#9ff6ff; text-shadow:0 0 18 #19e6ff; }
+#garage { padding:60 0 0 0; gap:30; align:center; background:rgba(8,0,20,0.9); }
+#garage search { grow:0; width:460; height:46; padding:0 18; radius:4; border:1 #ff2bd6; background:rgba(255,43,214,0.08); color:#ffffff; }
+#garage applist { display:grid; columns:5; gap:24; }
+#garage item { width:140; gap:10; padding:12; icon-size:52; icon-style:glow; icon-shape:square; color:#ffe9fb; font-size:14; }
+#garage item:hover { glow:18 rgba(25,230,255,0.5); }
+frame { direction:column; radius:6; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        border:2 #ff2bd6; glow:20 rgba(255,43,214,0.35); }
+titlebar { height:38; padding:0 8 0 16; gap:6; font:"italic 15px Unbounded"; color:#ff9aec;
+           background:linear-gradient(90deg,#2a0050,#5a0068); }
+frame:focus titlebar { color:#ffffff; background:linear-gradient(90deg,#7a00a8,#ff2bd6); }
 titlebar text { grow:1; }
-titlebar button { size:28; radius:14; icon-size:11; color:var(--muted); border:1 rgba(164,156,196,0.35); }
-titlebar button:hover { color:#ffffff; border:1 #19e6ff; background:rgba(25,230,255,0.14); }
-titlebar #x:hover { border:1 #ff2bd6; background:rgba(255,43,214,0.2); }
-slot { padding:8 18 18 18; }
+titlebar button { size:26; radius:3; icon-size:11; color:#ffe9fb; border:1 rgba(255,255,255,0.4); }
+titlebar button:hover { background:#19e6ff; color:#12002a; }
+slot { padding:8; }
 </style>
 <desktop>
-  <dock id="rail" dock="left">
-    <applist apps="companion,files,notes,terminal" labels="hover"/>
-    <divider/>
-    <button what="toggle:#grid" icon="grid" hotkey="meta"/>
-  </dock>
-  <column id="now" place="top-right">
-    <clock id="time" format="%H:%M"/>
-    <clock id="date" format="%A %d %B"/>
-    <text id="greet" bind="greeting"/>
+  <canvas id="road" place="fill" over="screen">
+    function draw(w, h, t)
+      local hz = h * 0.58
+      g.gradient(0, 0, w, hz, "#12002a", "#ff3d8b")
+      local cx, cy, r = w / 2, hz - h * 0.02, h * 0.22
+      for i = 0, 39 do
+        local y0 = cy - r + i * r / 20
+        if y0 >= hz then break end
+        local mid = y0 + r / 40 - cy
+        local half = math.sqrt(math.max(0, r * r - mid * mid))
+        local gap = i > 18 and (i - 18) * 0.35 or 0
+        local k = i / 40
+        local col = string.format("#ff%02x%02x", math.floor(0xe3 - k * 0x90), math.floor(0x5a + k * 0x30))
+        g.rect(cx - half, y0 + gap, half * 2, r / 20 - gap * 2 + 0.6, col)
+      end
+      local m1 = {0, hz}
+      for i = 0, 16 do
+        local x = i * w / 16
+        m1[#m1 + 1] = x
+        m1[#m1 + 1] = hz - (math.sin(i * 1.7) * 0.5 + 0.7) * h * 0.09 - (i % 3) * 12
+      end
+      m1[#m1 + 1] = w
+      m1[#m1 + 1] = hz
+      g.poly(m1, "#3a0a5e")
+      g.gradient(0, hz, w, h - hz, "#14002e", "#05000f")
+      for i = -20, 20 do
+        g.line(cx + i * 22, hz, cx + i * w * 0.16, h, "rgba(255,43,214,0.8)", 1.5)
+      end
+      local s = (t * 0.6) % 1
+      for k = 0, 14 do
+        local z = (k + 1 - s)
+        local y = hz + (h - hz) * (1 / (z * 0.55 + 0.45) - 0.0) * 0.55 - 20
+        if y > hz and y < h then g.line(0, y, w, y, "rgba(25,230,255,0.75)", 1.5) end
+      end
+      g.glow(cx, hz, w * 0.4, "rgba(255,43,214,0.18)")
+    end
+  </canvas>
+  <column id="chrome" place="top">
+    <clock format="%H:%M"/>
+    <text bind="tagline"/>
   </column>
-  <sheet id="grid">
-    <title>Everything</title>
+  <row id="signs" place="bottom">
+    <applist apps="files,companion,notes,terminal,settings" labels="below"/>
+    <button what="toggle:#garage" hotkey="meta">more</button>
+  </row>
+  <sheet id="garage">
     <search placeholder="Type a name, or ask Vex"/>
     <applist/>
-    <row class="ends">
-      <button what="redesign" icon="sparkle">Remix</button>
-      <button what="power:restart" icon="moon">Restart</button>
-      <button what="power:off" icon="power">Power off</button>
-    </row>
   </sheet>
 </desktop>
 <template id="window">
@@ -80,7 +94,7 @@ slot { padding:8 18 18 18; }
       <text bind="window.title"/>
       <button what="window:minimize" icon="minimize"/>
       <button what="window:maximize" icon="maximize"/>
-      <button id="x" what="window:close" icon="close"/>
+      <button what="window:close" icon="close"/>
     </titlebar>
     <slot/>
   </frame>

@@ -72,6 +72,7 @@ titlebar button:hover { background:linear-gradient(180deg,#7aa7f7,#3b72e3); }
 titlebar #close { background:linear-gradient(180deg,#ee8a66,#c9431f); }
 titlebar #close:hover { background:linear-gradient(180deg,#f6a283,#d8542f); }
 slot { padding:10 14 14 14; }
+#tray clock { padding:4 2; }
 </style>
 <desktop>
   <applist id="icons" place="top-left" apps="about,files,terminal,companion" labels="below" style="direction:column"/>

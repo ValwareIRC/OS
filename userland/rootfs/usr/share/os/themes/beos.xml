@@ -1,0 +1,87 @@
+<facet>
+<meta ai-name="Tracker" user-name="Sam" greeting="Be." tagline="the media OS"
+      rationale="A calm blue desktop, a tidy panel in the top-right corner, and windows with little yellow tabs."
+      theme-about="BeOS: a deep blue desktop with large icons in the top-left, the Deskbar as a compact grey panel pinned in the TOP-RIGHT corner (a blue 'leaf' menu button, the clock, then the running apps listed vertically), windows whose title is a small yellow tab sticking up from the top-left edge rather than a full bar. Tidy, quirky, late-90s. (#deskbar, #icons, #leaf)"/>
+<apps>
+  <app id="files" label="Home"/><app id="companion" label="Tracker"/><app id="notes" label="StyledEdit"/>
+  <app id="settings" label="Preferences"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Backgrounds"/><app id="power" label="Shut Down"/>
+</apps>
+<wallpaper kind="gradient" colors="#336698 #3a73a8 #2d5c8a #23496e" seed="2" intensity="0.2"/>
+<style>
+:root { --bg:#336698; --surface:#dedede; --surface-2:#cccccc; --surface-text:#000000; --text:#ffffff; --muted:#555555;
+        --accent:#ffcb00; --accent2:#3366cc; --font-heading:Inter; --font-body:Inter; --radius:0; icon-style:classic; }
+desktop { color:#ffffff; font-family:Inter; font-size:13; }
+#deskbar { width:190; direction:column; background:#dedede; border:1 #777777; shadow:2 2 4 rgba(0,0,0,0.4); }
+#leaf { height:40; padding:0 10; gap:8; justify:start; background:linear-gradient(180deg,#f2f2f2,#cfcfcf);
+        border:1 #999999; color:#000000; font:"bold 14px Inter"; }
+#leaf canvas { size:26; }
+#leaf:hover, #leaf:open { background:#c8d4f0; }
+#tray { height:30; padding:0 8; gap:6; justify:end; background:#d0d0d0; border:1 #aaaaaa; color:#000000; }
+#tray clock { font-size:12; color:#000000; padding:4 2; }
+#deskbar windowlist { direction:column; align:stretch; gap:0; }
+#deskbar windowlist item { height:28; padding:0 8; gap:6; justify:start; color:#000000; icon-size:16; font-size:12; }
+#deskbar windowlist item:open { background:#ffffff; }
+#logo { size:200 180; margin:0 48 40 0; }
+#icons { margin:24 0 0 24; direction:column; gap:20; align:center; }
+#icons applist { direction:column; gap:20; align:center; }
+#icons item { width:110; gap:4; icon-size:48; icon-shape:none; icon-style:classic; color:#ffffff; font-size:13; }
+#icons item label { padding:1 4; text-shadow:1 1 0 #000000; }
+#icons item:hover label { background:#000000; text-shadow:none; }
+#leafmenu { width:230; padding:3 0; direction:column; background:#dedede; border:1 #777777; shadow:2 2 4 rgba(0,0,0,0.4); }
+#leafmenu applist { direction:column; align:stretch; gap:0; }
+#leafmenu item { direction:row; gap:8; padding:4 12; icon-size:18; color:#000000; font-size:13; }
+#leafmenu item:hover { background:#9db4e0; }
+#leafmenu button { height:26; padding:0 12; justify:start; color:#000000; font-size:13; }
+#leafmenu button:hover { background:#9db4e0; }
+frame { direction:column; background:transparent; color:#000000; radius:0; overflow:visible; }
+#tab { align-self:start; height:26; padding:0 4 0 6; gap:6; background:#e8e8e8; border:1 #888888; color:#555555; font:"bold 13px Inter"; }
+frame:focus #tab { background:linear-gradient(180deg,#ffe066,#ffcb00); color:#000000; }
+#tab button { size:24; radius:0; icon-size:10; background:#f4f4f4; border:1 #888888; color:#000000; }
+#body { grow:1; direction:column; background:#dedede; border:1 #777777; shadow:2 2 4 rgba(0,0,0,0.35); }
+slot { padding:4; background:#ffffff; }
+</style>
+<desktop>
+  <canvas id="logo" place="bottom-right">
+    function draw(w, h, t)
+      g.text(0, 0, "B", "#d23b3b", 120, "Syne")
+      g.text(78, 0, "e", "#3b6fd2", 120, "Syne")
+      g.text(4, h - 30, "the media OS", "rgba(255,255,255,0.5)", 18, "Inter")
+    end
+  </canvas>
+  <column id="deskbar" place="top-right" layer="above">
+    <button id="leaf" what="toggle:#leafmenu" hotkey="meta">
+      <canvas>
+        function draw(w, h, t)
+          g.poly({w * 0.5, 1, w - 2, h * 0.45, w * 0.5, h - 1, 2, h * 0.45}, "#3366cc")
+          g.poly({w * 0.5, h * 0.22, w * 0.8, h * 0.45, w * 0.5, h * 0.78, w * 0.2, h * 0.45}, "#6fa0f0")
+        end
+      </canvas>
+      <text>Be</text>
+    </button>
+    <row id="tray"><clock format="%H:%M"/></row>
+    <windowlist/>
+  </column>
+  <column id="icons" place="top-left">
+    <applist apps="files,terminal,notes,companion" labels="below"/>
+  </column>
+  <popover id="leafmenu" placement="below" align="end">
+    <button what="open:about">About This System</button>
+    <applist labels="right"/>
+    <button what="redesign">Backgrounds...</button>
+    <button what="power:restart">Restart</button>
+    <button what="power:off">Shut Down</button>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <row id="tab" drag="window">
+      <button what="window:close" icon="close"/>
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+    </row>
+    <column id="body"><slot/></column>
+  </frame>
+</template>
+</facet>

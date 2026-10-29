@@ -129,3 +129,12 @@ int main(int argc, char **argv) {
     }
     return look.lint.score > 0;
 }
+
+/* The tray (volume, network, ...) needs the running system: a quiet dot
+ * where each element goes, so layouts with a tray still look right. */
+float fm_host_tray_extra(const fm_node *n) { (void)n; return 0; }
+void fm_host_draw_tray(fm_node *n, rect r, color col, float op) {
+    (void)n;
+    float rad = (r.w < r.h ? r.w : r.h) * 0.22f;
+    fill_circle(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, rad, color_alpha(col, op * 0.8f));
+}

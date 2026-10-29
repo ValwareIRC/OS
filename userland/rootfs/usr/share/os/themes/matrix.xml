@@ -1,0 +1,84 @@
+<facet>
+<meta ai-name="Morpheus" user-name="Neo" greeting="Wake up, Sam..." tagline="follow the white rabbit"
+      rationale="Green code falls down the whole screen; a single black terminal pane floats in it, offering you the choices."
+      theme-about="the Matrix: a full-screen canvas of falling green glyph rain (columns of characters at different speeds, bright heads fading tails), a black slab in the centre-left with a typed-out 'Wake up' line and the apps as a list of options each with a blinking cursor, a red pill and a blue pill for power and redesign at the bottom; pure black and phosphor green, monospace, windows framed in dim green. Cinematic, ominous, hacker. (#rain, #slab)"/>
+<apps>
+  <app id="files" label="the archive"/><app id="companion" label="Morpheus"/><app id="notes" label="notes"/>
+  <app id="settings" label="the construct"/><app id="about" label="the source"/><app id="terminal" label="operator"/>
+  <app id="redesign" label="blue pill"/><app id="power" label="red pill"/>
+</apps>
+<wallpaper kind="gradient" colors="#000000 #000400 #000200 #000000" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#000000; --surface:#000a02; --surface-2:#001a06; --surface-text:#7dff9a; --text:#7dff9a; --muted:#2f9a46;
+        --accent:#7dff9a; --accent2:#d21f1f; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:mono; }
+desktop { color:var(--text); font-family:JetBrainsMono; font-size:16; }
+#rain { size:full; }
+#slab { margin:0 0 0 180; width:520; padding:34 34 28 34; gap:6; align:start; background:rgba(0,0,0,0.9); border:1 rgba(125,255,154,0.35); }
+#slab .wake { font:"JetBrainsMono 26"; color:#b8ffc6; text-shadow:0 0 10 rgba(125,255,154,0.9); margin:0 0 4 0; }
+#slab .sub { font:"JetBrainsMono 15"; color:#2f9a46; margin:0 0 18 0; }
+#slab applist { direction:column; align:start; gap:2; }
+#slab item { padding:3 6; font:"JetBrainsMono 18"; color:#7dff9a; text-shadow:0 0 8 rgba(125,255,154,0.6); }
+#slab item icon { display:none; }
+#slab item:hover { background:#7dff9a; color:#000000; text-shadow:none; }
+#slab search { margin:14 0 0 0; grow:0; width:450; height:36; padding:0 6; radius:0; background:#000000; border:0;
+               color:#b8ffc6; font:"JetBrainsMono 17"; }
+#pills { margin:22 0 0 0; gap:16; }
+#red { height:38; padding:0 20; radius:19; background:linear-gradient(180deg,#e03030,#8a0a0a); color:#ffffff; font:"JetBrainsMono 14"; }
+#blue { height:38; padding:0 20; radius:19; background:linear-gradient(180deg,#4a8aff,#0f3aa5); color:#ffffff; font:"JetBrainsMono 14"; }
+#red:hover, #blue:hover { transform:scale(1.06); }
+frame { direction:column; radius:0; overflow:hidden; background:#000a02; color:#7dff9a; border:1 rgba(125,255,154,0.5); }
+titlebar { height:28; padding:0 4 0 10; gap:4; background:#001a06; color:#2f9a46; font:"JetBrainsMono 13"; }
+frame:focus titlebar { color:#7dff9a; }
+titlebar text { grow:1; }
+titlebar button { size:24; radius:0; icon-size:10; color:inherit; }
+titlebar button:hover { background:#7dff9a; color:#000000; }
+slot { padding:4; }
+</style>
+<desktop>
+  <canvas id="rain" place="fill" over="screen">
+    local G = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$+-*/=<>:;|#%&"
+    local chars = {}
+    for k = 1, #G do chars[k] = G:sub(k, k) end
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#000000")
+      local cw = 22
+      local cols = math.floor(w / cw)
+      for c = 0, cols do
+        local speed = 90 + (c * 53 % 7) * 30
+        local len = 10 + (c * 31 % 9) * 2
+        local head = ((t * speed + c * 377) % (h + len * cw)) / cw
+        for k = 0, len do
+          local row = math.floor(head) - k
+          if row >= 0 and row * cw < h then
+            local idx = (row * 7 + c * 13 + math.floor(t * 6 + c) * (k == 0 and 1 or 0)) % #chars + 1
+            local a = 1 - k / len
+            local col = k == 0 and "#e8ffe8" or string.format("rgba(70,255,110,%.2f)", a * 0.85)
+            g.text(c * cw, row * cw, chars[idx], col, 18, "JetBrainsMono")
+          end
+        end
+      end
+    end
+  </canvas>
+  <column id="slab" place="left">
+    <text class="wake" bind="greeting"/>
+    <text class="sub">The Matrix has you.</text>
+    <applist apps="companion,terminal,files,notes,settings,about" labels="below"/>
+    <search placeholder="&gt; _" hotkey="meta"/>
+    <row id="pills">
+      <button id="red" what="power:off">red pill</button>
+      <button id="blue" what="redesign">blue pill</button>
+    </row>
+  </column>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

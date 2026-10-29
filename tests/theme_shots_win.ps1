@@ -2,15 +2,18 @@
 # for each design, boots straight to its desktop with no disk and saves
 # build/themes/<name>.png. Closes only the VMs it started.
 #   powershell -File tests\theme_shots_win.ps1 [-Designs a.xml,b.xml] [-Iso build\os.iso]
-param([string[]]$Designs = @(), [string]$Iso = "", [int]$Settle = 12)
+param([string[]]$Designs = @(), [string]$Iso = "", [int]$Settle = 12, [switch]$WithMind)
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $Iso) { $Iso = Join-Path $root "build\os.iso" }
 if (-not $Designs.Count) { $Designs = Get-ChildItem (Join-Path $root "userland\rootfs\usr\share\os\themes\*.xml") | ForEach-Object FullName }
 $out = Join-Path $root "build\themes"
 New-Item -ItemType Directory -Force $out | Out-Null
-# a mind that isn't there: the desktop comes up without waiting for one
 $mind = Join-Path $out "mind.json"
-[IO.File]::WriteAllText($mind, '{"provider":"ollama","base_url":"http://10.0.2.2:1/v1","api_key":"","model":"none"}')
+# -WithMind: the model that comes with the system (a companion view then shows a
+# conversation, not an error); otherwise none, so no greeting covers the desktop
+$json = if ($WithMind) { '{"provider":"builtin","base_url":"http://127.0.0.1:8080/v1","api_key":"","model":"os"}' }
+        else { '{"provider":"ollama","base_url":"http://10.0.2.2:1/v1","api_key":"","model":"none"}' }
+[IO.File]::WriteAllText($mind, $json)
 $port = 4466
 
 function Qmp([System.IO.StreamWriter]$w, [System.IO.StreamReader]$r, [string]$json) {

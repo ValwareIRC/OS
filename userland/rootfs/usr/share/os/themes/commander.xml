@@ -1,0 +1,100 @@
+<facet>
+<meta ai-name="Norton" user-name="SAM" greeting="C:\&gt;" tagline="two panes are better than one"
+      rationale="The DOS file manager everyone knew: two blue panels side by side, programs on the left, your files on the right, F-keys along the bottom."
+      theme-about="Norton Commander: the whole screen is a text-mode interface in blue and cyan (no wallpaper visible), a cyan top menu line (Left Files Commands Options Right) with the time, two big side-by-side blue panels with double-line borders, the left listing the apps as a program list in yellow-and-white monospace, the right panel embedding the real Files view, a command line 'C:\&gt;' row and the F1-F10 function key bar across the very bottom (black numbers on cyan labels); windows are blue boxes with double borders. DOS-era, dense, nostalgic. (#top, #left, #right, #keys)"/>
+<apps>
+  <app id="files" label="FILES.EXE"/><app id="companion" label="NORTON.EXE"/><app id="notes" label="EDIT.COM"/>
+  <app id="settings" label="SETUP.EXE"/><app id="about" label="MSD.EXE"/><app id="terminal" label="COMMAND.COM"/>
+  <app id="redesign" label="COLORS.EXE"/><app id="power" label="QUIT"/>
+</apps>
+<wallpaper kind="gradient" colors="#0000a8 #0000a8 #0000a0 #000098" seed="1" intensity="0.02"/>
+<style>
+:root { --bg:#0000a8; --surface:#0000a8; --surface-2:#0000c8; --surface-text:#ffffff; --text:#ffffff; --muted:#55ffff;
+        --accent:#ffff55; --accent2:#55ffff; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:mono; }
+desktop { color:#ffffff; font-family:JetBrainsMono; font-size:15; background:#0000a8; }
+#top { height:26; padding:0 10; gap:28; background:#00a8a8; color:#000000; font:"JetBrainsMono 15"; }
+#top button { height:26; padding:0 6; color:#000000; radius:0; }
+#top button:hover, #top button:open { background:#000000; color:#55ffff; }
+#top clock { color:#000000; padding:4 0; }
+#panes { padding:4 6; gap:6; width:full; height:full; align:stretch; }
+.pane { grow:1; height:full; direction:column; align:stretch; border:3 #55ffff; background:#0000a8; padding:4; }
+.pane .cap { height:24; justify:center; color:#ffff55; font:"JetBrainsMono 15"; }
+.pane .hdr { height:22; padding:0 8; color:#ffff55; font:"JetBrainsMono 14"; border:1 #55ffff; }
+#left applist { direction:column; align:stretch; gap:0; }
+#left item { direction:row; height:28; padding:0 10; justify:start; color:#55ffff; font:"JetBrainsMono 16"; }
+#left item icon { display:none; }
+#left item:hover { background:#00a8a8; color:#000000; }
+#right view { grow:1; }
+#cmdline { height:30; padding:0 10; gap:4; background:#000000; }
+#cmdline text { color:#aaaaaa; font:"JetBrainsMono 15"; }
+#cmdline search { grow:1; height:28; padding:0 4; radius:0; background:#000000; color:#ffffff; border:0; font:"JetBrainsMono 15"; }
+#keys { height:28; padding:0; gap:4; background:#000000; }
+#keys button { height:28; grow:1; padding:0 4; gap:2; radius:0; justify:start; background:#00a8a8; color:#000000; font:"JetBrainsMono 14"; }
+#keys button:hover { background:#55ffff; }
+#keys .n { color:#ffffff; background:#000000; padding:0 4; }
+#menu { width:260; padding:4; direction:column; background:#00a8a8; border:2 #000000; }
+#menu button { height:26; padding:0 10; justify:start; color:#000000; font:"JetBrainsMono 14"; }
+#menu button:hover { background:#000000; color:#55ffff; }
+frame { direction:column; radius:0; overflow:hidden; background:#0000a8; color:#ffffff; border:3 #ffffff; shadow:6 6 0 #000000; }
+titlebar { height:26; padding:0 4 0 10; gap:4; background:#0000a8; color:#aaaaaa; font:"JetBrainsMono 14"; }
+frame:focus titlebar { color:#ffff55; }
+titlebar text { grow:1; text-align:center; }
+titlebar button { size:24; radius:0; icon-size:10; color:#ffffff; }
+titlebar button:hover { background:#00a8a8; color:#000000; }
+slot { padding:2; }
+</style>
+<desktop>
+  <menubar id="top" dock="top" width="full">
+    <button what="toggle:#menu" hotkey="meta">Left</button>
+    <button what="open:files">Files</button>
+    <button what="open:terminal">Commands</button>
+    <button what="open:settings">Options</button>
+    <button what="open:about">Right</button>
+    <spacer/>
+    <clock format="%H:%M"/>
+  </menubar>
+  <bar id="keys" dock="bottom" width="full">
+    <button what="open:companion"><text class="n">1</text>Help</button>
+    <button what="open:notes"><text class="n">2</text>Menu</button>
+    <button what="open:notes"><text class="n">3</text>View</button>
+    <button what="open:notes"><text class="n">4</text>Edit</button>
+    <button what="open:files"><text class="n">5</text>Copy</button>
+    <button what="open:files"><text class="n">6</text>RenMov</button>
+    <button what="open:files"><text class="n">7</text>Mkdir</button>
+    <button what="redesign"><text class="n">8</text>Colors</button>
+    <button what="open:settings"><text class="n">9</text>PullDn</button>
+    <button what="power:off"><text class="n">10</text>Quit</button>
+  </bar>
+  <bar id="cmdline" dock="bottom" width="full">
+    <text>C:\&gt;</text>
+    <search placeholder="type a command, or ask Norton"/>
+  </bar>
+  <row id="panes" place="fill">
+    <column id="left" class="pane">
+      <row class="cap"><text>C:\PROGRAMS</text></row>
+      <row class="hdr"><text>Name</text></row>
+      <applist labels="below"/>
+    </column>
+    <column id="right" class="pane">
+      <row class="cap"><text>C:\HOME</text></row>
+      <view app="files"/>
+    </column>
+  </row>
+  <popover id="menu" placement="below" align="start">
+    <button what="open:files">Brief</button>
+    <button what="open:about">Info</button>
+    <button what="open:terminal">Drive...</button>
+    <button what="power:restart">Reboot</button>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <button what="window:close" icon="close"/>
+      <text bind="window.title"/>
+      <button what="window:maximize" icon="maximize"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

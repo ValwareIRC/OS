@@ -668,3 +668,73 @@ void blur_fast(canvas *c, rect r, float radius, int strength) {
 bool pt_in(rect r, int x, int y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; }
 
 rect rect_inset(rect r, int d) { return (rect){r.x + d, r.y + d, r.w - 2 * d, r.h - 2 * d}; }
+
+/* A filled polygon (any shape, even-odd), anti-aliased: four sample lines
+ * per pixel row, with each span's ends covered by the fraction they reach. */
+void fill_polygon(canvas *c, const float *xy, int n, color col) {
+    if (n < 3)
+        return;
+    float minx = xy[0], maxx = xy[0], miny = xy[1], maxy = xy[1];
+    for (int i = 1; i < n; i++) {
+        float x = xy[2 * i], y = xy[2 * i + 1];
+        if (x < minx) minx = x;
+        if (x > maxx) maxx = x;
+        if (y < miny) miny = y;
+        if (y > maxy) maxy = y;
+    }
+    int x0 = (int)floorf(minx), x1 = (int)ceilf(maxx) + 1, y0 = (int)floorf(miny), y1 = (int)ceilf(maxy) + 1;
+    if (x0 < c->cx0) x0 = c->cx0;
+    if (y0 < c->cy0) y0 = c->cy0;
+    if (x1 > c->cx1) x1 = c->cx1;
+    if (y1 > c->cy1) y1 = c->cy1;
+    if (x1 <= x0 || y1 <= y0)
+        return;
+    int w = x1 - x0;
+    float *cov = calloc((size_t)w, sizeof *cov), xs[64];
+    if (!cov)
+        return;
+    for (int y = y0; y < y1; y++) {
+        memset(cov, 0, (size_t)w * sizeof *cov);
+        bool any = false;
+        for (int s = 0; s < 4; s++) {
+            float sy = (float)y + (s + 0.5f) / 4.0f;
+            int k = 0;
+            for (int i = 0; i < n && k < 64; i++) {
+                float ax = xy[2 * i], ay = xy[2 * i + 1];
+                float bx = xy[2 * ((i + 1) % n)], by = xy[2 * ((i + 1) % n) + 1];
+                if ((ay <= sy && by > sy) || (by <= sy && ay > sy))
+                    xs[k++] = ax + (sy - ay) / (by - ay) * (bx - ax);
+            }
+            for (int i = 1; i < k; i++) /* few crossings: insertion sort */
+                for (int j = i; j > 0 && xs[j - 1] > xs[j]; j--) {
+                    float t = xs[j];
+                    xs[j] = xs[j - 1];
+                    xs[j - 1] = t;
+                }
+            for (int i = 0; i + 1 < k; i += 2) {
+                float a = xs[i] - x0, b = xs[i + 1] - x0;
+                if (a < 0) a = 0;
+                if (b > w) b = (float)w;
+                if (b <= a)
+                    continue;
+                any = true;
+                int ia = (int)a, ib = (int)b;
+                if (ia == ib) {
+                    cov[ia] += (b - a) * 0.25f;
+                    continue;
+                }
+                cov[ia] += (ia + 1 - a) * 0.25f;
+                for (int x = ia + 1; x < ib; x++)
+                    cov[x] += 0.25f;
+                if (ib < w)
+                    cov[ib] += (b - ib) * 0.25f;
+            }
+        }
+        if (!any)
+            continue;
+        for (int x = 0; x < w; x++)
+            if (cov[x] > 0.002f)
+                plot(c, x0 + x, y, col, (uint32_t)((cov[x] > 1 ? 1 : cov[x]) * 255));
+    }
+    free(cov);
+}

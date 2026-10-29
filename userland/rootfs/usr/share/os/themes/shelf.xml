@@ -1,0 +1,114 @@
+<facet>
+<meta ai-name="Dewey" user-name="Sam" greeting="Take down whatever you like." tagline="read anything"
+      rationale="Your apps are books on a wooden shelf; pull one out by its spine and it opens."
+      theme-about="library bookshelf: a full-screen canvas of a warm wooden bookcase with two shelves, each app a cloth-bound book spine of a different colour, height and width with its title in gold letters running down the spine, a little plant and bookends between them; the book under the pointer tilts forward, clicking it opens the app; a reading lamp glow, a card-catalogue drawer for everything else. Cosy, literary, physical. (#case, #catalogue)"/>
+<apps>
+  <app id="files" label="Archive"/><app id="companion" label="Dewey"/><app id="notes" label="Journal"/>
+  <app id="settings" label="Almanac"/><app id="about" label="Colophon"/><app id="terminal" label="Grimoire"/>
+  <app id="redesign" label="Rearrange"/><app id="power" label="Lights out"/>
+</apps>
+<wallpaper kind="gradient" colors="#2a1a10 #3a2414 #24160c #140c06" seed="2" intensity="0.2"/>
+<style>
+:root { --bg:#2a1a10; --surface:#f6efe1; --surface-2:#ebe1cc; --surface-text:#2a1a10; --text:#f6efe1; --muted:#c9b48e;
+        --accent:#c99a3a; --accent2:#7a2e22; --font-heading:PlayfairDisplay; --font-body:Lora; --radius:3; }
+desktop { color:var(--text); font-family:Lora; font-size:15; }
+#case { size:full; }
+#plate { margin:30 0 0 0; width:460; justify:center; padding:8 22; gap:16; align:center; radius:3; background:#c99a3a; color:#2a1a10; border:2 #8a6420; }
+#plate clock { font:"PlayfairDisplay 20"; color:#2a1a10; padding:3 0; }
+#plate text { grow:1; text-align:center; font:"italic 15px Lora"; color:#2a1a10; }
+#plate button { height:30; padding:0 12; radius:2; border:1 #2a1a10; color:#2a1a10; font:"Lora 14"; }
+#plate button:hover { background:#2a1a10; color:#f6efe1; }
+#catalogue { width:420; padding:16; gap:10; radius:3; background:#f6efe1; color:#2a1a10; border:2 #8a6420; shadow:0 16 40 rgba(0,0,0,0.6); }
+#catalogue title { font:"PlayfairDisplay 22"; color:#2a1a10; }
+#catalogue search { grow:0; height:38; padding:0 12; radius:2; background:#ffffff; color:#2a1a10; border:1 #c9b48e; }
+#catalogue applist { direction:column; align:stretch; gap:2; }
+#catalogue item { direction:row; gap:10; padding:6 8; icon-size:22; icon-style:line; icon-shape:none; color:#2a1a10; font:"Lora 15"; }
+#catalogue item:hover { background:#ebe1cc; }
+frame { direction:column; radius:3; overflow:hidden; background:var(--surface); color:var(--surface-text); border:2 #8a6420;
+        shadow:0 20 60 rgba(0,0,0,0.6); }
+titlebar { height:38; padding:0 8 0 16; gap:6; background:#5a3a22; color:#e8d6b0; font:"PlayfairDisplay 15"; }
+frame:focus titlebar { background:#7a2e22; color:#f6efe1; }
+titlebar text { grow:1; }
+titlebar button { size:26; radius:2; icon-size:10; color:#f6efe1; border:1 rgba(246,239,225,0.4); }
+titlebar button:hover { background:#c99a3a; color:#2a1a10; }
+slot { padding:6 14 14 14; }
+</style>
+<desktop>
+  <canvas id="case" place="fill" over="screen">
+    local COL = {"#7a2e22", "#1f4e5f", "#2f5d3a", "#6b4c9a", "#8a6420", "#24324f", "#9a3b5a", "#3f6f6a", "#5a3a22"}
+    local books, hot = {}, nil
+    function draw(w, h, t)
+      g.gradient(0, 0, w, h, "#3a2414", "#140c06")
+      g.glow(w * 0.82, h * 0.12, w * 0.4, "rgba(255,200,120,0.18)")
+      local x0, x1 = w * 0.12, w * 0.88
+      g.rect(x0 - 26, h * 0.16, x1 - x0 + 52, h * 0.76, "#2a170b")
+      local shelves = {h * 0.5, h * 0.86}
+      for _, sy in ipairs(shelves) do
+        g.gradient(x0 - 26, sy, x1 - x0 + 52, 22, "#8a5a32", "#5a3a20")
+        g.rect(x0 - 26, sy + 22, x1 - x0 + 52, 6, "rgba(0,0,0,0.45)")
+      end
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      books, hot = {}, nil
+      local x, shelf = x0 + 30, 1
+      for i, a in ipairs(apps) do
+        local bw = 44 + (i * 17 % 4) * 9
+        local bh = h * 0.27 + (i * 29 % 5) * 12
+        if x + bw > x1 - 20 or i == 7 then shelf, x = shelf + 1, x0 + 30 end
+        if shelf > 2 then break end
+        local base = shelves[shelf]
+        books[#books + 1] = {x = x, y = base - bh, w = bw, h = bh, c = COL[(i - 1) % #COL + 1], name = a.name, id = a.id}
+        x = x + bw + 6
+        if i == 3 then x = x + 60 end
+      end
+      for _, b in ipairs(books) do
+        if over and px >= b.x and px <= b.x + b.w and py >= b.y and py <= b.y + b.h then hot = b.id end
+      end
+      for _, b in ipairs(books) do
+        local lift = b.id == hot and 14 or 0
+        g.rect(b.x, b.y - lift, b.w, b.h, b.c, 3)
+        g.gradient(b.x, b.y - lift, b.w * 0.35, b.h, "rgba(255,255,255,0.12)", "rgba(255,255,255,0.02)", 3)
+        g.rect(b.x, b.y - lift + 18, b.w, 3, "#c99a3a")
+        g.rect(b.x, b.y - lift + b.h - 24, b.w, 3, "#c99a3a")
+        local name = b.name:upper()
+        local n = math.min(#name, 12)
+        for k = 1, n do
+          g.text(b.x + b.w / 2 - 6, b.y - lift + 30 + (k - 1) * 19, name:sub(k, k), "#e8c877", 15, "PlayfairDisplay")
+        end
+      end
+      local pxp, pyp = books[3] and (books[3].x + books[3].w + 14) or x0, shelves[1]
+      g.rect(pxp, pyp - 46, 34, 46, "#8a4a2a", 3)
+      for k = 0, 6 do
+        local a = -1.2 + k * 0.4
+        g.line(pxp + 17, pyp - 46, pxp + 17 + math.sin(a) * 38, pyp - 46 - math.cos(a) * 44, "#4f8a3a", 5)
+      end
+    end
+    function click(x, y)
+      for _, b in ipairs(books) do
+        if x >= b.x and x <= b.x + b.w and y >= b.y - 14 and y <= b.y + b.h then return "open:" .. b.id end
+      end
+    end
+  </canvas>
+  <row id="plate" place="top">
+    <clock format="%H:%M"/>
+    <text bind="tagline"/>
+    <button what="toggle:#catalogue" hotkey="meta">Catalogue</button>
+  </row>
+  <popover id="catalogue" placement="below" align="center">
+    <title>Card catalogue</title>
+    <search placeholder="Look something up, or ask Dewey"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

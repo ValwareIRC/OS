@@ -1,0 +1,121 @@
+<facet>
+<meta ai-name="Sonar" user-name="Sam" greeting="Contacts on screen." tagline="nothing gets past"
+      rationale="A radar scope sweeps round and round; your apps are the contacts it picks up. Click a blip to bring it in."
+      theme-about="radar scope: a full-screen canvas of a round green radar display filling the middle of a dark instrument panel (range rings, bearing ticks and numbers, a rotating sweep with a fading afterglow trail), each app a blip at its own bearing and range that flares when the sweep passes, labelled in small caps, the blip under the pointer gets a lock box; a riveted metal side panel on the right with the time, a bearing readout and big toggle buttons. Military, submarine, analogue. (#scope, #panel)"/>
+<apps>
+  <app id="files" label="CARGO"/><app id="companion" label="SONAR"/><app id="notes" label="LOGBOOK"/>
+  <app id="settings" label="TRIM"/><app id="about" label="HULL"/><app id="terminal" label="CONN"/>
+  <app id="redesign" label="REFIT"/><app id="power" label="SURFACE"/>
+</apps>
+<wallpaper kind="gradient" colors="#0d110e #141a15 #0a0d0b #050605" seed="1" intensity="0.2"/>
+<style>
+:root { --bg:#0d110e; --surface:#1a201b; --surface-2:#242c25; --surface-text:#c8f0c0; --text:#c8f0c0; --muted:#6f8f6a;
+        --accent:#5cff5c; --accent2:#ffb347; --font-heading:Sora; --font-body:JetBrainsMono; --radius:4; icon-style:mono; }
+desktop { color:var(--text); font-family:JetBrainsMono; font-size:13; }
+#scope { size:full; }
+#panel { width:300; height:full; padding:30 24; gap:14; align:stretch; background:linear-gradient(90deg,#2a302b,#1d221e);
+         border:1 #3a423b; }
+#panel .lab { font:"JetBrainsMono 12"; color:#8ba587; letter-spacing:0.2em; }
+#panel clock { font:"JetBrainsMono 40"; color:#ffb347; padding:6 10; background:#0a0d0b; radius:4; border:1 #3a423b; }
+#panel text.read { font:"JetBrainsMono 18"; color:#5cff5c; padding:6 10; background:#0a0d0b; radius:4; }
+#panel button { height:46; padding:0 14; gap:10; radius:4; justify:start; background:linear-gradient(180deg,#3a423b,#262c27);
+                border:1 #4a544b; color:#c8f0c0; font:"JetBrainsMono 14"; icon-size:16; }
+#panel button:hover { background:linear-gradient(180deg,#4a6a4a,#2a3a2a); color:#5cff5c; }
+#panel #off { background:linear-gradient(180deg,#7a2a1a,#4a1a10); color:#ffd0c0; }
+#hold { width:400; padding:14; gap:10; radius:4; background:#1a201b; border:1 #5cff5c; }
+#hold search { grow:0; height:38; padding:0 12; radius:4; background:#0a0d0b; color:#c8f0c0; border:1 #3a423b; }
+#hold applist { direction:column; align:stretch; gap:2; }
+#hold item { direction:row; gap:10; padding:6 8; icon-size:18; color:#c8f0c0; font-size:13; }
+#hold item:hover { background:#242c25; color:#5cff5c; }
+frame { direction:column; radius:4; overflow:hidden; background:var(--surface); color:var(--surface-text); border:2 #3a423b;
+        shadow:0 16 40 rgba(0,0,0,0.6); }
+titlebar { height:32; padding:0 6 0 12; gap:4; background:#242c25; color:#6f8f6a; font:"JetBrainsMono 13"; }
+frame:focus titlebar { color:#5cff5c; }
+titlebar text { grow:1; }
+titlebar button { size:26; radius:3; icon-size:10; color:inherit; background:#1a201b; border:1 #3a423b; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="scope" place="fill" over="screen">
+    local blips, hot = {}, nil
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#0d110e")
+      local cx, cy = (w - 300) / 2, h / 2
+      local R = math.min(cx, cy) - 40
+      g.circle(cx, cy, R + 18, "#2a302b")
+      g.circle(cx, cy, R + 6, "#050805")
+      g.circle(cx, cy, R, "#031a06")
+      for k = 1, 4 do g.arc(cx, cy, R * k / 4, 0, 6.29, "rgba(92,255,92,0.25)", 1) end
+      g.line(cx - R, cy, cx + R, cy, "rgba(92,255,92,0.2)", 1)
+      g.line(cx, cy - R, cx, cy + R, "rgba(92,255,92,0.2)", 1)
+      for i = 0, 35 do
+        local a = i / 36 * 6.283 - 1.5708
+        g.line(cx + math.cos(a) * (R - 10), cy + math.sin(a) * (R - 10), cx + math.cos(a) * R, cy + math.sin(a) * R, "rgba(92,255,92,0.6)", 1.5)
+        g.text(cx + math.cos(a) * (R + 28) - 10, cy + math.sin(a) * (R + 28) - 8, string.format("%03d", i * 10), "#6f8f6a", 11, "JetBrainsMono")
+      end
+      local sw = (t * 0.9) % 6.283
+      for k = 0, 18 do
+        local a0 = sw - k * 0.035
+        g.poly({cx, cy, cx + math.cos(a0) * R, cy + math.sin(a0) * R, cx + math.cos(a0 - 0.04) * R, cy + math.sin(a0 - 0.04) * R},
+               string.format("rgba(92,255,92,%.3f)", 0.28 * (1 - k / 18)))
+      end
+      g.line(cx, cy, cx + math.cos(sw) * R, cy + math.sin(sw) * R, "#9dff9d", 2)
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      blips, hot = {}, nil
+      for i, a in ipairs(apps) do
+        local bear = (i * 2.399) % 6.283
+        local range = R * (0.3 + ((i * 0.173) % 0.6))
+        local x, y = cx + math.cos(bear) * range, cy + math.sin(bear) * range
+        local since = (sw - bear) % 6.283
+        blips[#blips + 1] = {x = x, y = y, glow = math.max(0.25, 1 - since / 4), name = a.name, id = a.id}
+      end
+      for _, b in ipairs(blips) do
+        if over and (px - b.x) ^ 2 + (py - b.y) ^ 2 < 24 * 24 then hot = b.id end
+      end
+      for _, b in ipairs(blips) do
+        g.glow(b.x, b.y, 22, string.format("rgba(92,255,92,%.2f)", b.glow * 0.6))
+        g.circle(b.x, b.y, 5, string.format("rgba(180,255,180,%.2f)", b.glow))
+        g.text(b.x + 12, b.y - 8, b.name, string.format("rgba(160,255,160,%.2f)", 0.4 + b.glow * 0.6), 13, "JetBrainsMono")
+        if b.id == hot then
+          g.rect(b.x - 16, b.y - 16, 32, 1.5, "#ffb347")
+          g.rect(b.x - 16, b.y + 15, 32, 1.5, "#ffb347")
+          g.rect(b.x - 16, b.y - 16, 1.5, 32, "#ffb347")
+          g.rect(b.x + 15, b.y - 16, 1.5, 32, "#ffb347")
+        end
+      end
+    end
+    function click(x, y)
+      for _, b in ipairs(blips) do
+        if (x - b.x) ^ 2 + (y - b.y) ^ 2 < 24 * 24 then return "open:" .. b.id end
+      end
+    end
+  </canvas>
+  <column id="panel" dock="right" height="full">
+    <text class="lab">TIME</text>
+    <clock format="%H:%M:%S"/>
+    <text class="lab">STATUS</text>
+    <text class="read" bind="tagline"/>
+    <spacer/>
+    <button what="toggle:#hold" icon="search" hotkey="meta">ALL CONTACTS</button>
+    <button what="open:companion" icon="companion">HAIL SONAR</button>
+    <button what="redesign" icon="sparkle">REFIT</button>
+    <button id="off" what="power:off" icon="power">SURFACE</button>
+  </column>
+  <popover id="hold" placement="left" align="end">
+    <search placeholder="identify contact, or ask Sonar"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

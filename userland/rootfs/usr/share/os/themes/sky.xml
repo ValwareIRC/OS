@@ -1,0 +1,137 @@
+<facet>
+<meta ai-name="Nimbus" user-name="Sam" greeting="Look up, Sam." tagline="the weather inside"
+      rationale="The sky outside your window, at the real time of day: dawn, noon, dusk or stars. Your apps drift by as clouds."
+      theme-about="living sky: a full-screen canvas whose sky follows the real clock (pink dawn, blue noon, orange dusk, deep night with stars and a moon), the sun or moon moving along a real arc, soft rolling hills at the bottom, the apps as fluffy clouds drifting slowly across with their names written on them in a rounded font; hover a cloud and it brightens, click it to open; a big thin clock floats in the sky. Peaceful, ambient, always changing. (#sky, #hour)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Nimbus"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="New weather"/><app id="power" label="Sleep"/>
+</apps>
+<wallpaper kind="gradient" colors="#6fb1ff #a8d4ff #4f8fe0 #2a5fae" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#6fb1ff; --surface:rgba(255,255,255,0.95); --surface-2:#eef5ff; --surface-text:#1d3557; --text:#ffffff; --muted:#e8f1ff;
+        --accent:#ff9f1c; --accent2:#2ec4b6; --font-heading:Outfit; --font-body:Outfit; --radius:22; }
+desktop { color:#ffffff; font-family:Outfit; font-size:15; }
+#sky { size:full; }
+#hour { margin:70 0 0 0; gap:2; align:center; }
+#hour clock.big { font:"Outfit 120"; color:#ffffff; text-shadow:0 2 6 rgba(0,30,80,0.45); }
+#hour text { padding:4 14; radius:16; background:rgba(20,50,100,0.35); font:"Outfit 20"; color:#ffffff; }
+#hour button { margin:14 0 0 0; height:36; padding:0 18; gap:8; radius:18; background:rgba(20,50,100,0.45); blur:10;
+               color:#ffffff; font:"Outfit 16"; icon-size:14; }
+#hour button:hover { background:rgba(255,255,255,0.5); }
+#all { width:420; padding:16; gap:10; radius:22; background:rgba(255,255,255,0.95); color:#1d3557; }
+#all search { grow:0; height:40; padding:0 14; radius:20; background:#eef5ff; color:#1d3557; }
+#all applist { display:grid; columns:3; gap:8; }
+#all item { padding:10; gap:6; radius:16; icon-size:36; color:#1d3557; font-size:13; }
+#all item:hover { background:#eef5ff; }
+frame { direction:column; radius:22; overflow:hidden; background:var(--surface); color:var(--surface-text); shadow:0 24 60 rgba(0,30,80,0.3); }
+titlebar { height:46; padding:0 10 0 20; gap:6; font:"Outfit 16"; color:#5a7aa8; }
+frame:focus titlebar { color:#1d3557; }
+titlebar text { grow:1; }
+titlebar button { size:28; radius:14; icon-size:10; color:inherit; background:#eef5ff; }
+titlebar button:hover { background:#ff9f1c; color:#ffffff; }
+slot { padding:4 16 16 16; }
+</style>
+<desktop>
+  <canvas id="sky" place="fill" over="screen">
+    local clouds, hot = {}, nil
+    local function mix(a, b, k)
+      local function c(s, i) return tonumber(s:sub(i, i + 1), 16) end
+      local r = c(a, 2) + (c(b, 2) - c(a, 2)) * k
+      local gg = c(a, 4) + (c(b, 4) - c(a, 4)) * k
+      local bb = c(a, 6) + (c(b, 6) - c(a, 6)) * k
+      return string.format("#%02x%02x%02x", math.floor(r), math.floor(gg), math.floor(bb))
+    end
+    local KEYS = {{0, "#0b1030", "#1c2350"}, {5.5, "#2a2a5a", "#e88aa0"}, {7, "#7fb4ff", "#ffd6a0"}, {12, "#3f8cff", "#a8d4ff"},
+                  {17.5, "#5a7ad8", "#ffc890"}, {19.5, "#3a2a6a", "#ff8a5a"}, {21, "#141a40", "#2a2a5a"}, {24, "#0b1030", "#1c2350"}}
+    function draw(w, h, t)
+      local hh = g.clock()
+      local top, bot
+      for i = 1, #KEYS - 1 do
+        local a, b = KEYS[i], KEYS[i + 1]
+        if hh >= a[1] and hh <= b[1] then
+          local k = (hh - a[1]) / (b[1] - a[1])
+          top, bot = mix(a[2], b[2], k), mix(a[3], b[3], k)
+        end
+      end
+      g.gradient(0, 0, w, h, top or "#3f8cff", bot or "#a8d4ff")
+      local night = hh < 6 or hh > 20
+      if night then
+        for i = 0, 120 do
+          local sx, sy = (i * 211.7) % w, (i * 97.3) % (h * 0.7)
+          g.circle(sx, sy, (i % 3 == 0) and 1.6 or 1, string.format("rgba(255,255,255,%.2f)", 0.4 + 0.4 * math.sin(t + i)))
+        end
+      end
+      local day = ((hh - 6) / 12)
+      local sx = w * (0.1 + 0.8 * (night and ((hh + 6) % 24) / 12 or day))
+      local sy = h * 0.75 - math.sin(math.max(0, math.min(1, night and ((hh + 6) % 24) / 12 or day)) * math.pi) * h * 0.55
+      if night then
+        g.circle(sx, sy, 34, "#f4f0dc")
+        g.circle(sx + 12, sy - 8, 30, top or "#0b1030")
+      else
+        g.glow(sx, sy, 160, "rgba(255,230,160,0.45)")
+        g.circle(sx, sy, 44, "#fff2b8")
+      end
+      local hills = {{0.8, "rgba(60,120,80,0.75)", 0.3}, {0.88, "rgba(40,100,60,0.9)", 0.5}}
+      for _, hl in ipairs(hills) do
+        local pts = {0, h}
+        for x = 0, 32 do
+          pts[#pts + 1] = x * w / 32
+          pts[#pts + 1] = h * hl[1] - math.sin(x * hl[3] + 1) * 40 - math.sin(x * 0.17) * 30
+        end
+        pts[#pts + 1] = w
+        pts[#pts + 1] = h
+        g.poly(pts, night and "rgba(10,20,30,0.9)" or hl[2])
+      end
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      clouds, hot = {}, nil
+      for i, a in ipairs(apps) do
+        if i > 9 then break end
+        local speed = 8 + (i * 7 % 5) * 3
+        local x = ((t * speed + i * 377) % (w + 400)) - 200
+        local y = h * (0.42 + ((i * 0.11) % 0.32))
+        clouds[#clouds + 1] = {x = x, y = y, name = a.name, id = a.id, s = 1 + (i % 3) * 0.15}
+      end
+      for _, c in ipairs(clouds) do
+        if over and math.abs(px - c.x) < 90 * c.s and math.abs(py - c.y) < 40 * c.s then hot = c.id end
+      end
+      for _, c in ipairs(clouds) do
+        local a = c.id == hot and 1 or 0.88
+        local col = night and string.format("rgba(200,210,240,%.2f)", a * 0.55) or string.format("rgba(255,255,255,%.2f)", a)
+        local s = c.s
+        g.circle(c.x - 50 * s, c.y + 6 * s, 30 * s, col)
+        g.circle(c.x, c.y - 10 * s, 42 * s, col)
+        g.circle(c.x + 48 * s, c.y + 4 * s, 32 * s, col)
+        g.rect(c.x - 80 * s, c.y + 4 * s, 160 * s, 32 * s, col, 16 * s)
+        g.text(c.x - #c.name * 4.8, c.y, c.name, night and "#ffffff" or "#2a5fae", 18, "Outfit")
+      end
+    end
+    function click(x, y)
+      for _, c in ipairs(clouds) do
+        if math.abs(x - c.x) < 90 * c.s and math.abs(y - c.y) < 40 * c.s then return "open:" .. c.id end
+      end
+    end
+  </canvas>
+  <column id="hour" place="top">
+    <clock class="big" format="%H:%M"/>
+    <text bind="greeting"/>
+    <button what="toggle:#all" icon="search" hotkey="meta">Everything</button>
+  </column>
+  <popover id="all" placement="below" align="center">
+    <search placeholder="Find or ask Nimbus"/>
+    <applist/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

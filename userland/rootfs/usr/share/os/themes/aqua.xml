@@ -20,7 +20,7 @@ desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
 #me { font-size:14; color:#1c1d21; height:26; padding:0 8; radius:6; }
 #me:hover, #all:hover { background:rgba(31,116,232,0.14); }
 #all { height:26; padding:0 8; radius:6; color:#1c1d21; font-size:14; }
-#menubar clock { color:#1c1d21; }
+#menubar clock { color:#1c1d21; padding:4 2; }
 
 #apple { width:280; padding:8; gap:2; radius:12; blur:30; saturate:1.6; background:rgba(248,250,253,0.9);
          color:#1c1d21; border:1 rgba(255,255,255,0.8); shadow:0 14 40 rgba(0,20,60,0.3); margin:6 0 0 0; }
@@ -31,7 +31,7 @@ desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
 #glance { width:300; padding:18 22; gap:4; radius:20; blur:28; saturate:1.6; background:rgba(255,255,255,0.2);
           border:1 rgba(255,255,255,0.45); shadow:0 10 30 rgba(0,20,60,0.2); margin:24 28 0 0; }
 #time { font:"Inter 52"; color:#ffffff; }
-#day { font-size:15; color:#f4f8ff; }
+#day { font-size:15; color:#f4f8ff; padding:3 0; }
 #hi { margin:8 0 0 0; font-size:15; color:#ffffff; }
 #dock { padding:8 10; gap:6; radius:24; blur:30; saturate:1.8; background:rgba(255,255,255,0.3);
         border:1 rgba(255,255,255,0.6); shadow:0 12 34 rgba(0,25,70,0.35); margin:0 0 14 0; }

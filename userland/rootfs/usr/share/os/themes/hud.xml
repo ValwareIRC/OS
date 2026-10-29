@@ -1,0 +1,127 @@
+<facet>
+<meta ai-name="JARVIS" user-name="Sam" greeting="All systems nominal, Sam." tagline="eyes up"
+      rationale="A heads-up display: a turning targeting reticle in the middle of the screen, your apps locked onto as targets around it."
+      theme-about="sci-fi heads-up display: a full-screen canvas with a large animated targeting reticle at the centre (rotating dashed rings, tick marks, a sweeping arc, a pulsing core), the apps as bracketed targets placed around it at fixed angles with thin leader lines and coordinate readouts, the one under the pointer locks on in amber; corner brackets, telemetry text and the time in the corners; cyan line art on black, angular windows with cut corners. Iron Man, cockpit, precise. (#hud, #tele)"/>
+<apps>
+  <app id="files" label="ARCHIVE"/><app id="companion" label="JARVIS"/><app id="notes" label="LOG"/>
+  <app id="settings" label="SYSTEMS"/><app id="about" label="DIAGNOSTICS"/><app id="terminal" label="CONSOLE"/>
+  <app id="redesign" label="RECONFIGURE"/><app id="power" label="POWER DOWN"/>
+</apps>
+<wallpaper kind="gradient" colors="#000608 #001820 #000a10 #000000" seed="1" intensity="0.2"/>
+<style>
+:root { --bg:#000608; --surface:rgba(0,18,26,0.94); --surface-2:#032a36; --surface-text:#bff6ff; --text:#bff6ff; --muted:#4fb6c9;
+        --accent:#26e0ff; --accent2:#ffb020; --font-heading:Sora; --font-body:JetBrainsMono; --radius:0; icon-style:line; }
+desktop { color:var(--text); font-family:JetBrainsMono; font-size:13; }
+#hud { size:full; }
+#tele { margin:30 36 0 0; gap:2; align:end; }
+#tele clock { font:"Sora 34"; color:#bff6ff; letter-spacing:0.1em; }
+#tele text { font:"JetBrainsMono 13"; color:#4fb6c9; text-transform:uppercase; }
+#tele button { margin:10 0 0 0; height:30; padding:0 12; gap:8; radius:0; border:1 #26e0ff; color:#26e0ff; font:"JetBrainsMono 13"; icon-size:14; }
+#tele button:hover { background:rgba(38,224,255,0.2); }
+#cmd { width:460; padding:14; gap:10; radius:0; background:rgba(0,14,20,0.95); border:1 #26e0ff; }
+#cmd search { grow:0; height:38; padding:0 12; radius:0; background:#00161e; border:1 rgba(38,224,255,0.5); color:#bff6ff; }
+#cmd applist { direction:column; align:stretch; gap:2; }
+#cmd item { direction:row; gap:10; padding:6 10; icon-size:18; color:#bff6ff; font-size:13; }
+#cmd item:hover { background:rgba(38,224,255,0.18); color:#ffffff; }
+frame { direction:column; radius:0; overflow:hidden; background:var(--surface); color:var(--surface-text); border:1 #26e0ff;
+        glow:12 rgba(38,224,255,0.2); }
+titlebar { height:30; padding:0 4 0 12; gap:4; background:rgba(38,224,255,0.08); color:#4fb6c9; font:"JetBrainsMono 12"; text-transform:uppercase; }
+frame:focus titlebar { color:#26e0ff; background:rgba(38,224,255,0.18); }
+titlebar text { grow:1; letter-spacing:0.15em; }
+titlebar button { size:26; radius:0; icon-size:10; color:inherit; border:1 rgba(38,224,255,0.4); }
+titlebar button:hover { background:#ffb020; color:#000608; border:1 #ffb020; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="hud" place="fill" over="screen">
+    local targets, hot = {}, nil
+    local C, A = "rgba(38,224,255,", "rgba(255,176,32,"
+    function draw(w, h, t)
+      local cx, cy = w / 2, h / 2
+      for k = 0, 3 do
+        local r = 90 + k * 46
+        local n = 24 + k * 12
+        local sp = (k % 2 == 0 and 1 or -1) * (0.15 + k * 0.05)
+        for i = 0, n - 1 do
+          if (i % 3) ~= 0 then
+            local a0 = i / n * 6.283 + t * sp
+            g.arc(cx, cy, r, a0, a0 + 6.283 / n * 0.6, C .. (0.25 + 0.12 * (3 - k)) .. ")", k == 0 and 3 or 1.5)
+          end
+        end
+      end
+      for i = 0, 71 do
+        local a = i / 72 * 6.283
+        local r1, r2 = 270, i % 6 == 0 and 290 or 280
+        g.line(cx + math.cos(a) * r1, cy + math.sin(a) * r1, cx + math.cos(a) * r2, cy + math.sin(a) * r2, C .. "0.45)", 1)
+      end
+      local sw = t * 1.2
+      g.arc(cx, cy, 250, sw, sw + 0.9, A .. "0.6)", 3)
+      local pulse = 26 + math.sin(t * 3) * 5
+      g.glow(cx, cy, pulse * 3, C .. "0.25)")
+      g.circle(cx, cy, pulse * 0.4, C .. "0.9)")
+      g.line(cx - 40, cy, cx - 14, cy, C .. "0.8)", 1.5)
+      g.line(cx + 14, cy, cx + 40, cy, C .. "0.8)", 1.5)
+      g.line(cx, cy - 40, cx, cy - 14, C .. "0.8)", 1.5)
+      g.line(cx, cy + 14, cx, cy + 40, C .. "0.8)", 1.5)
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      targets, hot = {}, nil
+      for i, a in ipairs(apps) do
+        if i > 8 then break end
+        local an = -1.95 + (i - 1) * 0.56 + (i > 4 and 0.98 or 0)
+        local r = 370
+        local x, y = cx + math.cos(an) * r * 1.25, cy + math.sin(an) * r * 0.85
+        targets[#targets + 1] = {x = x, y = y, a = an, name = a.name, id = a.id}
+      end
+      for _, tg in ipairs(targets) do
+        if over and math.abs(px - tg.x) < 70 and math.abs(py - tg.y) < 30 then hot = tg.id end
+      end
+      for _, tg in ipairs(targets) do
+        local on = tg.id == hot
+        local col = on and A or C
+        local ex, ey = cx + math.cos(tg.a) * 292, cy + math.sin(tg.a) * 292
+        g.line(ex, ey, tg.x - (tg.x > cx and 70 or -70), tg.y, col .. "0.5)", 1)
+        local bw, bh = 70, 26
+        for _, s in ipairs({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}) do
+          local x0, y0 = tg.x + s[1] * bw, tg.y + s[2] * bh
+          g.line(x0, y0, x0 - s[1] * 14, y0, col .. "0.9)", 2)
+          g.line(x0, y0, x0, y0 - s[2] * 10, col .. "0.9)", 2)
+        end
+        if on then g.rect(tg.x - bw, tg.y - bh, bw * 2, bh * 2, A .. "0.12)") end
+        g.text(tg.x - #tg.name * 4.3, tg.y - 10, tg.name, on and "#ffd27a" or "#bff6ff", 15, "JetBrainsMono")
+        g.text(tg.x - bw, tg.y + bh + 4, string.format("%03d.%02d", math.floor(tg.x) % 1000, math.floor(tg.y) % 100), col .. "0.6)", 11, "JetBrainsMono")
+      end
+      for _, s in ipairs({{30, 30, 1, 1}, {w - 30, 30, -1, 1}, {30, h - 30, 1, -1}, {w - 30, h - 30, -1, -1}}) do
+        g.line(s[1], s[2], s[1] + s[3] * 60, s[2], C .. "0.6)", 2)
+        g.line(s[1], s[2], s[1], s[2] + s[4] * 60, C .. "0.6)", 2)
+      end
+      g.text(46, h - 74, string.format("PWR %3d%%   TMP %d C   LNK OK", 98 + math.floor(math.sin(t) * 2), 41), C .. "0.7)", 13, "JetBrainsMono")
+    end
+    function click(x, y)
+      for _, tg in ipairs(targets) do
+        if math.abs(x - tg.x) < 70 and math.abs(y - tg.y) < 30 then return "open:" .. tg.id end
+      end
+    end
+  </canvas>
+  <column id="tele" place="top-right">
+    <clock format="%H:%M:%S"/>
+    <text bind="greeting"/>
+    <button what="toggle:#cmd" icon="search" hotkey="meta">COMMAND</button>
+  </column>
+  <popover id="cmd" placement="below" align="end">
+    <search placeholder="state a command, or ask JARVIS"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

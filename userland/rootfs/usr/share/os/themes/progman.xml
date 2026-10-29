@@ -1,0 +1,78 @@
+<facet>
+<meta ai-name="Clippy" user-name="Sam" greeting="Welcome to the Program Manager." tagline="everything in its group"
+      rationale="One grey window holds all your programs in groups, the way computers felt in 1992."
+      theme-about="Windows 3.1 Program Manager: a teal desktop, one big centred grey Program Manager window with a navy title bar, a menu row (File Options Window Help) and the apps as an icon grid in a white 'Main' group with labels under each icon; bevelled grey buttons; windows get navy title bars and chunky grey borders. Nostalgic, orderly, no taskbar. (#progman, #group, #menubar)"/>
+<apps>
+  <app id="files" label="File Manager"/><app id="companion" label="Clippy"/><app id="notes" label="Notepad"/>
+  <app id="settings" label="Control Panel"/><app id="about" label="About"/><app id="terminal" label="MS-DOS Prompt"/>
+  <app id="redesign" label="Desktop"/><app id="power" label="Exit Windows"/>
+</apps>
+<wallpaper kind="gradient" colors="#008080 #008080 #007070 #006060" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#008080; --surface:#ffffff; --surface-2:#c0c0c0; --surface-text:#000000; --text:#000000; --muted:#404040;
+        --accent:#000080; --accent2:#c0c0c0; --font-heading:Inter; --font-body:Inter; --radius:0; icon-style:classic; }
+desktop { color:#000000; font-family:Inter; font-size:14; }
+#progman { width:900; direction:column; background:#c0c0c0; border:3 #c0c0c0; shadow:2 2 0 #000000; radius:0; }
+#ptitle { height:26; padding:0 2 0 2; gap:4; background:#000080; color:#ffffff; font:"bold 14px Inter"; }
+#ptitle .box { size:22; background:#c0c0c0; border:1 #000000; }
+#ptitle text { grow:1; text-align:center; }
+#menubar { height:28; padding:0 6; gap:16; background:#ffffff; border:1 #808080; font-size:14; }
+#menubar button { height:26; padding:0 6; color:#000000; }
+#menubar button:hover, #menubar button:open { background:#000080; color:#ffffff; }
+#group { margin:10; direction:column; background:#ffffff; border:2 #808080; }
+#gtitle { height:24; padding:0 8; background:#000080; color:#ffffff; font:"bold 13px Inter"; }
+#group applist { display:grid; columns:6; gap:18; padding:22 18; }
+#group item { width:120; gap:6; padding:4; icon-size:44; icon-shape:none; icon-style:classic; color:#000000; font-size:13; }
+#group item:hover label { background:#000080; color:#ffffff; }
+#bottom { padding:6 10; gap:10; justify:end; }
+#bottom button { height:30; padding:0 16; background:#c0c0c0; border:2 #ffffff; shadow:2 2 0 #404040; color:#000000; font-size:13; }
+#bottom button:active { border:2 #404040; }
+#bottom clock { font-size:13; color:#000000; padding:4 6; }
+#opts { width:220; padding:3; direction:column; background:#ffffff; border:1 #000000; shadow:2 2 0 #000000; }
+#opts button { height:26; padding:0 14; justify:start; color:#000000; font-size:13; }
+#opts button:hover { background:#000080; color:#ffffff; }
+frame { direction:column; background:#c0c0c0; color:#000000; radius:0; border:4 #c0c0c0; shadow:2 2 0 #000000; overflow:hidden; }
+titlebar { height:26; padding:0 2; gap:3; background:#808080; color:#ffffff; font:"bold 13px Inter"; }
+frame:focus titlebar { background:#000080; }
+titlebar text { grow:1; text-align:center; }
+titlebar button { size:24; radius:0; icon-size:10; background:#c0c0c0; color:#000000; border:2 #ffffff; shadow:1 1 0 #404040; }
+slot { padding:3; background:#ffffff; }
+</style>
+<desktop>
+  <column id="progman" place="center">
+    <row id="ptitle"><row class="box"/><text>Program Manager</text><row class="box"/></row>
+    <row id="menubar">
+      <button what="toggle:#opts" hotkey="meta">File</button>
+      <button what="open:settings">Options</button>
+      <button what="open:about">Window</button>
+      <button what="open:companion">Help</button>
+    </row>
+    <column id="group">
+      <row id="gtitle"><text>Main</text></row>
+      <applist labels="below"/>
+    </column>
+    <row id="bottom">
+      <clock format="%I:%M %p"/>
+      <button what="power:off">Exit Windows...</button>
+    </row>
+  </column>
+  <popover id="opts" placement="below" align="start">
+    <button what="open:files">Open File Manager</button>
+    <button what="open:terminal">Run...</button>
+    <button what="redesign">Desktop...</button>
+    <button what="power:restart">Restart</button>
+    <button what="power:off">Exit Windows</button>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <button what="window:close" icon="close"/>
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="chevron-down"/>
+      <button what="window:maximize" icon="chevron-up"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

@@ -1,0 +1,104 @@
+<facet>
+<meta ai-name="Boing" user-name="Sam" greeting="Workbench screen" tagline="only Amiga makes it possible"
+      rationale="The Amiga's bright blue screen, a title bar across the top, drawers you double-click, and the famous bouncing ball."
+      theme-about="Amiga Workbench 1.3: a flat bright blue screen with a white-and-blue screen title bar across the top showing free memory, the apps as small chunky drawer and disk icons in a loose grid at the top-left, the red-and-white checkered Boing ball bouncing in a canvas at the right, orange-accented windows with depth gadgets. 1987 home computer, cheerful. (#screenbar, #drawers, #boing)"/>
+<apps>
+  <app id="files" label="Workbench"/><app id="companion" label="Boing"/><app id="notes" label="Notepad"/>
+  <app id="settings" label="Prefs"/><app id="about" label="About"/><app id="terminal" label="Shell"/>
+  <app id="redesign" label="Palette"/><app id="power" label="Quit"/>
+</apps>
+<wallpaper kind="gradient" colors="#0055aa #0055aa #0050a0 #004c99" seed="1" intensity="0.05"/>
+<style>
+:root { --bg:#0055aa; --surface:#0055aa; --surface-2:#003f80; --surface-text:#ffffff; --text:#ffffff; --muted:#ffaa33;
+        --accent:#ff8800; --accent2:#ffffff; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:classic; }
+desktop { color:#ffffff; font-family:JetBrainsMono; font-size:14; }
+#screenbar { height:28; padding:0 10; gap:12; background:#ffffff; color:#0055aa; font:"bold 14px JetBrainsMono"; }
+#screenbar text { grow:1; }
+#screenbar button { height:24; padding:0 8; color:#0055aa; border:1 #0055aa; }
+#screenbar button:hover, #screenbar button:open { background:#ff8800; color:#000000; }
+#screenbar clock { padding:3 4; color:#0055aa; }
+#drawers { margin:30 0 0 26; }
+#drawers applist { display:grid; columns:3; gap:24; }
+#drawers item { width:120; gap:6; icon-size:44; icon-shape:square; icon-style:classic; color:#ffffff; font:"JetBrainsMono 13"; }
+#drawers item label { padding:1 4; }
+#drawers item:hover label { background:#ffffff; color:#0055aa; }
+#boing { size:420 360; margin:0 60 40 0; }
+#pull { width:240; padding:2; direction:column; background:#ffffff; border:2 #000000; }
+#pull button { height:26; padding:0 10; justify:start; color:#0055aa; font:"bold 13px JetBrainsMono"; }
+#pull button:hover { background:#0055aa; color:#ffffff; }
+frame { direction:column; background:#0055aa; color:#ffffff; radius:0; border:2 #ffffff; overflow:hidden; }
+titlebar { height:26; padding:0 2; gap:2; background:#0055aa; color:#ffffff; font:"bold 13px JetBrainsMono"; }
+frame:focus titlebar { background:#ff8800; color:#000000; }
+titlebar text { grow:1; padding:0 8; }
+titlebar button { size:24; radius:0; icon-size:10; background:#ffffff; color:#0055aa; border:1 #000000; }
+slot { padding:4; background:#0055aa; }
+</style>
+<desktop>
+  <menubar id="screenbar" dock="top" width="full">
+    <text>Workbench release.  512K free memory</text>
+    <button what="toggle:#pull" hotkey="meta">Workbench</button>
+    <button what="open:terminal">Shell</button>
+    <clock format="%H:%M:%S"/>
+  </menubar>
+  <column id="drawers" place="top-left">
+    <applist labels="below"/>
+  </column>
+  <canvas id="boing" place="bottom-right">
+    function draw(w, h, t)
+      for i = 0, 10 do g.line(i * w / 10, h * 0.35, i * w / 10, h, "rgba(170,0,170,0.6)", 1) end
+      for j = 0, 6 do g.line(0, h * 0.35 + j * h * 0.65 / 6, w, h * 0.35 + j * h * 0.65 / 6, "rgba(170,0,170,0.6)", 1) end
+      local r = 64
+      local x = r + (math.abs(((t * 70) % (2 * (w - 2 * r))) - (w - 2 * r)))
+      local y = h - r - 10 - math.abs(math.sin(t * 2.4)) * (h * 0.55)
+      g.circle(x + 18, h - 14, r * 0.9, "rgba(0,0,0,0.25)")
+      g.circle(x, y, r, "#ffffff")
+      local spin = t * 3
+      for a = 0, 7 do
+        for b = 0, 3 do
+          if (a + b) % 2 == 0 then
+            local a0 = a / 8 * math.pi * 2 + spin
+            local lat0, lat1 = -1 + b / 2, -1 + (b + 1) / 2
+            local pts = {}
+            for k = 0, 4 do
+              local ang = a0 + k / 4 * (math.pi / 4)
+              local c = math.cos(ang)
+              if c > -0.05 then
+                local yy = lat0 + (lat1 - lat0) * 0
+                pts[#pts + 1] = x + math.sin(ang) * r * math.sqrt(1 - lat0 * lat0)
+                pts[#pts + 1] = y + lat0 * r
+              end
+            end
+            for k = 4, 0, -1 do
+              local ang = a0 + k / 4 * (math.pi / 4)
+              if math.cos(ang) > -0.05 then
+                pts[#pts + 1] = x + math.sin(ang) * r * math.sqrt(1 - lat1 * lat1)
+                pts[#pts + 1] = y + lat1 * r
+              end
+            end
+            if #pts >= 6 then g.poly(pts, "#dd1111") end
+          end
+        end
+      end
+    end
+  </canvas>
+  <popover id="pull" placement="below" align="end">
+    <button what="open:files">Open</button>
+    <button what="open:settings">Prefs</button>
+    <button what="open:about">About</button>
+    <button what="redesign">Palette</button>
+    <button what="power:restart">Reboot</button>
+    <button what="power:off">Quit</button>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <button what="window:close" icon="close"/>
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

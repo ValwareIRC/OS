@@ -1,0 +1,65 @@
+<facet>
+<meta ai-name="SLAB" user-name="SAM" greeting="HELLO SAM." tagline="no decoration"
+      rationale="Raw and loud: enormous black words on bare grey concrete. The words are the buttons."
+      theme-about="brutalist web: a flat raw grey concrete background, the apps as ENORMOUS black uppercase words stacked down the left (each one a button, the hovered one inverts to black with white text), hard 4px black borders, a blunt yellow stripe with the time, zero rounding, zero shadows, zero icons, windows as plain boxes with a thick black border and a black title strip. Confrontational, typographic, anti-design. (#wall, #stripe)"/>
+<apps>
+  <app id="files" label="FILES"/><app id="companion" label="SLAB"/><app id="notes" label="WRITE"/>
+  <app id="settings" label="SETTINGS"/><app id="about" label="ABOUT"/><app id="terminal" label="TERMINAL"/>
+  <app id="redesign" label="REDO"/><app id="power" label="OFF"/>
+</apps>
+<wallpaper kind="gradient" colors="#b9b9b4 #c2c2bd #b2b2ad #a8a8a3" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#b9b9b4; --surface:#e8e8e4; --surface-2:#d6d6d1; --surface-text:#000000; --text:#000000; --muted:#333333;
+        --accent:#ffe600; --accent2:#000000; --font-heading:Syne; --font-body:Inter; --radius:0; icon-style:mono; }
+desktop { color:#000000; font-family:Inter; font-size:16; }
+#wall { margin:40 0 0 48; gap:0; align:start; }
+#wall applist { direction:column; align:start; gap:0; }
+#wall item { padding:0 12; min-width:560; font:"Syne 92"; color:#000000; line-height:1; transition:0; }
+#wall item icon { display:none; }
+#wall item:hover { background:#000000; color:#b9b9b4; }
+#stripe { width:full; height:64; padding:0 48; gap:24; background:#ffe600; border:4 #000000; font:"bold 20px Inter"; color:#000000; }
+#stripe clock { font:"Syne 30"; color:#000000; padding:6 0; }
+#stripe text { grow:1; }
+#stripe button { height:44; padding:0 18; radius:0; border:4 #000000; background:#ffffff; color:#000000; font:"Syne 20"; }
+#stripe button:hover { background:#000000; color:#ffe600; }
+#rest { width:520; padding:20; gap:10; radius:0; background:#ffffff; border:4 #000000; }
+#rest search { grow:0; height:48; padding:0 14; radius:0; border:4 #000000; background:#ffffff; color:#000000; font:"Syne 20"; }
+#rest applist { direction:column; align:stretch; gap:0; }
+#rest item { padding:6 10; font:"Syne 26"; color:#000000; }
+#rest item icon { display:none; }
+#rest item:hover { background:#000000; color:#ffffff; }
+frame { direction:column; radius:0; overflow:hidden; background:#ffffff; color:#000000; border:4 #000000; }
+titlebar { height:40; padding:0 0 0 12; gap:0; background:#000000; color:#ffffff; font:"Syne 18"; }
+frame:focus titlebar { background:#000000; color:#ffe600; }
+titlebar text { grow:1; text-transform:uppercase; }
+titlebar button { width:48; height:40; radius:0; icon-size:14; color:#ffffff; border:0; }
+titlebar button:hover { background:#ffe600; color:#000000; }
+slot { padding:8; }
+</style>
+<desktop>
+  <bar id="stripe" dock="bottom" width="full">
+    <clock format="%H:%M"/>
+    <text bind="greeting"/>
+    <button what="toggle:#rest" hotkey="meta">MORE</button>
+    <button what="power:off">OFF</button>
+  </bar>
+  <column id="wall" place="top-left">
+    <applist apps="files,notes,terminal,companion" labels="below"/>
+  </column>
+  <popover id="rest" placement="above" align="end">
+    <search placeholder="TYPE"/>
+    <applist labels="below"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

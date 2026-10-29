@@ -308,7 +308,9 @@ void stylist_theme_menu(sbuf *b) {
         const char *a = t ? strstr(t, "theme-about=\"") : NULL;
         if (a) {
             a += 13;
-            snprintf(about, sizeof about, "%.*s", (int)strcspn(a, "\""), a);
+            /* its title only (up to the first colon): 32 full descriptions
+             * would crowd a small model's context */
+            snprintf(about, sizeof about, "%.*s", (int)strcspn(a, "\":"), a);
         }
         sb_printf(b, "- %s: %s\n", names[i], about[0] ? about : "a starting point");
         free(t);

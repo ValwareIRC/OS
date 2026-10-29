@@ -1,0 +1,120 @@
+<facet>
+<meta ai-name="Babbage" user-name="Sam" greeting="The engine is warm, Sam." tagline="everything turns"
+      rationale="A brass clockwork machine: gears mesh and turn behind glass, and each app is an engraved plaque on a lever."
+      theme-about="steampunk clockwork: a full-screen canvas of interlocking brass and copper gears of many sizes turning at matched speeds (teeth, spokes, rivets) over a dark walnut panel, a big pressure gauge whose needle moves, steam pipes along the edges; the time on a round brass clock face with roman-ish numerals drawn in the canvas; the apps as engraved brass plaques screwed onto the panel at the right, in a column, each a button; serif engraved type, windows with brass frames and riveted title bars. Victorian, mechanical, ornate. (#machine, #plaques)"/>
+<apps>
+  <app id="files" label="Cabinet"/><app id="companion" label="Babbage"/><app id="notes" label="Ledger"/>
+  <app id="settings" label="Regulator"/><app id="about" label="Patent"/><app id="terminal" label="Telegraph"/>
+  <app id="redesign" label="Re-tool"/><app id="power" label="Bank the fire"/>
+</apps>
+<wallpaper kind="gradient" colors="#2a1a10 #3a2418 #1e120a #120a06" seed="1" intensity="0.2"/>
+<style>
+:root { --bg:#2a1a10; --surface:#f1e4c8; --surface-2:#e2cfa6; --surface-text:#2a1a10; --text:#f1e4c8; --muted:#c9a86a;
+        --accent:#d4a24c; --accent2:#b0602e; --font-heading:PlayfairDisplay; --font-body:Lora; --radius:4; icon-style:line; }
+desktop { color:#f1e4c8; font-family:Lora; font-size:15; }
+#machine { size:full; }
+#plaques { margin:0 70 0 0; gap:14; align:stretch; width:300; }
+#plaques applist { direction:column; align:stretch; gap:14; }
+#plaques item { direction:row; height:56; padding:0 18; gap:14; justify:start; radius:6; background:linear-gradient(180deg,#f0cf88,#c8973e);
+                border:2 #6a4a1a; color:#2a1a10; font:"PlayfairDisplay 19"; icon-size:24; icon-shape:none; shadow:0 4 8 rgba(0,0,0,0.5); transition:100; }
+#plaques item:hover { background:linear-gradient(180deg,#f6d690,#c08c38); transform:translate(-6, 0); }
+#plaques button { height:44; padding:0 18; gap:10; radius:6; background:linear-gradient(180deg,#8a4a24,#5a2a10); border:2 #4a2410;
+                  color:#f1e4c8; font:"PlayfairDisplay 17"; icon-size:16; }
+#plaques button:hover { background:linear-gradient(180deg,#d88a50,#8a4e2a); }
+frame { direction:column; radius:4; overflow:hidden; background:var(--surface); color:var(--surface-text); border:4 #a8782c;
+        shadow:0 20 50 rgba(0,0,0,0.6); }
+titlebar { height:40; padding:0 8 0 16; gap:6; background:linear-gradient(180deg,#e8c070,#a8782c); color:#2a1a10; font:"PlayfairDisplay 16"; }
+frame:focus titlebar { background:linear-gradient(180deg,#f6d690,#c08c38); }
+titlebar text { grow:1; }
+titlebar button { size:28; radius:14; icon-size:10; color:#2a1a10; background:#f1e4c8; border:1 #6a4a1a; }
+titlebar button:hover { background:#b0602e; color:#ffffff; }
+slot { padding:6 14 14 14; }
+#drawer { width:400; padding:14; gap:10; radius:4; background:#f1e4c8; color:#2a1a10; border:3 #a8782c; }
+#drawer search { grow:0; height:38; padding:0 12; radius:3; background:#ffffff; color:#2a1a10; border:1 #a8782c; }
+#drawer applist { direction:column; align:stretch; gap:2; }
+#drawer item { direction:row; gap:10; padding:6 8; icon-size:20; color:#2a1a10; font:"Lora 15"; }
+#drawer item:hover { background:#e2cfa6; }
+</style>
+<desktop>
+  <canvas id="machine" place="fill" over="screen">
+    local function gear(cx, cy, r, teeth, ang, col, dark)
+      local pts = {}
+      for i = 0, teeth * 4 - 1 do
+        local a = ang + i / (teeth * 4) * 6.283
+        local rr = (i % 4 == 1 or i % 4 == 2) and r or r * 0.86
+        pts[#pts + 1] = cx + math.cos(a) * rr
+        pts[#pts + 1] = cy + math.sin(a) * rr
+      end
+      g.poly(pts, col)
+      g.circle(cx, cy, r * 0.72, dark)
+      g.circle(cx, cy, r * 0.62, col)
+      for k = 0, 4 do
+        local a = ang + k / 5 * 6.283
+        g.line(cx, cy, cx + math.cos(a) * r * 0.62, cy + math.sin(a) * r * 0.62, dark, r * 0.12)
+      end
+      g.circle(cx, cy, r * 0.2, dark)
+      g.circle(cx, cy, r * 0.1, "#f6d690")
+    end
+    function draw(w, h, t)
+      g.gradient(0, 0, w, h, "#3a2418", "#120a06")
+      for i = 0, 30 do g.line(0, i * h / 30, w, i * h / 30 + 10, "rgba(0,0,0,0.12)", 3) end
+      local s = t * 0.4
+      gear(w * 0.28, h * 0.42, 170, 24, s, "#b8862e", "#5a3a14")
+      gear(w * 0.28 + 170 + 92, h * 0.42 - 30, 100, 14, -s * 24 / 14 + 0.12, "#c87a40", "#5a2a10")
+      gear(w * 0.28 - 60, h * 0.42 + 230, 80, 11, -s * 24 / 11 + 0.2, "#d4a24c", "#5a3a14")
+      gear(w * 0.28 + 170 + 92 + 130, h * 0.42 + 110, 64, 9, s * 24 / 9 * 14 / 24, "#a8782c", "#4a2a0a")
+      gear(w * 0.1, h * 0.16, 60, 9, s * 2, "#c87a40", "#5a2a10")
+      local gx, gy, gr = w * 0.55, h * 0.78, 90
+      g.circle(gx, gy, gr + 10, "#6a4a1a")
+      g.circle(gx, gy, gr, "#f1e4c8")
+      for i = 0, 10 do
+        local a = 2.4 + i / 10 * 4.5
+        g.line(gx + math.cos(a) * gr * 0.8, gy + math.sin(a) * gr * 0.8, gx + math.cos(a) * gr * 0.95, gy + math.sin(a) * gr * 0.95, "#2a1a10", 2)
+      end
+      local na = 2.4 + (0.55 + 0.25 * math.sin(t * 0.7)) * 4.5
+      g.line(gx, gy, gx + math.cos(na) * gr * 0.85, gy + math.sin(na) * gr * 0.85, "#b0302e", 3)
+      g.circle(gx, gy, 8, "#2a1a10")
+      g.text(gx - 30, gy + 30, "PSI", "#2a1a10", 16, "PlayfairDisplay")
+      local cx, cy, cr = w * 0.28, h * 0.42, 108
+      local hh = g.clock()
+      local hrA = (hh % 12) / 12 * 6.283 - 1.5708
+      local mnA = (hh % 1) * 6.283 - 1.5708
+      g.circle(cx, cy, cr, "#f1e4c8")
+      g.arc(cx, cy, cr, 0, 6.29, "#6a4a1a", 6)
+      local N = {"XII", "III", "VI", "IX"}
+      for i = 0, 3 do
+        local a = i / 4 * 6.283 - 1.5708
+        g.text(cx + math.cos(a) * cr * 0.74 - 14, cy + math.sin(a) * cr * 0.74 - 12, N[i + 1], "#2a1a10", 20, "PlayfairDisplay")
+      end
+      g.line(cx, cy, cx + math.cos(hrA) * cr * 0.45, cy + math.sin(hrA) * cr * 0.45, "#2a1a10", 6)
+      g.line(cx, cy, cx + math.cos(mnA) * cr * 0.7, cy + math.sin(mnA) * cr * 0.7, "#2a1a10", 3)
+      g.circle(cx, cy, 6, "#b0302e")
+      g.rect(0, h - 40, w, 22, "#8a5a2a", 0)
+      g.rect(30, 0, 22, h, "#8a5a2a", 0)
+      for k = 0, 8 do g.circle(41, 60 + k * h / 9, 13, "#a8782c") end
+      local puff = (t * 0.5) % 1
+      g.glow(41, 40 - puff * 30, 30 + puff * 40, string.format("rgba(255,255,255,%.2f)", 0.25 * (1 - puff)))
+    end
+  </canvas>
+  <column id="plaques" place="right">
+    <applist apps="files,notes,terminal,companion,settings,about" labels="right"/>
+    <button what="toggle:#drawer" icon="grid" hotkey="meta">The whole works</button>
+    <button what="power:off" icon="power">Bank the fire</button>
+  </column>
+  <popover id="drawer" placement="left" align="end">
+    <search placeholder="Find a part, or ask Babbage"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

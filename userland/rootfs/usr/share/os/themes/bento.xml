@@ -1,0 +1,71 @@
+<facet>
+<meta ai-name="Miso" user-name="Sam" greeting="Good to see you, Sam." tagline="a little of everything"
+      rationale="Your day in a bento box: time, notes, a word with Miso and your apps, each in its own tidy compartment."
+      theme-about="bento grid: the whole screen is one large rounded grid of compartments of different sizes on a soft sand background (a big clock and date card, a greeting card, the companion embedded as a live view, the notes app embedded, a compact app grid card, a quiet card of quick actions), each card a different muted colour with big rounded corners and generous padding. Modern widgets, everything at a glance, nothing hidden. (#box, #clockcard, #chat)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Miso"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Reshuffle"/><app id="power" label="Shut down"/>
+</apps>
+<wallpaper kind="gradient" colors="#efe7da #f4ede2 #e9dfcf #e2d6c2" seed="3" intensity="0.2"/>
+<style>
+:root { --bg:#efe7da; --surface:#fffdf8; --surface-2:#f6f0e6; --surface-text:#2b2620; --text:#2b2620; --muted:#6e6558;
+        --accent:#d0673a; --accent2:#4f7a68; --font-heading:Syne; --font-body:Manrope; --radius:28; }
+desktop { color:var(--text); font-family:Manrope; font-size:15; }
+#box { margin:28; display:grid; columns:3; gap:16; width:1544; }
+.card { height:414; }
+.card { radius:28; padding:24; direction:column; gap:8; overflow:hidden; }
+#clockcard { background:#2b2620; color:#fffdf8; justify:end; align:start; }
+#clockcard clock.big { font:"Syne 96"; color:#fffdf8; line-height:1; }
+#clockcard clock.small { font:"Manrope 18"; color:#d9cfbf; padding:3 0; }
+#hello { background:#d0673a; color:#fffdf8; justify:space-between; }
+#hello title { font:"Syne 34"; color:#fffdf8; }
+#hello text { font:"Manrope 18"; color:#ffffff; padding:4 10; radius:12; background:rgba(60,20,5,0.35); }
+#chat { background:#fffdf8; padding:6; }
+#jot { background:#f7e7a8; padding:6; }
+#appcard { background:#cfdccf; }
+#appcard title { font:"Syne 20"; color:#2b2620; }
+#appcard applist { display:grid; columns:3; gap:10; }
+#appcard item { padding:8; gap:6; radius:18; icon-size:40; icon-shape:squircle; color:#2b2620; font-size:13; }
+#appcard item:hover { background:rgba(255,255,255,0.6); }
+#quick { background:#c9d6e8; justify:space-between; }
+#quick title { font:"Syne 20"; color:#2b2620; }
+#quick button { height:40; padding:0 16; gap:10; radius:20; justify:start; background:rgba(255,255,255,0.65); color:#2b2620; icon-size:16; }
+#quick button:hover { background:#ffffff; }
+#quick search { grow:0; height:42; padding:0 16; radius:21; background:#ffffff; color:#2b2620; }
+frame { direction:column; radius:28; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        shadow:0 24 60 rgba(60,45,25,0.25); }
+titlebar { height:52; padding:0 14 0 24; gap:6; font:"Syne 16"; color:var(--muted); }
+frame:focus titlebar { color:var(--surface-text); }
+titlebar text { grow:1; }
+titlebar button { size:34; radius:17; icon-size:12; color:var(--muted); background:var(--surface-2); }
+titlebar button:hover { background:#d0673a; color:#ffffff; }
+slot { padding:0 18 18 18; }
+</style>
+<desktop>
+  <grid id="box" place="center">
+    <column id="clockcard" class="card"><clock class="big" format="%H:%M"/><clock class="small" format="%A, %d %B"/></column>
+    <column id="hello" class="card"><title bind="greeting"/><text bind="tagline"/></column>
+    <view id="chat" class="card" app="companion"/>
+    <view id="jot" class="card" app="notes"/>
+    <column id="appcard" class="card"><title>Apps</title><applist apps="files,terminal,settings,about,prism,companion" labels="below"/></column>
+    <column id="quick" class="card">
+      <title>Quick</title>
+      <search placeholder="Find or ask Miso" hotkey="meta"/>
+      <button what="redesign" icon="sparkle">Reshuffle</button>
+      <button what="power:off" icon="power">Shut down</button>
+    </column>
+  </grid>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

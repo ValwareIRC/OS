@@ -1,0 +1,83 @@
+<facet>
+<meta ai-name="Sosumi" user-name="Sam" greeting="Welcome to your Macintosh." tagline="it just works, eventually"
+      rationale="A grey menu bar, your disks down the right edge, and a happy little computer: the late-90s Mac."
+      theme-about="Mac OS 9 Platinum: a periwinkle desktop, a light grey menu bar across the top with a rainbow-ish apple-like menu, File Edit View Special words and the time at the right, the apps as large desktop icons in a column down the RIGHT edge with labels under them, pinstriped grey windows with a close box on the left. Classic Mac, playful. (#menu, #disks, #applemenu)"/>
+<apps>
+  <app id="files" label="Macintosh HD"/><app id="companion" label="Sosumi"/><app id="notes" label="SimpleText"/>
+  <app id="settings" label="Control Panels"/><app id="about" label="About This Computer"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Appearance"/><app id="power" label="Shut Down"/>
+</apps>
+<wallpaper kind="waves" colors="#5b4fb8 #9a8be6 #7a6fd6 #3b2f8a" seed="4" intensity="0.55"/>
+<style>
+:root { --bg:#6f7fd6; --surface:#eeeeee; --surface-2:#dddddd; --surface-text:#000000; --text:#000000; --muted:#555555;
+        --accent:#3355cc; --accent2:#ff9900; --font-heading:Manrope; --font-body:Manrope; --radius:2; icon-style:classic; }
+desktop { color:#000000; font-family:Manrope; font-size:14; }
+#menu { height:28; padding:0 12; gap:20; background:linear-gradient(180deg,#f4f4f4,#d8d8d8); border:1 #888888;
+        shadow:0 1 0 rgba(0,0,0,0.3); font:"bold 14px Manrope"; color:#000000; }
+#menu button { height:26; padding:0 8; color:#000000; radius:0; }
+#menu button:hover, #menu button:open { background:#3355cc; color:#ffffff; }
+#apple { padding:0 8; }
+#apple canvas { size:18; }
+#menu clock { font:"14px Manrope"; padding:4 2; }
+#disks { margin:44 22 0 0; direction:column; align:center; gap:16; }
+#disks applist { direction:column; align:center; gap:16; }
+#disks item { width:120; gap:4; icon-size:56; icon-shape:none; icon-style:color; font:"bold 13px Manrope"; color:#ffffff; }
+#disks item label { padding:1 6; radius:3; background:rgba(20,10,60,0.6); }
+#disks item:hover label { background:#000033; color:#ffffff; text-shadow:none; }
+#applemenu { width:260; padding:3 0; direction:column; background:#eeeeee; border:1 #555555; shadow:3 3 6 rgba(0,0,0,0.4); }
+#applemenu applist { direction:column; align:stretch; gap:0; }
+#applemenu item { direction:row; gap:10; padding:4 14; icon-size:18; icon-style:classic; color:#000000; font-size:14; }
+#applemenu item:hover { background:#3355cc; color:#ffffff; }
+#applemenu divider { height:1; margin:3 0; background:#aaaaaa; }
+#applemenu button { height:26; padding:0 14; justify:start; color:#000000; font-size:14; }
+#applemenu button:hover { background:#3355cc; color:#ffffff; }
+frame { direction:column; background:#eeeeee; color:#000000; radius:2; border:1 #444444; shadow:3 3 0 rgba(0,0,0,0.3); overflow:hidden; }
+titlebar { height:24; padding:0 4; gap:6; background:repeating-linear-gradient(180deg,#dddddd,#bbbbbb); color:#555555; font:"bold 13px Manrope"; }
+frame:focus titlebar { background:linear-gradient(180deg,#e8e8e8,#c4c4c4); color:#000000; }
+titlebar text { grow:1; text-align:center; }
+titlebar button { size:24; radius:1; icon-size:10; background:#e0e0e0; border:1 #555555; color:#000000; }
+slot { padding:2; background:#ffffff; }
+</style>
+<desktop>
+  <menubar id="menu" dock="top" width="full">
+    <button id="apple" what="toggle:#applemenu" hotkey="meta">
+      <canvas>
+        function draw(w, h, t)
+          local c = {"#61bb46", "#fdb827", "#f5821f", "#e03a3e", "#963d97", "#009ddc"}
+          for i = 1, 6 do g.rect(2, (i - 1) * h / 6, w - 4, h / 6 + 0.5, c[i], 0) end
+          g.circle(w * 0.78, h * 0.32, w * 0.2, "#eeeeee")
+        end
+      </canvas>
+    </button>
+    <button what="open:files">File</button>
+    <button what="open:notes">Edit</button>
+    <button what="open:settings">View</button>
+    <button what="power:restart">Special</button>
+    <spacer/>
+    <clock format="%I:%M %p"/>
+    <button what="open:companion">Help</button>
+  </menubar>
+  <column id="disks" place="top-right">
+    <applist apps="files,notes,terminal,companion,prism" labels="below"/>
+  </column>
+  <popover id="applemenu" placement="below" align="start">
+    <button what="open:about">About This Computer</button>
+    <divider/>
+    <applist labels="right"/>
+    <divider/>
+    <button what="redesign">Appearance...</button>
+    <button what="power:off">Shut Down</button>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <button what="window:close" icon="close"/>
+      <text bind="window.title"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:minimize" icon="minimize"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

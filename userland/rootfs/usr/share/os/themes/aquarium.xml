@@ -1,0 +1,115 @@
+<facet>
+<meta ai-name="Bubbles" user-name="Sam" greeting="The water's warm today." tagline="swim along"
+      rationale="A calm aquarium fills the screen; your apps are bubbles drifting up past the fish. Pop one to open it."
+      theme-about="aquarium: a full-screen animated canvas of a blue-green tank (light rays from the surface, swaying seaweed, sand, little fish swimming back and forth), the apps as big translucent bubbles that rise slowly and wobble, each with its name inside; the bubble under the pointer swells, clicking it opens the app; a rounded tide-clock card at the top-left. Soothing, alive, underwater. (#tank, #tide, #reef)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Bubbles"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Redecorate"/><app id="power" label="Drain"/>
+</apps>
+<wallpaper kind="gradient" colors="#05374a #0a5d6e #04293a #021a26" seed="2" intensity="0.3"/>
+<style>
+:root { --bg:#05374a; --surface:rgba(240,252,255,0.96); --surface-2:#d8f1f4; --surface-text:#0b3440; --text:#eafcff; --muted:#a6dbe3;
+        --accent:#ff8a5b; --accent2:#3ee0c8; --font-heading:Outfit; --font-body:Outfit; --radius:24; }
+desktop { color:var(--text); font-family:Outfit; font-size:15; }
+#tank { size:full; }
+#tide { margin:32 0 0 36; padding:16 22; gap:2; align:start; radius:24; blur:16; background:rgba(2,40,52,0.6); border:1 rgba(166,219,227,0.4); }
+#tide clock.big { font:"Outfit 42"; color:#ffffff; }
+#tide text { font-size:15; color:#a6dbe3; }
+#tide button { margin:10 0 0 0; height:32; padding:0 14; gap:8; radius:16; background:rgba(62,224,200,0.2); color:#eafcff; icon-size:14; }
+#tide button:hover { background:rgba(62,224,200,0.4); }
+#reef { width:420; padding:16; gap:10; radius:24; blur:20; background:rgba(2,40,52,0.88); border:1 rgba(166,219,227,0.4); }
+#reef search { grow:0; height:40; padding:0 16; radius:20; background:rgba(255,255,255,0.12); color:#ffffff; }
+#reef applist { display:grid; columns:3; gap:8; }
+#reef item { padding:10; gap:6; radius:20; icon-size:38; icon-shape:circle; color:#eafcff; font-size:13; }
+#reef item:hover { background:rgba(62,224,200,0.2); }
+frame { direction:column; radius:24; overflow:hidden; background:var(--surface); color:var(--surface-text); shadow:0 24 60 rgba(0,20,30,0.5); }
+titlebar { height:44; padding:0 10 0 20; gap:6; font:"Outfit 15"; color:#4d7c86; background:#d8f1f4; }
+frame:focus titlebar { background:#3ee0c8; color:#05374a; }
+titlebar text { grow:1; }
+titlebar button { size:28; radius:14; icon-size:10; color:inherit; background:rgba(255,255,255,0.6); }
+titlebar button:hover { background:#ff8a5b; color:#ffffff; }
+slot { padding:4 16 16 16; }
+</style>
+<desktop>
+  <canvas id="tank" place="fill" over="screen">
+    local bubbles, hot = {}, nil
+    function draw(w, h, t)
+      g.gradient(0, 0, w, h, "#0a6a7a", "#02202c")
+      for i = 0, 5 do
+        local x = (i * 0.19 + 0.05) * w + math.sin(t * 0.2 + i) * 40
+        g.poly({x - 30, 0, x + 60, 0, x + 260, h * 0.8, x + 80, h * 0.8}, "rgba(200,255,250,0.04)")
+      end
+      g.gradient(0, h * 0.86, w, h * 0.14, "#c9b27a", "#8a7450")
+      for i = 0, 22 do
+        local bx = i * w / 22 + 10
+        local hh = 120 + (i * 37 % 7) * 22
+        local prevx, prevy = bx, h * 0.88
+        for k = 1, 8 do
+          local yy = h * 0.88 - k * hh / 8
+          local xx = bx + math.sin(t * 1.1 + i + k * 0.5) * k * 2.4
+          g.line(prevx, prevy, xx, yy, i % 2 == 0 and "#2f8a4a" or "#3fa05a", 6 - k * 0.5)
+          prevx, prevy = xx, yy
+        end
+      end
+      for i = 0, 6 do
+        local dir = i % 2 == 0 and 1 or -1
+        local span = w + 200
+        local fx = ((t * (40 + i * 9) + i * 300) % span) - 100
+        if dir < 0 then fx = w - fx end
+        local fy = h * (0.25 + (i * 0.09) % 0.5) + math.sin(t * 1.3 + i) * 12
+        local col = ({"#ff8a5b", "#ffd166", "#ef476f", "#06d6a0", "#ffb4a2", "#f4a261", "#e9c46a"})[i + 1]
+        g.poly({fx, fy, fx - dir * 30, fy - 12, fx - dir * 30, fy + 12}, col)
+        g.poly({fx - dir * 28, fy, fx - dir * 44, fy - 10, fx - dir * 44, fy + 10}, col)
+        g.circle(fx - dir * 6, fy - 3, 2.5, "#0b2030")
+      end
+      local apps = g.apps()
+      local px, py, over = g.pointer()
+      bubbles, hot = {}, nil
+      for i, a in ipairs(apps) do
+        local r = 56 + (i * 13 % 3) * 8
+        local speed = 14 + (i * 7 % 5) * 3
+        local cycle = (h + 2 * r) / speed
+        local y = h + r - ((t + i * cycle / #apps) % cycle) * speed
+        local x = w * (0.18 + ((i * 0.137) % 0.7)) + math.sin(t * 0.8 + i * 2) * 30
+        bubbles[#bubbles + 1] = {x = x, y = y, r = r, name = a.name, id = a.id}
+      end
+      for _, b in ipairs(bubbles) do
+        if over and (px - b.x) ^ 2 + (py - b.y) ^ 2 < b.r * b.r then hot = b.id end
+      end
+      for _, b in ipairs(bubbles) do
+        local r = b.r * (b.id == hot and 1.12 or 1)
+        g.circle(b.x, b.y, r, "rgba(220,250,255,0.16)")
+        g.arc(b.x, b.y, r, 0, 6.29, "rgba(230,255,255,0.65)", 2)
+        g.circle(b.x - r * 0.35, b.y - r * 0.4, r * 0.16, "rgba(255,255,255,0.7)")
+        g.text(b.x - #b.name * 4.6, b.y - 10, b.name, "#ffffff", 17, "Outfit")
+      end
+    end
+    function click(x, y)
+      for _, b in ipairs(bubbles) do
+        if (x - b.x) ^ 2 + (y - b.y) ^ 2 < b.r * b.r then return "open:" .. b.id end
+      end
+    end
+  </canvas>
+  <column id="tide" place="top-left">
+    <clock class="big" format="%H:%M"/>
+    <text bind="greeting"/>
+    <button what="toggle:#reef" icon="search" hotkey="meta">Find</button>
+  </column>
+  <popover id="reef" placement="below" align="start">
+    <search placeholder="Find or ask Bubbles"/>
+    <applist/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

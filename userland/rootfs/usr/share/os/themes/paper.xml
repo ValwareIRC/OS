@@ -19,7 +19,7 @@ desktop { color:var(--text); font-family:var(--font-body); font-size:16; }
 #masthead .side { width:260; direction:column; gap:2; }
 #masthead .right { align:end; }
 #edition { font:"Lora 14"; color:var(--muted); text-transform:uppercase; }
-#mdate { font:"Lora 16"; color:var(--text); }
+#mdate { font:"Lora 16"; color:var(--text); padding:3 0; }
 #name { grow:1; justify:center; font:"PlayfairDisplay 46"; color:var(--text); text-align:center; }
 #mtime { font:"PlayfairDisplay 26"; color:var(--text); }
 

@@ -1,0 +1,80 @@
+<facet>
+<meta ai-name="Helvet" user-name="Sam" greeting="Guten Tag." tagline="form follows function"
+      rationale="A Swiss poster on a strict grid: one bold red field, a huge number for the hour, and your apps as a numbered index."
+      theme-about="International Typographic Style poster: white paper with a strict 12-column grid, one huge red rectangle taking the left third with the hour as an enormous white numeral inside it, the minutes and date in small black type aligned to the grid, the apps as a numbered index in two tight columns (01 Files, 02 Notes...) in black sans-serif with hairline rules between them, a black circle as the only ornament; windows are white with a red top rule. Rational, modernist, print. (#field, #index, #meta)"/>
+<apps>
+  <app id="files" label="Dateien"/><app id="companion" label="Helvet"/><app id="notes" label="Notizen"/>
+  <app id="settings" label="Einstellungen"/><app id="about" label="Impressum"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Neu setzen"/><app id="power" label="Aus"/>
+</apps>
+<wallpaper kind="gradient" colors="#f5f3ee #f5f3ee #f2f0ea #efede6" seed="1" intensity="0.05"/>
+<style>
+:root { --bg:#f5f3ee; --surface:#ffffff; --surface-2:#f0eee8; --surface-text:#111111; --text:#111111; --muted:#555555;
+        --accent:#e3001b; --accent2:#111111; --font-heading:Inter; --font-body:Inter; --radius:0; icon-style:line; }
+desktop { color:#111111; font-family:Inter; font-size:15; }
+#field { width:520; height:full; padding:48; direction:column; justify:end; align:start; background:#e3001b; }
+#field clock.h { font:"bold 300px Inter"; color:#ffffff; line-height:0.9; letter-spacing:-0.05em; }
+#field text { font:"bold 18px Inter"; color:#ffffff; }
+#meta { margin:64 0 0 80; gap:2; align:start; }
+#meta clock { font:"bold 34px Inter"; color:#111111; padding:4 0; }
+#meta text { font:"15px Inter"; color:#555555; }
+#index { margin:220 0 0 80; width:880; display:grid; columns:2; gap:0 48; }
+#index .row { width:416; }
+#index .row { height:64; padding:0 4; gap:18; border:0; justify:start; font:"bold 26px Inter"; color:#111111; background:transparent; transition:80; }
+#index .row text { color:#111111; }
+#index .row:hover text { color:#e3001b; }
+#index .row:hover { color:#e3001b; }
+#index .n { font:"bold 14px Inter"; color:#cc0018; width:30; }
+#index .rule { height:1; background:#111111; }
+#dot { size:90; radius:50%; background:#111111; margin:0 80 80 0; }
+#dot:hover { background:#e3001b; }
+frame { direction:column; radius:0; overflow:hidden; background:#ffffff; color:#111111; border-gradient:none; border:1 #111111; }
+titlebar { height:40; padding:0 4 0 16; gap:4; background:#ffffff; color:#111111; font:"bold 15px Inter"; border:0; }
+frame:focus titlebar { background:#e3001b; color:#ffffff; }
+titlebar text { grow:1; }
+titlebar button { size:32; radius:0; icon-size:11; color:inherit; }
+titlebar button:hover { background:#111111; color:#ffffff; }
+slot { padding:6 16 16 16; }
+#all { width:420; padding:18; gap:10; radius:0; background:#ffffff; border:1 #111111; }
+#all search { grow:0; height:40; padding:0 10; radius:0; border:1 #111111; background:#ffffff; color:#111111; }
+#all applist { direction:column; align:stretch; gap:0; }
+#all item { direction:row; gap:12; padding:6 6; icon-size:20; color:#111111; font:"bold 16px Inter"; }
+#all item:hover { color:#e3001b; }
+</style>
+<desktop>
+  <column id="field" dock="left" height="full">
+    <clock class="h" format="%H"/>
+    <text bind="tagline"/>
+  </column>
+  <column id="meta" place="top-left">
+    <clock format=":%M  %A %d.%m.%Y"/>
+    <text bind="greeting"/>
+  </column>
+  <grid id="index" place="top-left">
+    <button class="row" what="open:files"><text class="n">01</text><text>Dateien</text></button>
+    <button class="row" what="open:notes"><text class="n">02</text><text>Notizen</text></button>
+    <button class="row" what="open:terminal"><text class="n">03</text><text>Terminal</text></button>
+    <button class="row" what="open:companion"><text class="n">04</text><text>Helvet</text></button>
+    <button class="row" what="open:settings"><text class="n">05</text><text>Einstellungen</text></button>
+    <button class="row" what="open:about"><text class="n">06</text><text>Impressum</text></button>
+    <button class="row" what="redesign"><text class="n">07</text><text>Neu setzen</text></button>
+    <button class="row" what="power:off"><text class="n">08</text><text>Aus</text></button>
+  </grid>
+  <button id="dot" place="bottom-right" what="toggle:#all" hotkey="meta"/>
+  <popover id="all" placement="above" align="end">
+    <search placeholder="Suchen"/>
+    <applist labels="right"/>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

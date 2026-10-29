@@ -1,0 +1,70 @@
+<facet>
+<meta ai-name="HAL" user-name="Sam" greeting="READY." tagline="phosphor and patience"
+      rationale="The whole screen is one glowing green terminal: you type, it answers, nothing else to look at."
+      theme-about="green phosphor CRT: a full-screen canvas of a curved old monitor (scanlines, glow, vignette, a faint flicker), a boot banner, the apps as a numbered text menu, a blinking prompt to type into; monospace green on black, windows framed in thin green lines. Retro computing, text only. (#tube, #menu, #prompt)"/>
+<apps>
+  <app id="files" label="FILES"/><app id="companion" label="HAL"/><app id="notes" label="EDIT"/>
+  <app id="settings" label="SETUP"/><app id="about" label="SYSINFO"/><app id="terminal" label="SHELL"/>
+  <app id="redesign" label="RESTYLE"/><app id="power" label="HALT"/>
+</apps>
+<wallpaper kind="gradient" colors="#000000 #021204 #031a06 #000000" seed="3" intensity="0.3"/>
+<style>
+:root { --bg:#010a02; --surface:#020f04; --surface-2:#05200a; --surface-text:#39ff6a; --text:#39ff6a; --muted:#1fa844;
+        --accent:#39ff6a; --accent2:#c8ffd6; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:mono; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:18; }
+#tube { size:full; }
+#menu { margin:120 0 0 140; gap:8; align:start; }
+#menu .banner { font:"JetBrainsMono 18"; color:#39ff6a; text-shadow:0 0 10 rgba(57,255,106,0.8); }
+#menu .dim { font:"JetBrainsMono 16"; color:#1fa844; text-shadow:0 0 8 rgba(57,255,106,0.5); margin:0 0 18 0; }
+#menu applist { direction:column; align:start; gap:4; }
+#menu item { padding:2 8; font:"JetBrainsMono 22"; color:#39ff6a; text-shadow:0 0 12 rgba(57,255,106,0.9); }
+#menu item icon { display:none; }
+#menu item:hover { background:#39ff6a; color:#011203; text-shadow:none; }
+#prompt { margin:22 0 0 0; grow:0; width:620; height:36; padding:0 8; radius:0; background:transparent; color:#c8ffd6;
+          font:"JetBrainsMono 22"; text-shadow:0 0 12 rgba(57,255,106,0.9); border:0; }
+#menu button { padding:2 8; font:"JetBrainsMono 22"; color:#1fa844; }
+#menu button:hover { background:#39ff6a; color:#011203; }
+frame { direction:column; radius:0; overflow:hidden; background:#010a02; color:#39ff6a; border:1 #39ff6a;
+        glow:10 rgba(57,255,106,0.25); }
+titlebar { height:30; padding:0 4 0 10; gap:4; font:"JetBrainsMono 15"; color:#39ff6a; background:#03200a; }
+frame:focus titlebar { background:#39ff6a; color:#011203; }
+titlebar text { grow:1; text-transform:uppercase; }
+titlebar button { size:26; radius:0; icon-size:10; color:inherit; }
+titlebar button:hover { background:#c8ffd6; color:#011203; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="tube" place="fill" over="screen">
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#000000")
+      g.rect(w * 0.03, h * 0.04, w * 0.94, h * 0.92, "#021006", 60)
+      g.glow(w / 2, h / 2, w * 0.55, "rgba(57,255,106,0.07)")
+      local fl = 0.05 + 0.03 * math.sin(t * 9) + 0.02 * math.sin(t * 23)
+      for y = math.floor(h * 0.04), math.floor(h * 0.96), 3 do
+        g.rect(w * 0.03, y, w * 0.94, 1, string.format("rgba(0,0,0,%.3f)", 0.35 + fl))
+      end
+      local band = (t * 60) % (h * 1.4) - h * 0.2
+      g.gradient(w * 0.03, band, w * 0.94, 90, "rgba(57,255,106,0.0)", "rgba(57,255,106,0.05)")
+    end
+  </canvas>
+  <column id="menu" place="top-left">
+    <text class="banner">OPERATING SYSTEM  (C) THE AUTHORS</text>
+    <text class="dim" bind="greeting"/>
+    <applist apps="files,notes,terminal,companion,settings,about" labels="below"/>
+    <button what="redesign">RESTYLE</button>
+    <button what="power:off">HALT</button>
+    <search id="prompt" placeholder="&gt; type a command, or ask HAL_"/>
+  </column>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

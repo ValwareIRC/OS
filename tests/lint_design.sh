@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/host
 S=userland/shell
-SRCS="tests/fm_shot.c $S/fm/*.c $S/gfx.c $S/font.c $S/design.c $S/wallpaper.c $S/icons.c $S/ui.c $S/picture.c
+SRCS="tests/fm_shot.c $S/fm/*.c $S/gfx.c $S/font.c $S/text.c $S/iconart.c $S/design.c $S/wallpaper.c $S/icons.c $S/ui.c $S/picture.c
       $S/stylist_look.c userland/lib/json.c"
 # rebuilt only when a source is newer than the tool
 if [ ! -x build/host/fm_shot ] || [ -n "$(find $SRCS $S/*.h $S/fm/*.h $S/*.inc -newer build/host/fm_shot 2>/dev/null)" ]; then

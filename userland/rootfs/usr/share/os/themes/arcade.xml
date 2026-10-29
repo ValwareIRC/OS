@@ -1,0 +1,107 @@
+<facet>
+<meta ai-name="PIXEL" user-name="P1" greeting="PRESS START" tagline="insert coin"
+      rationale="An 8-bit title screen: pixel mountains scroll by, the logo bounces, and your apps are the game menu."
+      theme-about="8-bit arcade title screen: a full-screen canvas of chunky pixel art (a night sky with blocky stars, parallax pixel mountains and clouds scrolling sideways, a pixel moon), a big blocky logo, the apps as a centred game menu of uppercase entries with a blinking arrow cursor beside the hovered one, 'PRESS START' blinking, a HI-SCORE line with the time at the top; hard pixel edges, a four-colour NES-like palette, windows with thick pixel-step borders. Retro gaming, fun. (#game, #menu, #score)"/>
+<apps>
+  <app id="files" label="INVENTORY"/><app id="companion" label="PIXEL"/><app id="notes" label="QUEST LOG"/>
+  <app id="settings" label="OPTIONS"/><app id="about" label="CREDITS"/><app id="terminal" label="CHEAT CODES"/>
+  <app id="redesign" label="NEW GAME+"/><app id="power" label="GAME OVER"/>
+</apps>
+<wallpaper kind="gradient" colors="#1a1038 #261656 #140c2c #0a0618" seed="1" intensity="0.1"/>
+<style>
+:root { --bg:#1a1038; --surface:#0f0a24; --surface-2:#2a1a5c; --surface-text:#fcfcfc; --text:#fcfcfc; --muted:#9c8cf0;
+        --accent:#f8b800; --accent2:#e40058; --font-heading:JetBrainsMono; --font-body:JetBrainsMono; --radius:0; icon-style:mono; }
+desktop { color:#fcfcfc; font-family:JetBrainsMono; font-size:16; }
+#game { size:full; }
+#score { margin:24 0 0 0; gap:60; }
+#score text, #score clock { font:"bold 20px JetBrainsMono"; color:#fcfcfc; padding:4 0; }
+#score .hi { color:#ff4f8f; }
+#menu { margin:120 0 0 0; padding:24 40; gap:6; align:start; background:#0f0a24; border:4 #fcfcfc; }
+#menu applist { direction:column; align:start; gap:6; }
+#menu item { padding:4 10 4 34; font:"bold 24px JetBrainsMono"; color:#fcfcfc; }
+#menu item icon { display:none; }
+#menu item:hover { color:#f8b800; background:#2a1a5c; }
+#menu button { padding:4 10 4 34; font:"bold 24px JetBrainsMono"; color:#9c8cf0; }
+#menu button:hover { color:#f8b800; background:#2a1a5c; }
+frame { direction:column; radius:0; overflow:hidden; background:#0f0a24; color:#fcfcfc; border:4 #fcfcfc; shadow:8 8 0 #000000; }
+titlebar { height:36; padding:0 4 0 12; gap:4; background:#2a1a5c; color:#9c8cf0; font:"bold 15px JetBrainsMono"; }
+frame:focus titlebar { background:#e40058; color:#fcfcfc; }
+titlebar text { grow:1; text-transform:uppercase; }
+titlebar button { size:28; radius:0; icon-size:11; color:#fcfcfc; background:#0f0a24; border:2 #fcfcfc; }
+titlebar button:hover { background:#f8b800; color:#0f0a24; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="game" place="fill" over="screen">
+    local P = 8
+    local function px(x, y, wd, ht, c) g.rect(math.floor(x / P) * P, math.floor(y / P) * P, wd * P, ht * P, c) end
+    local LOGO = {
+      "XXXX  XXX XX XX XXXX X   ",
+      "X  X   X   X X  X    X   ",
+      "XXXX   X    X   XXX  X   ",
+      "X      X   X X  X    X   ",
+      "X     XXX XX XX XXXX XXXX",
+    }
+    function draw(w, h, t)
+      g.gradient(0, 0, w, h, "#0a0618", "#2a1a5c")
+      for i = 0, 60 do
+        local sx, sy = (i * 157) % w, (i * 89) % (h * 0.5)
+        if (math.floor(t * 2 + i) % 5) ~= 0 then px(sx, sy, 1, 1, i % 3 == 0 and "#f8b800" or "#fcfcfc") end
+      end
+      px(w * 0.8, h * 0.12, 8, 8, "#fcfcfc")
+      px(w * 0.8 + 16, h * 0.12 + 8, 3, 3, "#c8c8e8")
+      local function range(speed, base, amp, col, period)
+        local off = (t * speed) % (period * P)
+        for x = -period * P, w + period * P, P do
+          local xx = x - off
+          local k = math.floor((x) / P)
+          local hh = math.floor(amp * (math.abs(((k % period) - period / 2)) / (period / 2)))
+          px(xx, base - hh * P, 1, hh + 60, col)
+        end
+      end
+      range(12, h * 0.72, 14, "#3c2a8c", 28)
+      range(30, h * 0.84, 9, "#1e5a3a", 16)
+      g.rect(0, h * 0.9, w, h * 0.1, "#0f3a24")
+      for i = 0, 3 do
+        local cx = ((i * 420 + t * 20) % (w + 300)) - 150
+        px(cx, h * 0.25 + i * 30, 10, 2, "#fcfcfc")
+        px(cx + 2 * P, h * 0.25 + i * 30 - P, 5, 1, "#fcfcfc")
+      end
+      local bob = math.floor(math.sin(t * 3) * 2) * P
+      local lx = w / 2 - #LOGO[1] * P * 1.5 / 2
+      for r, line in ipairs(LOGO) do
+        for c = 1, #line do
+          if line:sub(c, c) == "X" then
+            g.rect(lx + (c - 1) * 12 + 4, 92 + (r - 1) * 12 + bob + 4, 12, 12, "#e40058")
+            g.rect(lx + (c - 1) * 12, 92 + (r - 1) * 12 + bob, 12, 12, "#f8b800")
+          end
+        end
+      end
+      if math.floor(t * 2) % 2 == 0 then
+        g.text(w / 2 - 92, h * 0.88, "PRESS START", "#fcfcfc", 26, "JetBrainsMono")
+      end
+    end
+  </canvas>
+  <row id="score" place="top">
+    <text>1UP  00000</text>
+    <text class="hi">HI-SCORE</text>
+    <clock format="%H%M%S"/>
+  </row>
+  <column id="menu" place="center">
+    <applist apps="companion,files,notes,terminal,settings,about" labels="below"/>
+    <button what="redesign">NEW GAME+</button>
+    <button what="power:off" hotkey="meta">GAME OVER</button>
+  </column>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>
