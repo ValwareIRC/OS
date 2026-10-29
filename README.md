@@ -4,8 +4,7 @@ An operating system written from scratch in C, inspired by OS1 in *Her*. You tal
 to it, it gets to know you, and it designs your whole desktop. There is no stock
 theme, start menu or file explorer.
 
-The full plan and the reasoning behind it are in the project plan. The short
-version: our own x86-64 kernel, whose native system call interface is the Linux
+In short: our own x86-64 kernel, whose native system call interface is the Linux
 ABI (so musl, llama.cpp, whisper.cpp, Wayland apps and Firefox can run on it),
 an AI daemon with on-device voice and a bundled local model, and **Facet**, the UI
 language the AI uses to design every screen.
