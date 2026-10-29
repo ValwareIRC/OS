@@ -16,7 +16,10 @@ MUSL_CC     ?= musl-gcc
 # Development-only: Ubuntu's static busybox (GPL) gives us a shell and the
 # usual tools to exercise the Linux ABI. It is never part of a release image.
 BUSYBOX     ?= /bin/busybox
-OVMF        ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd))
+OVMF        ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd \
+                 /opt/homebrew/share/qemu/edk2-x86_64-code.fd /usr/local/share/qemu/edk2-x86_64-code.fd))
+OVMF_VARS   ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_VARS_4M.fd \
+                 /opt/homebrew/share/qemu/edk2-i386-vars.fd /usr/local/share/qemu/edk2-i386-vars.fd))
 QEMU        ?= qemu-system-x86_64
 QEMU_FLAGS  ?= -M q35 -m 2G -smp 4 -cpu max -no-reboot -netdev user,id=n0 -device e1000,netdev=n0
 # The persistent disk for `make run`: /dev/sda inside the OS, created empty
@@ -29,11 +32,17 @@ DISK_FLAGS  := -drive id=disk0,file=$(DISK_IMG),format=raw,if=none -device ide-h
 
 all: iso
 
+ifeq ($(shell uname -s),Darwin)
+# The build needs an x86-64 Linux toolchain, so on macOS we run it in an Ubuntu container.
+kernel ports userland initrd base iso:
+	docker build -q --platform linux/amd64 -t os-builder - < scripts/builder.Dockerfile >/dev/null
+	docker run --rm --platform linux/amd64 -v "$(CURDIR)":/os -w /os os-builder make $@
+else
 kernel:
 	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel OUT=../$(KERNEL)
 
 ports:
-	ports/build-ports.sh
+	bash ports/build-ports.sh
 
 userland: ports
 	$(MAKE) -C userland OUT=../$(BUILD)/userland PORTS=../$(BUILD)/ports
@@ -96,6 +105,7 @@ iso: kernel initrd base $(LIMINE_DIR)
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
 		$(BUILD)/iso_root -o $(ISO) 2>/dev/null
 	$(LIMINE_DIR)/limine bios-install $(ISO) 2>/dev/null
+endif
 
 # On a Windows drive under WSL (/mnt/c) NTFS keeps the file sparse only if
 # told so before it grows; elsewhere fsutil.exe is absent and truncate is enough.
@@ -106,7 +116,7 @@ $(DISK_IMG):
 	truncate -s 1G $@
 
 run: iso | $(DISK_IMG)
-	cp /usr/share/OVMF/OVMF_VARS_4M.fd $(BUILD)/ovmf_vars.fd
+	cp $(OVMF_VARS) $(BUILD)/ovmf_vars.fd
 	$(QEMU) $(QEMU_FLAGS) -drive if=pflash,format=raw,readonly=on,file=$(OVMF) \
 		-drive if=pflash,format=raw,file=$(BUILD)/ovmf_vars.fd $(DISK_FLAGS) -cdrom $(ISO) -serial stdio
 
@@ -114,11 +124,11 @@ run-bios: iso | $(DISK_IMG)
 	$(QEMU) $(QEMU_FLAGS) $(DISK_FLAGS) -cdrom $(ISO) -serial stdio
 
 test: iso
-	OVMF=$(OVMF) QEMU=$(QEMU) ISO=$(ISO) tests/boot_test.sh
+	OVMF=$(OVMF) OVMF_VARS=$(OVMF_VARS) QEMU=$(QEMU) ISO=$(ISO) tests/boot_test.sh
 
 # Two boots on one disk image: what the first writes, the second must read.
 test-persist: iso
-	OVMF=$(OVMF) QEMU=$(QEMU) ISO=$(ISO) tests/disk_persist_test.sh
+	OVMF=$(OVMF) OVMF_VARS=$(OVMF_VARS) QEMU=$(QEMU) ISO=$(ISO) tests/disk_persist_test.sh
 
 clean:
 	find $(BUILD) -mindepth 1 -maxdepth 1 ! -name $(notdir $(DISK_IMG)) -exec rm -rf {} + 2>/dev/null || true

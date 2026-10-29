@@ -33,6 +33,9 @@ make test     # headless boot tests (UEFI and BIOS), with a scratch disk attache
 make test-persist  # two boots on one disk image: data must survive the power cycle
 ```
 
+On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubuntu container and
+`make run` boots it in the Mac's QEMU.
+
 ## Layout
 
 | Path | What |
