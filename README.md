@@ -10,6 +10,20 @@ ABI (so musl, llama.cpp, whisper.cpp, Wayland apps and Firefox can run on it),
 an AI daemon with on-device voice and a bundled local model, and **Facet**, the UI
 language the AI uses to design every screen.
 
+## What it looks like
+
+Every desktop is written by the AI for the person in front of it, so no two look alike. These are the
+six starter designs it can begin from, as they look on first boot:
+
+| | |
+|---|---|
+| ![Aqua: a glassy blue desktop with a dock and a clock card](docs/screenshots/aqua.png) | ![Calm: a quiet light desktop with a large clock and a small dock](docs/screenshots/calm.png) |
+| **Aqua** | **Calm** |
+| ![Frost: a dark aurora desktop with a frosted clock card and an orb](docs/screenshots/frost.png) | ![Luna: a classic blue-and-green desktop with icons and a start button](docs/screenshots/luna.png) |
+| **Frost** | **Luna** |
+| ![Neon: dark with glowing pink and cyan lines and a side dock](docs/screenshots/neon.png) | ![Paper: a newspaper-like desktop with serif type and an index](docs/screenshots/paper.png) |
+| **Neon** | **Paper** |
+
 ## Building (inside WSL Ubuntu or Linux)
 
 ```
