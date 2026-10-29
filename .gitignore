@@ -20,3 +20,6 @@ lumen.conf
 .vscode/
 *.orig
 __pycache__/
+
+# Personal launchers for running it in a VM on one PC
+*.cmd

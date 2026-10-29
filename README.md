@@ -1,4 +1,4 @@
-# Operating System (formerly the OS)
+# Operating System
 
 An operating system written from scratch in C, inspired by OS1 in *Her*. You talk
 to it, it gets to know you, and it designs your whole desktop. There is no stock
@@ -96,26 +96,30 @@ ones in the OS's own plain style. From the onboarding conversation on, the AI sh
 DOC.xml OUT.png` boots the OS straight into a document. `tests/demo.py` drives a complete first boot in
 QEMU against a local model and saves screenshots.
 
-## Try the demo image
+## Running it
 
-`build/os.iso` boots on UEFI and BIOS machines and virtual machines (it is also a USB image: write it to
-a stick with a raw writer such as Rufus in DD mode, or balenaEtcher).
+`make` produces `build/os.iso`, which boots on UEFI and BIOS machines, real or virtual. How you run it is
+up to you:
 
-- **On this PC:** double-click `Operating System.cmd`. It starts the image in a window (QEMU in WSL, with KVM). A model
-  served by Ollama on this PC is reachable from the OS at the default "On your network" address.
-- **VirtualBox / VMware:** create a 64-bit "Other" VM with 3 GB of memory and 4 CPUs, NAT networking with
-  the Intel PRO/1000 (e1000) adapter, attach the ISO and boot. For Ollama on the same PC, the default
-  address (`http://10.0.2.2:11434/v1`) works as is.
-- **A cloud provider:** pick it on the first screen and paste your key with Ctrl+V. `Operating System.cmd` shares this
-  PC's clipboard with the OS (text only, from the PC into the OS).
-- **Start already connected:** copy `os.conf.example` to `os.conf`, fill in the provider and key, and
-  `Operating System.cmd` hands them to the OS at boot. On a real PC, add `cmdline: os.provider=... os.key=...` to
-  `boot/limine/limine.conf` on the USB stick (an example is in that file).
+- **A virtual machine** (QEMU, VirtualBox, VMware, Hyper-V...): 64-bit, 8 GB of memory or more, 4 CPUs,
+  the ISO as its CD, an empty disk on SATA/AHCI or virtio if you want it to remember you, and an Intel
+  PRO/1000 (e1000) network adapter. `make run` starts it in QEMU.
+- **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD mode, balenaEtcher, `dd`), or
+  copy the ISO's files onto a FAT32 stick for UEFI. Turn off Secure Boot. It only ever writes to a disk
+  that is blank or already its own; any other drive is left untouched.
 
-What works in this build: first boot, the onboarding conversation, the AI designing the whole desktop,
-files, notes, the companion (talk to it; it can open apps and redesign the desktop). Not yet: voice,
-Wi-Fi, saving anything across reboots (the disk driver is in; saving to it comes next), the offline built-in model, real-hardware
-drivers beyond Intel e1000 and PS/2.
+The first screen asks for a mind: the small model that comes with the system (works offline), a bigger
+one downloaded onto this computer, a model on your network (Ollama, LM Studio), or a cloud provider with
+your key. To start already connected on a real PC, add `cmdline: os.provider=... os.key=...` to
+`boot/limine/limine.conf` (an example is in that file).
+
+Hardware support is still narrow: Intel e1000 networking, AHCI and virtio disks, Intel HD Audio, PS/2
+keyboard and mouse (and the VMware/QEMU pointer). USB, NVMe, other network cards and Wi-Fi are not
+there yet.
+
+`scripts/` holds the helpers used while developing it, for example `scripts/os-vm.sh` (QEMU with KVM, in
+Linux or WSL) and `scripts/os-win.ps1` (Windows QEMU), which can pass AI settings from an `os.conf`
+(see `os.conf.example`).
 
 ## Trying it
 
