@@ -1,0 +1,12 @@
+<facet base="calm">
+<meta ai-name="Moss" user-name="Ines" greeting="Slow start today, Ines." tagline="tea first, then the thesis"
+      rationale="Your quiet room, in the green you said calms you."/>
+<apps><app id="files" label="Papers"/><app id="companion" label="Moss"/><app id="notes" label="Margins"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Rearrange"/><app id="power" label="Rest"/></apps>
+<wallpaper kind="gradient" colors="#e3e9e1 #f1f4ef #d6e0d4 #c9d5c6" seed="2" intensity="0.35"/>
+<style>
+:root { --accent:#3f6f55; --muted:#59625a; --text:#26302a; --surface-text:#26302a; --font-heading:Fraunces; }
+#time { font:"Fraunces 104"; }
+</style>
+</facet>

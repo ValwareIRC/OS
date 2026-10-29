@@ -1,0 +1,107 @@
+<facet>
+<meta ai-name="Aria" user-name="Sam" greeting="Afternoon, Sam." tagline="clear water, clear head"
+      rationale="Light, clear glass and one blue you can find anything by."
+      theme-about="Aqua, made modern: a light frosted menu bar, a glass dock that swells under the pointer, a full-screen launcher, pale windows with gel buttons, blue water behind. Polished and calm. (#menubar, #dock, #launch)"/>
+<apps>
+  <app id="files" label="Finder"/><app id="companion" label="Aria"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="New Look"/><app id="power" label="Shut Down"/>
+</apps>
+<wallpaper kind="aurora" colors="#0b3f8f #7fd3ff #bfe6ff #062a66" seed="11" intensity="0.6"/>
+<style>
+:root { --bg:#0f4fa6; --surface:#f5f6f8; --surface-2:#e6e9ee; --surface-text:#1c1d21; --text:#ffffff;
+        --muted:#6a6f78; --accent:#1f74e8; --accent2:#5ac8fa; --font-heading:Inter; --font-body:Inter; --radius:12; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
+
+#menubar { height:34; padding:0 18; gap:22; blur:26; saturate:1.7; background:rgba(248,250,253,0.86);
+           color:#1c1d21; font-size:14; border:1 rgba(255,255,255,0.6); shadow:0 1 8 rgba(0,20,60,0.12); }
+#drop { size:26; radius:13; background:radial-gradient(#8fd0ff,#1f74e8); border:1 rgba(255,255,255,0.8); }
+#drop:hover { background:radial-gradient(#b3e0ff,#2f86f6); }
+#me { font-size:14; color:#1c1d21; height:26; padding:0 8; radius:6; }
+#me:hover, #all:hover { background:rgba(31,116,232,0.14); }
+#all { height:26; padding:0 8; radius:6; color:#1c1d21; font-size:14; }
+#menubar clock { color:#1c1d21; }
+
+#apple { width:280; padding:8; gap:2; radius:12; blur:30; saturate:1.6; background:rgba(248,250,253,0.9);
+         color:#1c1d21; border:1 rgba(255,255,255,0.8); shadow:0 14 40 rgba(0,20,60,0.3); margin:6 0 0 0; }
+#apple button { height:32; padding:0 12; justify:start; radius:7; font-size:14; color:#1c1d21; gap:10; icon-size:16; }
+#apple button:hover { background:var(--accent); color:#ffffff; }
+#apple divider { margin:4 10; height:1; background:rgba(0,0,0,0.1); }
+
+#glance { width:300; padding:18 22; gap:4; radius:20; blur:28; saturate:1.6; background:rgba(255,255,255,0.2);
+          border:1 rgba(255,255,255,0.45); shadow:0 10 30 rgba(0,20,60,0.2); margin:24 28 0 0; }
+#time { font:"Inter 52"; color:#ffffff; }
+#day { font-size:15; color:#f4f8ff; }
+#hi { margin:8 0 0 0; font-size:15; color:#ffffff; }
+#dock { padding:8 10; gap:6; radius:24; blur:30; saturate:1.8; background:rgba(255,255,255,0.3);
+        border:1 rgba(255,255,255,0.6); shadow:0 12 34 rgba(0,25,70,0.35); margin:0 0 14 0; }
+#dock item { padding:3; icon-size:54; icon-shape:squircle; icon-style:filled; transition:150; }
+#dock item:hover { transform:scale(1.28) translate(0,-12); }
+#dock divider { width:1; height:46; margin:0 4; background:rgba(255,255,255,0.55); }
+#dock button { size:60; radius:16; icon-size:26; color:#ffffff; background:linear-gradient(180deg,#7cc0ff,#1f74e8);
+               border:1 rgba(255,255,255,0.7); transition:150; }
+#dock button:hover { transform:scale(1.18) translate(0,-8); }
+
+#launch { padding:60 0 0 0; gap:44; align:center; blur:34; saturate:1.4; background:rgba(8,32,74,0.55); }
+#launch search { grow:0; width:360; height:40; padding:0 16; radius:20; background:rgba(255,255,255,0.2);
+                 border:1 rgba(255,255,255,0.45); color:#ffffff; font-size:15; }
+#launch applist { display:grid; columns:6; gap:34; }
+#launch item { width:120; gap:10; icon-size:76; icon-shape:squircle; icon-style:filled; font-size:14; color:#ffffff;
+               transition:140; }
+#launch item:hover { transform:scale(1.08); }
+
+frame { direction:column; radius:12; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        border:1 rgba(0,0,0,0.18); shadow:0 22 60 rgba(0,20,60,0.42); }
+titlebar { height:40; padding:0 12 0 8; gap:0; background:linear-gradient(180deg,#f7f8fa,#e4e7ec);
+           color:#3b3e45; font:"Inter 14"; }
+frame:focus titlebar { color:#1c1d21; }
+titlebar text { grow:1; text-align:center; }
+.light { size:24; radius:12; }
+.gel { size:13; radius:7; border:1 rgba(0,0,0,0.22); }
+#close .gel { background:radial-gradient(#ff8a80,#e5483e); }
+#min .gel { background:radial-gradient(#ffd77a,#e7a91e); }
+#max .gel { background:radial-gradient(#8ee69a,#2fae4a); }
+.light:hover .gel { border:1 rgba(0,0,0,0.5); }
+#balance { width:72; }
+slot { padding:12 16 16 16; }
+</style>
+<desktop>
+  <menubar id="menubar" dock="top" width="full">
+    <button id="drop" what="toggle:#apple"/>
+    <text id="me" bind="ai.name" what="open:companion"/>
+    <button id="all" what="toggle:#launch">Everything</button>
+    <spacer/>
+    <clock format="%a %d %b   %H:%M"/>
+  </menubar>
+  <popover id="apple" placement="below" align="start">
+    <button what="open:about" icon="about">About this computer</button>
+    <button what="open:settings" icon="settings">Settings</button>
+    <button what="redesign" icon="sparkle">New look</button>
+    <divider/>
+    <button what="power:restart" icon="moon">Restart</button>
+    <button what="power:off" icon="power">Shut down</button>
+  </popover>
+  <column id="glance" place="top-right"><clock id="time" format="%H:%M"/><clock id="day" format="%A, %d %B"/><text id="hi" bind="greeting"/></column>
+  <dock id="dock" dock="bottom">
+    <applist apps="files,companion,notes,terminal,settings" labels="hover"/>
+    <divider/>
+    <button what="toggle:#launch" icon="grid"/>
+  </dock>
+  <sheet id="launch" hotkey="meta">
+    <search placeholder="Search"/>
+    <applist/>
+  </sheet>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <button id="close" class="light" what="window:close"><row class="gel"/></button>
+      <button id="min" class="light" what="window:minimize"><row class="gel"/></button>
+      <button id="max" class="light" what="window:maximize"><row class="gel"/></button>
+      <text bind="window.title"/>
+      <row id="balance"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

@@ -1,0 +1,126 @@
+<facet>
+<meta ai-name="Luna" user-name="Sam" greeting="Good to see you, Sam." tagline="everything where you left it"
+      rationale="A bar you already know by heart, made calmer and clearer."
+      theme-about="a modern take on Windows XP Luna: a blue taskbar with a green start button, a two-column start menu, icons on a Bliss-like hill, blue window frames. Familiar and friendly. (#taskbar, #start, #startmenu, #icons)"/>
+<apps>
+  <app id="files" label="Documents"/><app id="companion" label="Luna"/><app id="notes" label="Notepad"/>
+  <app id="settings" label="Control Panel"/><app id="about" label="This Computer"/><app id="terminal" label="Command Prompt"/>
+  <app id="redesign" label="New Look"/><app id="power" label="Turn Off"/>
+</apps>
+<wallpaper kind="dunes" colors="#3d8a22 #86c43f #a7d0f5 #2a6fd8" seed="7" intensity="0.75"/>
+<style>
+:root { --bg:#2a6fd8; --surface:#f4f2ea; --surface-2:#dce9fb; --surface-text:#16233a; --text:#ffffff;
+        --muted:#5d6676; --accent:#2563d9; --accent2:#2f8a38; --font-heading:Manrope; --font-body:Inter; --radius:8; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
+
+#icons { gap:14; margin:20 0 0 20; }
+#icons item { width:118; gap:6; padding:6 4; radius:6; font-size:13; text-align:center; icon-size:44;
+              icon-shape:squircle; icon-style:filled; transition:120; }
+#icons item label { padding:2 8; radius:6; background:rgba(10,35,90,0.45); }
+#icons item:hover { background:rgba(255,255,255,0.18); }
+
+#taskbar { height:44; padding:0 6 0 0; gap:6; background:linear-gradient(180deg,#3a7ef0,#1c4fc4);
+           border:1 #143e9e; shadow:0 -2 10 rgba(0,20,60,0.3); }
+#start { height:44; padding:0 26 0 14; gap:9; radius:0 18 18 0; font:"Manrope 19"; color:#ffffff;
+         background:linear-gradient(180deg,#36913f,#1b6224); border-gradient:linear-gradient(180deg,rgba(255,255,255,0.45),rgba(255,255,255,0.05));
+         border:1 #ffffff; shadow:2 0 8 rgba(0,30,0,0.35); transition:100; }
+#start:hover { background:linear-gradient(180deg,#45a84e,#237530); }
+#start:open { background:linear-gradient(180deg,#1d6826,#17561f); }
+#flag { size:20; }
+windowlist { grow:1; gap:4; padding:0 6; }
+windowlist item { height:32; max-width:190; padding:0 10; gap:7; radius:6; font-size:13; icon-size:18; icon-style:line;
+                  background:rgba(255,255,255,0.14); border:1 rgba(255,255,255,0.22); transition:100; }
+windowlist item:hover { background:rgba(255,255,255,0.24); }
+windowlist item:open { background:rgba(4,24,90,0.45); border:1 rgba(255,255,255,0.12); }
+#tray { height:44; padding:0 16; gap:12; background:rgba(4,22,80,0.32); border:1 rgba(255,255,255,0.12); font-size:13; }
+#tray button { size:28; radius:14; icon-size:16; }
+#tray button:hover { background:rgba(255,255,255,0.18); }
+
+#startmenu { width:468; radius:12 12 4 4; overflow:hidden; background:#ffffff; color:var(--surface-text);
+             border:1 #1c4fc4; shadow:6 10 30 rgba(0,20,60,0.45); }
+#user { height:72; padding:0 18; gap:14; background:linear-gradient(180deg,#3a7ef0,#1c4fc4); color:#ffffff;
+        font:"Manrope 20"; }
+#user orb { size:48; }
+#rule { height:2; background:linear-gradient(90deg,#f39a3a,rgba(255,255,255,0.6)); }
+#cols { align:stretch; }
+#left { width:248; padding:10 8; gap:2; background:#ffffff; }
+#right { width:218; padding:10 8; gap:2; background:var(--surface-2); border:1 #c3d8f5; }
+#left item, #right item { direction:row; justify:start; gap:10; padding:6 10; radius:6; font-size:14; icon-size:30;
+                          icon-shape:squircle; icon-style:filled;
+                          transition:80; }
+#right item { icon-size:24; icon-shape:none; icon-style:line; color:#0c2a6b; }
+#left item:hover, #right item:hover { background:var(--accent); color:#ffffff; }
+#left divider { margin:6 10; height:1; background:#e1e4ea; }
+#right divider { margin:6 10; height:1; background:#b9cff0; }
+#right search { grow:0; height:36; margin:4 2 0 2; radius:6; background:#ffffff; border:1 #a9c3ea; color:#0c2a6b;
+                font-size:14; }
+#foot { height:52; padding:0 12; gap:6; justify:end; background:linear-gradient(180deg,#2f6fe0,#1c4fc4); }
+#foot button { height:36; padding:0 12; gap:8; radius:6; color:#ffffff; font-size:14; icon-size:20; }
+#foot button:hover { background:rgba(255,255,255,0.18); }
+#rest icon { color:#ffd27a; }
+#off icon { color:#ff9a7a; }
+
+frame { direction:column; radius:10 10 4 4; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        border:1 #1c4fc4; shadow:0 12 34 rgba(0,20,60,0.4); }
+titlebar { height:36; padding:0 6 0 12; gap:4; color:#ffffff; font:"Manrope 15";
+           background:linear-gradient(180deg,#86a6dc,#6c8dcc); }
+frame:focus titlebar { background:linear-gradient(180deg,#3a7ef0,#1d55cf); }
+titlebar text { grow:1; }
+titlebar button { size:26; radius:5; icon-size:11; color:#ffffff; border:1 rgba(255,255,255,0.75);
+                  background:linear-gradient(180deg,#5d93f3,#2c62d9); }
+titlebar button:hover { background:linear-gradient(180deg,#7aa7f7,#3b72e3); }
+titlebar #close { background:linear-gradient(180deg,#ee8a66,#c9431f); }
+titlebar #close:hover { background:linear-gradient(180deg,#f6a283,#d8542f); }
+slot { padding:10 14 14 14; }
+</style>
+<desktop>
+  <applist id="icons" place="top-left" apps="about,files,terminal,companion" labels="below" style="direction:column"/>
+  <taskbar id="taskbar" dock="bottom" width="full">
+    <button id="start" what="toggle:#startmenu" hotkey="meta">
+      <canvas id="flag">
+        function draw(w, h, t)
+          local s = math.floor(w / 2) - 1
+          g.rect(0, 0, s, s, '#f25022', 2)
+          g.rect(s + 2, 0, s, s, '#7fba00', 2)
+          g.rect(0, s + 2, s, s, '#00a4ef', 2)
+          g.rect(s + 2, s + 2, s, s, '#ffb900', 2)
+        end
+      </canvas>
+      start
+    </button>
+    <windowlist/>
+    <row id="tray"><button what="open:companion" icon="bell"/><clock format="time12"/></row>
+  </taskbar>
+  <popover id="startmenu" placement="above" align="start">
+    <row id="user"><orb/><text bind="user.name"/></row>
+    <row id="rule"/>
+    <row id="cols">
+      <column id="left">
+        <applist apps="files,companion,notes,terminal" labels="right"/>
+        <divider/>
+        <applist apps="flower,smoke,prism" labels="right"/>
+      </column>
+      <column id="right">
+        <applist apps="about,settings,redesign" labels="right"/>
+        <divider/>
+        <search placeholder="Run or find..."/>
+      </column>
+    </row>
+    <row id="foot">
+      <button id="rest" what="power:restart" icon="moon">Restart</button>
+      <button id="off" what="power:off" icon="power">Turn Off</button>
+    </row>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button id="close" what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

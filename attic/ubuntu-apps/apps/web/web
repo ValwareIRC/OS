@@ -1,0 +1,23 @@
+#!/bin/sh
+# The Web app: NetSurf (GTK 3) as a Wayland window in the shell's compositor.
+#   web [URL]     opens URL, or the start page
+# The shell starts it from /apps/web/app.conf; the terminal can too.
+
+# There is no D-Bus, accessibility bus or settings daemon here: GTK is told
+# to keep its settings in memory and not to look for them.
+export NO_AT_BRIDGE=1 GTK_A11Y=none GSETTINGS_BACKEND=memory GIO_USE_VFS=local
+export GDK_BACKEND=wayland
+export HOME="${HOME:-/root}"
+[ "$HOME" = / ] && export HOME=/root
+# Its settings, bookmarks, history and cookies stay in the home (kept on the
+# disk); the page cache is only for this session, so the disk doesn't fill.
+export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME=/tmp/web-cache
+start=file:///usr/share/os/web/start.html
+choices="$XDG_CONFIG_HOME/netsurf/Choices"
+if [ ! -f "$choices" ]; then
+    mkdir -p "$XDG_CONFIG_HOME/netsurf"
+    cat > "$choices" <<CHOICES
+homepage_url:$start
+CHOICES
+fi
+exec /usr/bin/netsurf-gtk "${1:-$start}"

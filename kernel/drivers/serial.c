@@ -1,0 +1,78 @@
+#include <kernel/cpu.h>
+#include <kernel/drivers.h>
+
+#define COM1 0x3f8
+
+static bool present;
+
+bool serial_init(void) {
+    outb(COM1 + 1, 0x00); /* interrupts off */
+    outb(COM1 + 3, 0x80); /* DLAB on */
+    outb(COM1 + 0, 0x01); /* divisor 1 = 115200 baud */
+    outb(COM1 + 1, 0x00);
+    outb(COM1 + 3, 0x03); /* 8N1 */
+    outb(COM1 + 2, 0xc7); /* FIFO on, cleared, 14-byte threshold */
+    outb(COM1 + 4, 0x1e); /* loopback mode for the self-test */
+    outb(COM1 + 0, 0xae);
+    if (inb(COM1 + 0) != 0xae)
+        return present = false;
+    outb(COM1 + 4, 0x0f); /* normal operation */
+    return present = true;
+}
+
+static void serial_putc(char c) {
+    for (int spins = 0; spins < 100000 && !(inb(COM1 + 5) & 0x20); spins++)
+        ;
+    outb(COM1, (uint8_t)c);
+}
+
+void serial_write(const char *s, uint64_t len) {
+    if (!present)
+        return;
+    for (uint64_t i = 0; i < len; i++) {
+        if (s[i] == '\n')
+            serial_putc('\r');
+        serial_putc(s[i]);
+    }
+}
+
+/* ---- COM2: text from the host (clipboard sharing in VMs) ----
+ * The VM launcher connects COM2 to a small program on the host that sends
+ * the host's clipboard whenever it changes. the OS reads it from
+ * /dev/hostclip; nothing here interprets it. */
+
+#define COM2 0x2f8
+
+static bool com2_present;
+
+bool com2_init(void) {
+    outb(COM2 + 1, 0x00);
+    outb(COM2 + 3, 0x80);
+    outb(COM2 + 0, 0x01);
+    outb(COM2 + 1, 0x00);
+    outb(COM2 + 3, 0x03);
+    outb(COM2 + 2, 0xc7);
+    outb(COM2 + 4, 0x1e);
+    outb(COM2 + 0, 0x5a);
+    if (inb(COM2 + 0) != 0x5a)
+        return com2_present = false;
+    outb(COM2 + 4, 0x0f);
+    /* Whatever is already waiting (a clipboard sent while booting) is left
+     * for the reader: draining it here in a tight loop is exactly the
+     * pattern that, under some hypervisors (Windows' WHPX), keeps QEMU's
+     * own thread from running and freezes its window. */
+    return com2_present = true;
+}
+
+/* Non-blocking: returns what has arrived (0 if nothing). Every port access
+ * is a VM exit, so it reads only what is ready, a FIFO's worth at a time,
+ * and never waits: the shell calls it every frame anyway. */
+int64_t com2_read(void *buf, uint64_t len) {
+    if (!com2_present)
+        return 0;
+    uint8_t *b = buf;
+    uint64_t n = 0;
+    while (n < len && n < 64 && (inb(COM2 + 5) & 1))
+        b[n++] = inb(COM2);
+    return (int64_t)n;
+}

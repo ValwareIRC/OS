@@ -1,0 +1,33 @@
+#!/bin/sh
+# Runs an AppImage. There is no FUSE here to mount one, so it is unpacked
+# once into ~/.apps/NAME (again only when the file changes) and started from
+# there, on the system's own libraries. The desktop starts it as an ordinary
+# user, so Electron apps (they ship chrome-sandbox) keep Chromium's own
+# sandbox, and draw in software straight to the Wayland compositor.
+#   run-appimage FILE.AppImage [ARGS...]
+img=$1
+shift
+[ -f "$img" ] || { echo "run-appimage: no such file: $img" >&2; exit 1; }
+name=$(basename "$img" | sed 's/\.[Aa]pp[Ii]mage$//; s/[^A-Za-z0-9._-]/_/g')
+home=${HOME:-/root}
+[ "$home" = / ] && home=/root
+dest=$home/.apps/$name
+stamp=$(stat -c %s-%Y "$img")
+if [ "$(cat "$dest/.stamp" 2>/dev/null)" != "$stamp" ]; then
+    work=/tmp/appimage-$$
+    rm -rf "$dest" "$work"
+    mkdir -p "$work" "$dest"
+    chmod +x "$img"
+    (cd "$work" && "$img" --appimage-extract >/dev/null) || { echo "run-appimage: $img could not be unpacked" >&2; exit 1; }
+    cp -a "$work/squashfs-root/." "$dest/"
+    rm -rf "$work"
+    echo "$stamp" > "$dest/.stamp"
+fi
+export APPDIR=$dest HOME=$home XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
+export NO_AT_BRIDGE=1 GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland ELECTRON_OZONE_PLATFORM_HINT=wayland
+export LD_LIBRARY_PATH="$dest/usr/lib:$dest/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+mkdir -p "$home/.config"
+if [ -e "$dest/chrome-sandbox" ]; then # Electron: Wayland, and no GPU here
+    set -- --ozone-platform=wayland --disable-gpu --disable-gpu-compositing "$@"
+fi
+exec "$dest/AppRun" "$@"

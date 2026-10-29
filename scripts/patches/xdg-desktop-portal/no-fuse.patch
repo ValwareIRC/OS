@@ -1,0 +1,47 @@
+--- a/document-portal/document-portal.c
++++ b/document-portal/document-portal.c
+@@ -66,6 +66,7 @@
+ static int final_exit_status = 0;
+ static GError *exit_error = NULL;
+ static dev_t fuse_dev = 0;
++static gboolean no_fuse = FALSE; /* Operating System: running without the FUSE mount */
+ static GQueue get_mount_point_invocations = G_QUEUE_INIT;
+ static XdpDbusDocuments *dbus_api;
+ 
+@@ -1190,6 +1191,12 @@
+ static gboolean
+ handle_get_mount_point (XdpDbusDocuments *object, GDBusMethodInvocation *invocation)
+ {
++  if (no_fuse)
++    {
++      g_dbus_method_invocation_return_error (invocation, XDG_DESKTOP_PORTAL_ERROR, XDG_DESKTOP_PORTAL_ERROR_FAILED,
++                                             "No document file system (FUSE) on this system");
++      return TRUE;
++    }
+   if (fuse_dev == 0)
+     {
+       /* We mustn't reply to this until the FUSE mount point is open for
+@@ -1567,9 +1574,20 @@
+ 
+   if (!xdp_fuse_init (&exit_error))
+     {
+-      final_exit_status = 6;
+-      g_printerr ("fuse init failed: %s", exit_error->message);
+-      g_main_loop_quit (loop);
++      /* Operating System: no FUSE yet. Keep serving what needs none: a
++       * file the app can already reach is handed back as its own path
++       * (DOCUMENT_ADD_FLAGS_AS_NEEDED_BY_APP), which is what an Open dialog
++       * in an app with filesystem=home needs. */
++      g_printerr ("fuse init failed: %s; documents only for apps that can already reach them\n", exit_error->message);
++      g_clear_error (&exit_error);
++      no_fuse = TRUE;
++      fuse_dev = (dev_t) -1; /* no file is on the (absent) document file system */
++      while ((invocation = g_queue_pop_head (&get_mount_point_invocations)) != NULL)
++        {
++          g_dbus_method_invocation_return_error (invocation, XDG_DESKTOP_PORTAL_ERROR, XDG_DESKTOP_PORTAL_ERROR_FAILED,
++                                                 "No document file system (FUSE) on this system");
++          g_object_unref (invocation);
++        }
+       return;
+     }
+ 

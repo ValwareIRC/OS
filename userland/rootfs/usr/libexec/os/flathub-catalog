@@ -1,0 +1,35 @@
+#!/bin/sh
+# Writes what Flathub offers, one app per line, for the launcher:
+#   id <TAB> name <TAB> summary <TAB> runtime <TAB> download size
+# from Flathub's AppStream data (names and summaries) and its index
+# (runtimes and sizes). Usage: flathub-catalog OUTFILE
+out=${1:-/var/lib/os/flathub.tsv}
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$(dirname "$out")"
+# both installations call their remote flathub, so say which (the disk's
+# when it is set up, as the launcher installs there) or flatpak won't pick
+if [ -e /var/lib/os-data/flatpak/repo/config ]; then
+    inst=--installation=os-data base=/var/lib/os-data/flatpak
+else
+    inst=--system base=/var/lib/flatpak
+fi
+flatpak $inst update --appstream flathub >/dev/null
+flatpak $inst remote-ls flathub --app --columns=application,runtime,download-size >"$tmp/index" || exit 1
+as=$base/appstream/flathub/x86_64/active/appstream.xml.gz
+[ -r "$as" ] && gzip -dc "$as" | awk '
+    function text(s) { sub(/^[^>]*>/, "", s); sub(/<\/[a-z]+>.*$/, "", s); gsub(/&amp;/, "\\&", s); gsub(/&lt;/, "<", s);
+                       gsub(/&gt;/, ">", s); gsub(/&quot;/, "\"", s); gsub(/&apos;/, "\x27", s); gsub(/\t/, " ", s); return s }
+    # one component closes and the next opens on the same line: print, then reset
+    /<\/component>/ { if (id != "") print id "\t" name "\t" summary; id = ""; name = ""; summary = "" }
+    /<component[ >]/ { id = ""; name = ""; summary = "" }
+    /^ *<id>/ && id == "" { id = text($0) }
+    /^ *<name>/ && name == "" { name = text($0) }
+    /^ *<summary>/ && summary == "" { summary = text($0) }
+' >"$tmp/meta"
+touch "$tmp/meta"
+awk -F'\t' 'NR == FNR { name[$1] = $2; summary[$1] = $3; next }
+    { id = $1; n = name[id]
+      if (n == "") { n = id; sub(/^.*\./, "", n) }
+      print id "\t" n "\t" summary[id] "\t" $2 "\t" $3 }' "$tmp/meta" "$tmp/index" >"$tmp/out" &&
+    [ -s "$tmp/out" ] && mv "$tmp/out" "$out"

@@ -1,0 +1,22 @@
+#!/bin/sh
+# Prism (Electron) inside the OS: unpacked from its AppImage at build time,
+# since there is no FUSE here to mount it. Chromium's sandbox needs kernel
+# namespaces this system doesn't have yet, and there is no GPU, so it runs
+# unsandboxed and draws in software, straight to the Wayland compositor.
+APPDIR=/apps/prism/root
+export APPDIR
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export HOME="${HOME:-/root}"
+[ "$HOME" = / ] && export HOME=/root
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export NO_AT_BRIDGE=1 GSETTINGS_BACKEND=memory ELECTRON_OZONE_PLATFORM_HINT=wayland
+mkdir -p "$HOME/.config" /tmp/prism-cache
+# Diagnostics handed in by a test VM (fw_cfg opt/os/app.env), e.g. WAYLAND_DEBUG=1.
+[ -r /etc/os/app.env ] && . /etc/os/app.env
+# Not as root: Electron refuses to run any of its processes as root without
+# a sandbox, and Prism starts helpers of its own. (Files aren't permission-
+# checked here yet, so the same home works.)
+exec /usr/bin/python3 -c 'import os, sys
+os.setgroups([]); os.setgid(1000); os.setuid(1000)
+os.execv(sys.argv[1], sys.argv[1:])' "$APPDIR/prism" --no-sandbox --no-zygote --ozone-platform=wayland --enable-features=UseOzonePlatform \
+    --disable-gpu --disable-gpu-compositing --disable-gpu-sandbox --disable-dev-shm-usage --disk-cache-dir=/tmp/prism-cache "$@"

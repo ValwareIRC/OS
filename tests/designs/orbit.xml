@@ -1,0 +1,37 @@
+<facet>
+<meta ai-name="Ember" user-name="Noor" greeting="I'm here whenever you want me." tagline="" rationale="No bars, no menus: your things circle the light that is me, and the time is told the way you'd say it."/>
+<apps><app id="files" label="Keepsakes"/><app id="companion" label="Ember"/><app id="notes" label="Thoughts"/><app id="settings" label="Tuning"/><app id="about" label="Origins"/><app id="redesign" label="Change me"/><app id="power" label="Rest"/></apps>
+<wallpaper kind="aurora" colors="#1a0b10 #ff8a5c #ffd29e #08040a" seed="9" intensity="0.75"/>
+<style>
+:root { --bg:#1a0b10; --surface:rgba(40,18,22,0.82); --text:#fff4ea; --muted:#d9b8a6; --accent:#ff8a5c; --accent2:#ffd29e; --font-heading:Fraunces; --font-body:Manrope; --radius:22; }
+#top { direction:column; align:center; gap:8; margin:56 0 0 0; }
+#hour { font:"Fraunces 44"; color:#fff4ea; }
+#top text { font:"Manrope 17"; color:rgba(255,236,220,0.75); }
+#halo { display:stack; size:640; align:center; justify:center; }
+#core { size:170; }
+#ring { display:orbit; orbit:240; }
+#ring item { icon-size:60; icon-shape:circle; icon-style:glow; gap:8; color:#ffe9d6; font-size:14; transition:220; padding:6; radius:50%; }
+#ring item:hover { scale:1.18; glow:28 rgba(255,150,100,0.55); }
+#ask { width:560; height:56; radius:28; padding:0 24; gap:12; blur:22; saturate:1.4; background:rgba(255,240,230,0.10); border:1 rgba(255,210,180,0.35); color:#fff; font-size:17; margin:0 0 44 0; icon-size:20; }
+#ask:focus { border:1 rgba(255,210,180,0.8); glow:22 rgba(255,140,90,0.35); }
+#rest { size:44; radius:22; margin:28; background:rgba(255,255,255,0.08); icon-size:18; color:#ffd8c4; transition:160; }
+#rest:hover { background:rgba(255,120,90,0.4); }
+frame { direction:column; radius:26; background:var(--surface); blur:26; border-gradient:linear-gradient(180deg,rgba(255,200,170,0.5),rgba(255,200,170,0.05)); border:1 rgba(255,200,170,0.3); shadow:0 30 70 rgba(0,0,0,0.55); glow:30 rgba(255,120,80,0.12); overflow:hidden; color:#fff4ea; }
+frame:focus { glow:40 rgba(255,130,90,0.25); }
+titlebar { height:52; padding:0 18 0 24; gap:10; font:"Fraunces 19"; }
+titlebar button { size:30; radius:15; icon-size:12; color:#ffd8c4; }
+titlebar button:hover { background:rgba(255,140,100,0.3); }
+slot { padding:4 24 24 24; }
+#pill { margin:28; padding:6 8; gap:4; radius:22; background:rgba(255,255,255,0.08); border:1 rgba(255,220,200,0.2); blur:16; color:#ffd8c4; }
+#pill notifications, #pill quicksettings { icon-size:20; padding:6; radius:16; transition:140; }
+#pill notifications:hover, #pill quicksettings:hover, #pill notifications:open, #pill quicksettings:open { background:rgba(255,120,90,0.3); }
+</style>
+<desktop>
+  <column id="top" place="top"><clock id="hour" format="words"/><text bind="greeting"/></column>
+  <stack id="halo" place="center"><orb id="core"/><applist id="ring" apps="files,notes,settings,about,redesign" labels="below"/></stack>
+  <search id="ask" place="bottom" icon="sparkle" placeholder="Ask me anything, or name a thing to open"/>
+  <row id="pill" place="top-right"><notifications toasts="top-left"/><quicksettings/></row>
+  <button id="rest" place="bottom-right" icon="moon" what="power:off"/>
+</desktop>
+<template id="window"><frame><titlebar drag="window"><text bind="window.title" style="grow:1"/><button what="window:close" icon="close"/></titlebar><slot/></frame></template>
+</facet>

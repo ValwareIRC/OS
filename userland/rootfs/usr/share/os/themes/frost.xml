@@ -1,0 +1,95 @@
+<facet>
+<meta ai-name="Ember" user-name="Sam" greeting="Hello again, Sam." tagline="light through ice"
+      rationale="Everything is frosted glass over moving colour: light, layered, never heavy."
+      theme-about="frosted glass: a slow aurora behind clear frosted panels, a glass card with the time and their greeting, a glass dock, a blurred launcher, translucent windows. Luminous and modern. (#card, #dock, #launch)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Ember"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Reimagine"/><app id="power" label="Sleep"/>
+</apps>
+<wallpaper kind="aurora" colors="#141c4f #5fe0cf #c18bff #090c2a" seed="4" intensity="0.85"/>
+<style>
+:root { --bg:#141c4f; --surface:rgba(22,26,64,0.62); --surface-2:rgba(255,255,255,0.12); --surface-text:#f4f6ff;
+        --text:#ffffff; --muted:#c4c9e8; --accent:#7c6cff; --accent2:#5fe0cf; --font-heading:Sora; --font-body:Inter;
+        --radius:22; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
+
+#card { width:420; padding:28 32; gap:6; radius:28; blur:32; saturate:1.7; background:rgba(255,255,255,0.12);
+        border:1 rgba(255,255,255,0.32); shadow:0 20 50 rgba(5,8,30,0.35); margin:56 0 0 64; }
+#time { font:"Sora 88"; color:#ffffff; line-height:1; }
+#date { font:"Sora 18"; color:#e2e5ff; }
+#card divider { height:1; margin:14 0 10 0; background:rgba(255,255,255,0.25); }
+#greet { font:"Sora 22"; color:#ffffff; }
+#tag { font-size:15; color:#d8dcf5; }
+#card search { grow:0; height:44; margin:14 0 0 0; padding:0 18; radius:22; background:rgba(8,10,40,0.28);
+               border:1 rgba(255,255,255,0.3); color:#ffffff; font-size:15; }
+
+#corner { size:76; margin:40 48 0 0; radius:38; blur:24; background:rgba(255,255,255,0.1);
+          border:1 rgba(255,255,255,0.3); }
+
+#dock { padding:10 12; gap:8; radius:30; blur:32; saturate:1.8; background:rgba(255,255,255,0.14);
+        border:1 rgba(255,255,255,0.36); shadow:0 16 40 rgba(5,8,30,0.35); margin:0 0 22 0; }
+#dock item { padding:2; icon-size:54; icon-shape:circle; icon-style:duotone; transition:150; }
+#dock item:hover { transform:scale(1.22) translate(0,-10); }
+#dock divider { width:1; height:44; margin:0 4; background:rgba(255,255,255,0.35); }
+#dock button { size:58; radius:29; icon-size:22; color:#ffffff; background:rgba(255,255,255,0.18);
+               border:1 rgba(255,255,255,0.4); transition:150; }
+#dock button:hover { background:rgba(255,255,255,0.3); }
+
+#launch { padding:72 0 0 0; gap:40; align:center; blur:40; saturate:1.5; background:rgba(10,12,40,0.5); }
+#launch title { font:"Sora 30"; color:#ffffff; }
+#launch applist { display:grid; columns:6; gap:30; }
+#launch item { width:124; gap:10; padding:10; radius:24; icon-size:70; icon-shape:circle; icon-style:duotone;
+               font-size:14; color:#ffffff; transition:140; }
+#launch item:hover { background:rgba(255,255,255,0.14); }
+#launch .ends { gap:12; }
+#launch .ends button { height:40; padding:0 18; gap:8; radius:20; background:rgba(255,255,255,0.14);
+                       border:1 rgba(255,255,255,0.3); color:#ffffff; font-size:14; icon-size:16; }
+#launch .ends button:hover { background:rgba(255,255,255,0.26); }
+
+frame { direction:column; radius:22; overflow:hidden; blur:34; saturate:1.6; background:var(--surface);
+        color:var(--surface-text); border:1 rgba(255,255,255,0.3); shadow:0 26 64 rgba(5,8,30,0.45); }
+titlebar { height:50; padding:0 12 0 22; gap:6; font:"Sora 16"; color:var(--muted); }
+frame:focus titlebar { color:#ffffff; }
+titlebar text { grow:1; }
+titlebar button { size:30; radius:15; icon-size:11; color:#ffffff; background:rgba(255,255,255,0.12); }
+titlebar button:hover { background:rgba(255,255,255,0.26); }
+titlebar #x:hover { background:#ff6b8a; }
+slot { padding:4 22 22 22; }
+</style>
+<desktop>
+  <column id="card" place="top-left">
+    <clock id="time" format="%H:%M"/>
+    <clock id="date" format="%A, %d %B"/>
+    <divider/>
+    <text id="greet" bind="greeting"/>
+    <text id="tag" bind="tagline"/>
+    <search placeholder="Ask Ember anything"/>
+  </column>
+  <orb id="corner" place="top-right"/>
+  <dock id="dock" dock="bottom">
+    <applist apps="files,companion,notes,terminal,settings" labels="hover"/>
+    <divider/>
+    <button what="toggle:#launch" icon="grid" hotkey="meta"/>
+  </dock>
+  <sheet id="launch">
+    <title>Everything</title>
+    <applist/>
+    <row class="ends">
+      <button what="redesign" icon="sparkle">Reimagine</button>
+      <button what="power:off" icon="power">Sleep</button>
+    </row>
+  </sheet>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button id="x" what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

@@ -1,0 +1,143 @@
+<facet>
+<meta ai-name="Luna" user-name="Sam" greeting="" tagline="" rationale="A throwaway Windows XP (Luna) theme, written by hand to show what the Facet engine can do."/>
+<apps>
+  <app id="files" label="My Documents"/><app id="companion" label="Luna"/><app id="notes" label="Notepad"/>
+  <app id="settings" label="Control Panel"/><app id="about" label="My Computer"/><app id="terminal" label="Command Prompt"/>
+  <app id="redesign" label="Display Properties"/><app id="power" label="Turn Off Computer"/>
+  <app id="smoke" label="Smoke"/><app id="prism" label="Prism"/><app id="flower" label="Flower"/>
+</apps>
+<!-- Bliss: blue sky over a green hill -->
+<wallpaper kind="dunes" colors="#3a7d1e #7cbd3c #9fc9f0 #2c6fd6" seed="7" intensity="0.75"/>
+<style>
+:root { --bg:#3a6ea5; --surface:#ece9d8; --surface-text:#000000; --text:#ffffff; --muted:#5a5a5a;
+        --accent:#316ac5; --accent2:#3c9c3c; --font-heading:Inter; --font-body:Inter; --radius:3;
+        icon-style:classic; }
+
+/* ---- desktop icons ---- */
+#icons { gap:18; margin:16 0 0 14; }
+#icons item { width:84; gap:6; padding:4; color:#ffffff; font:"Inter 13"; text-align:center; icon-size:44; radius:2;
+           text-shadow:1 1 1 rgba(0,0,0,0.85); }
+#icons item:hover { background:rgba(49,106,197,0.55); }
+
+/* ---- taskbar ---- */
+taskbar { height:32; padding:0; gap:0; background:linear-gradient(180deg,#3168d5,#1c4fc4); border:1 #0c37b0; }
+#start { height:32; padding:0 22 0 10; gap:6; radius:0 12 12 0; color:#ffffff; font:"bold italic 19px Inter";
+         text-shadow:1 1 2 rgba(0,0,0,0.55); background:linear-gradient(180deg,#4ea54e,#2b8a2b); shadow:2 0 4 rgba(0,0,0,0.45); transition:80; }
+#start:hover { background:linear-gradient(180deg,#5cb85c,#33983a); }
+#start:open { background:linear-gradient(180deg,#2b7a2b,#246a24); }
+#flag { size:18; }
+windowlist { grow:1; gap:3; padding:2 6; }
+windowlist item { direction:row; height:26; max-width:160; padding:0 8; gap:6; radius:3; justify:start;
+                  background:linear-gradient(180deg,#5c95f5,#3b77e8); border:1 #2858c7; color:#ffffff;
+                  font:"Inter 12"; icon-size:16; }
+windowlist item:hover { background:linear-gradient(180deg,#71a5fa,#4a86f0); }
+windowlist item:open { background:linear-gradient(180deg,#1e52b7,#2b63cc); border:1 #123f9c; }
+#tray { height:32; padding:0 12; gap:8; align:center; background:linear-gradient(180deg,#14a3f0,#0d8de0);
+        border:1 #0a6cc0; color:#ffffff; font:"Inter 12"; }
+#tray clock { color:#ffffff; font:"Inter 12"; }
+#tray volume, #tray network, #tray notifications { icon-size:18; padding:2; radius:3; }
+#tray volume:hover, #tray network:hover, #tray notifications:hover, #tray clock:hover { background:rgba(255,255,255,0.18); }
+#tray volume:open, #tray network:open, #tray notifications:open { background:rgba(0,0,60,0.25); }
+
+/* ---- start menu ---- */
+#startmenu { width:420; direction:column; radius:8 8 0 0; overflow:hidden; background:#ffffff;
+             border:1 #1c4fc4; shadow:4 6 18 rgba(0,0,0,0.5); }
+#user { height:62; padding:0 12; gap:10; align:center;
+        background:linear-gradient(180deg,#2367da,#1449c2); color:#ffffff; font:"bold 18px Inter";
+        text-shadow:1 1 2 rgba(0,0,0,0.5); }
+#pic { size:46; radius:4; border:2 #ffffff; background:linear-gradient(180deg,#f7b44a,#e07c12); }
+#rule { height:2; background:linear-gradient(90deg,#f19b3c,#ffffff); }
+#cols { direction:row; align:stretch; }
+#cols applist { gap:0; }
+#right search { grow:0; margin:6 4; }
+#left { width:212; direction:column; padding:6 4; gap:0; background:#ffffff; }
+#left item { direction:row; justify:start; gap:8; padding:5 8; radius:0; color:#000000; font:"Inter 13"; icon-size:28; }
+#left item:hover { background:#316ac5; color:#ffffff; }
+#pinned item { font:"bold 14px Inter"; icon-size:32; }
+#left divider { margin:4 8; background:#d6d3ce; height:1; }
+#all { margin:4 10; padding:6 10; gap:8; justify:center; color:#000000; font:"bold 13px Inter"; radius:0; }
+#all:hover { background:#316ac5; color:#ffffff; }
+#right { width:206; direction:column; padding:8 6; gap:0; background:#d3e5fa; border:1 #95bdee; }
+#right item { direction:row; justify:start; gap:8; padding:5 8; color:#00136b; font:"Inter 13"; icon-size:24; radius:0; }
+#right item:hover { background:#316ac5; color:#ffffff; }
+#right divider { margin:4 8; background:#9dbbe9; height:1; }
+#foot { height:40; padding:0 10; gap:10; justify:end; align:center;
+        background:linear-gradient(180deg,#2367da,#1449c2); }
+#foot button { padding:4 8; gap:6; color:#ffffff; font:"Inter 13"; icon-size:20; radius:3; }
+#foot button:hover { background:rgba(255,255,255,0.18); }
+#logoff icon { color:#f7b44a; }
+#shutdown icon { color:#f05a3c; }
+
+/* ---- windows ---- */
+frame { direction:column; radius:8 8 0 0; overflow:hidden; background:var(--surface); color:#000000;
+        border:2 #0831d9; shadow:3 6 16 rgba(0,0,0,0.45); }
+titlebar { height:30; padding:0 5 0 8; gap:3; align:center; color:#ffffff; font:"bold 14px Inter";
+           text-shadow:1 1 1 rgba(0,0,0,0.45);
+           background:linear-gradient(180deg,#7a9ee0,#6b8fd6); }
+frame:focus titlebar { background:linear-gradient(180deg,#0a5ef0,#0347d4); }
+titlebar text { grow:1; }
+titlebar button { size:22; radius:3; icon-size:11; color:#ffffff; border:1 #ffffff;
+                  background:linear-gradient(180deg,#5a8ef5,#2c5fd8); }
+titlebar button:hover { background:linear-gradient(180deg,#7aa7fa,#3d70e3); }
+titlebar #close { background:linear-gradient(180deg,#e9805e,#c4401f); }
+titlebar #close:hover { background:linear-gradient(180deg,#f29a7a,#d4512f); }
+slot { padding:8 12 12 12; }
+
+/* ---- Command Prompt: the classic black console ---- */
+terminal { background:#000000; color:#c0c0c0; caret-color:#c0c0c0; cursor:underline; }
+</style>
+<desktop>
+  <applist id="icons" place="top-left" apps="about,files,terminal,notes" labels="below" style="direction:column"/>
+  <taskbar dock="bottom" width="full">
+    <button id="start" what="toggle:#startmenu" hotkey="meta">
+      <canvas id="flag" script="
+        function draw(w, h, t)
+          local s = math.floor(w / 2) - 1
+          g.rect(0, 0, s, s, '#f25022', 1)
+          g.rect(s + 2, 0, s, s, '#7fba00', 1)
+          g.rect(0, s + 2, s, s, '#00a4ef', 1)
+          g.rect(s + 2, s + 2, s, s, '#ffb900', 1)
+        end"/>
+      start
+    </button>
+    <windowlist/>
+    <row id="tray"><volume/><network/><notifications toasts="bottom-right"/><clock id="clock" format="time12"/></row>
+  </taskbar>
+  <popover id="startmenu" placement="above" align="start">
+    <row id="user"><row id="pic"/><text bind="user.name"/></row>
+    <row id="rule"/>
+    <row id="cols">
+      <column id="left">
+        <applist id="pinned" apps="terminal,files" labels="right"/>
+        <divider/>
+        <applist apps="companion,notes,smoke,flower,prism" labels="right"/>
+        <spacer/>
+        <divider/>
+        <button id="all" what="toggle:#startmenu">All Programs</button>
+      </column>
+      <column id="right">
+        <applist apps="files,about" labels="right"/>
+        <divider/>
+        <applist apps="settings,redesign" labels="right"/>
+        <divider/>
+        <search placeholder="Run..."/>
+      </column>
+    </row>
+    <row id="foot">
+      <button id="logoff" what="toggle:#startmenu" icon="moon">Log Off</button>
+      <button id="shutdown" what="power:off" icon="power">Turn Off Computer</button>
+    </row>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button id="close" what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

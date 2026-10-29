@@ -1,0 +1,86 @@
+<facet>
+<meta ai-name="Wren" user-name="Sam" greeting="Morning, Sam. Nothing urgent." tagline="one thing at a time"
+      rationale="Almost nothing on the screen, so what you came to do is the only thing there."
+      theme-about="calm minimal: warm stone light, a large quiet clock and greeting, one slim floating bar of line icons, a soft white launcher card, white windows with generous space. Restful and focused. (#hello, #bar, #all)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Wren"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Rearrange"/><app id="power" label="Rest"/>
+</apps>
+<wallpaper kind="gradient" colors="#ebe6de #f5f2ec #e2dcd2 #d6cfc3" seed="2" intensity="0.35"/>
+<style>
+:root { --bg:#ebe6de; --surface:#fdfcfa; --surface-2:#f3f0ea; --surface-text:#2a2825; --text:#2a2825;
+        --muted:#5f5b54; --accent:#4f7a68; --accent2:#c98b6b; --font-heading:Outfit; --font-body:Inter; --radius:16; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:15; }
+
+#hello { gap:6; margin:72 0 0 96; align:start; }
+#time { font:"Outfit 112"; color:var(--text); line-height:1; }
+#date { font:"Outfit 22"; color:var(--muted); }
+#greet { margin:22 0 0 0; font:"Outfit 26"; color:var(--text); }
+#tag { font-size:16; color:var(--muted); }
+
+#bar { height:60; padding:0 10; gap:4; radius:30; background:rgba(253,252,250,0.78); blur:22; saturate:1.2;
+       border:1 rgba(255,255,255,0.9); shadow:0 10 30 rgba(70,55,35,0.14); margin:0 0 28 0; }
+#bar item { size:44; padding:0; justify:center; radius:22; icon-size:24; icon-shape:none; icon-style:line; color:#3d3a35;
+            transition:140; }
+#bar item:hover { background:rgba(79,122,104,0.14); color:var(--accent); }
+#bar divider { width:1; height:24; margin:0 6; background:rgba(42,40,37,0.14); }
+#bar button { size:44; radius:22; icon-size:20; color:#3d3a35; transition:140; }
+#bar button:hover { background:rgba(79,122,104,0.14); color:var(--accent); }
+
+#all { width:400; padding:20; gap:14; radius:22; background:var(--surface); color:var(--surface-text);
+       border:1 rgba(42,40,37,0.08); shadow:0 24 60 rgba(70,55,35,0.22); margin:0 0 4 0; }
+#all title { font:"Outfit 22"; color:var(--surface-text); padding:0 6; }
+#all search { grow:0; height:42; padding:0 16; radius:21; background:var(--surface-2); color:var(--surface-text);
+              font-size:15; }
+#all applist { display:grid; columns:2; gap:4; align:stretch; }
+#all item { direction:row; justify:start; gap:12; padding:8 10; radius:12; icon-size:28; icon-shape:squircle;
+            icon-style:duotone; font-size:15; color:var(--surface-text); transition:100; }
+#all item:hover { background:var(--surface-2); }
+#all .quiet { gap:8; justify:end; }
+#all .quiet button { height:34; padding:0 14; gap:8; radius:17; font-size:14; color:var(--muted); icon-size:16; }
+#all .quiet button:hover { background:var(--surface-2); color:var(--surface-text); }
+
+frame { direction:column; radius:18; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        border:1 rgba(42,40,37,0.08); shadow:0 24 64 rgba(70,55,35,0.2); }
+titlebar { height:52; padding:0 12 0 24; gap:4; font:"Outfit 17"; color:var(--muted); }
+frame:focus titlebar { color:var(--surface-text); }
+titlebar text { grow:1; }
+titlebar button { size:32; radius:16; icon-size:12; color:var(--muted); }
+titlebar button:hover { background:var(--surface-2); color:var(--surface-text); }
+slot { padding:4 24 24 24; }
+</style>
+<desktop>
+  <column id="hello" place="top-left">
+    <clock id="time" format="%H:%M"/>
+    <clock id="date" format="%A, %d %B"/>
+    <text id="greet" bind="greeting"/>
+    <text id="tag" bind="tagline"/>
+  </column>
+  <row id="bar" place="bottom" layer="above">
+    <applist apps="companion,files,notes,terminal" labels="hover"/>
+    <divider/>
+    <button what="toggle:#all" icon="grid" hotkey="meta"/>
+  </row>
+  <popover id="all" placement="above" align="center">
+    <title>Everything</title>
+    <search placeholder="Find or ask"/>
+    <applist apps="files,companion,notes,terminal,settings,about,flower,smoke,prism" labels="right"/>
+    <row class="quiet">
+      <button what="redesign" icon="sparkle">Rearrange</button>
+      <button what="power:off" icon="power">Rest</button>
+    </row>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

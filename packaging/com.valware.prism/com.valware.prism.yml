@@ -1,0 +1,56 @@
+# Prism as a Flatpak on the Freedesktop runtime the OS itself is made of.
+# Chromium's sandbox works inside Flatpak's through zypak, which turns its
+# sandboxed helper processes into Flatpak sub-sandboxes: no --no-sandbox.
+# Build: scripts/build-prism-flatpak.sh
+id: com.valware.prism
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: prism
+separate-locales: false
+appstream-compose: false
+build-options:
+  no-debuginfo: true
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets
+  - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
+modules:
+  - name: zypak
+    build-options:
+      cxxflags: -Wno-template-body
+    sources:
+      - type: git
+        url: https://github.com/refi64/zypak
+        branch: main
+    buildsystem: simple
+    build-commands:
+      - make install PREFIX=/app
+
+  - name: prism
+    buildsystem: simple
+    sources:
+      - type: archive
+        path: Prism.tar.gz
+        dest: prism
+      - type: file
+        path: prism.sh
+      - type: file
+        path: com.valware.prism.desktop
+      - type: file
+        path: com.valware.prism.metainfo.xml
+      - type: file
+        path: icon.png
+    build-commands:
+      - cp -a prism /app/prism
+      - install -Dm755 prism.sh /app/bin/prism
+      - install -Dm644 com.valware.prism.desktop /app/share/applications/com.valware.prism.desktop
+      - install -Dm644 com.valware.prism.metainfo.xml /app/share/metainfo/com.valware.prism.metainfo.xml
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.valware.prism.png

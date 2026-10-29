@@ -1,0 +1,22 @@
+# Build output, release images and the disks the VMs keep
+build/
+build-merge/
+dist/
+*.iso
+*.img
+*.gguf
+*.log
+
+# Fetched by the build (make: Limine into vendor/)
+vendor/
+
+# AI settings with keys (os.conf.example is the template)
+os.conf
+lumen.conf
+
+# Editor and tool state
+.prism/
+.playwright-mcp/
+.vscode/
+*.orig
+__pycache__/

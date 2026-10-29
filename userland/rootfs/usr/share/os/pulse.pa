@@ -1,0 +1,11 @@
+# The sound server apps talk to (PulseAudio's protocol; Flatpak apps reach it
+# at $XDG_RUNTIME_DIR/pulse/native). Started by init as the session's user.
+.nofail
+load-module module-native-protocol-unix auth-anonymous=1 socket=/run/user/1000/pulse/native
+# the sound card, through the kernel's /dev/dsp (OSS); playback only for now
+load-module module-oss device=/dev/dsp record=0 playback=1 mmap=0 sink_name=speakers sink_properties=device.description=Speakers
+# something to play into even with no card, so apps never fail to start
+load-module module-always-sink
+# let go of the card a second after the last sound, so the OS's own voice can use it
+load-module module-suspend-on-idle timeout=1
+set-default-sink speakers

@@ -1,0 +1,12 @@
+# Boot parameters for the OS in a VM. Copy to os.conf (next to Operating System.cmd),
+# fill in, and the OS starts already connected, skipping "Choose a mind".
+# The key stays on this PC and is handed to the VM at boot; it is never
+# written into the disk image.
+#
+# provider: anthropic, openai, gemini, glm, deepseek, mistral, xai, openrouter,
+#           groq, together, fireworks, cerebras, ollama, lmstudio, ...
+provider=anthropic
+key=
+# Optional. Leave empty for the provider's default model and address.
+model=
+url=

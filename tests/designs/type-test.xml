@@ -1,0 +1,50 @@
+<facet>
+<meta ai-name="Ada" user-name="Sam" greeting="" tagline="" rationale="A test sheet for typography and icon styles."/>
+<wallpaper kind="gradient" colors="#1e2230 #2a3145 #39415c #12141c" seed="3" intensity="0.3"/>
+<style>
+:root { --bg:#1e2230; --surface:#f4f2ee; --text:#f4f2ee; --muted:#9aa0b0; --accent:#6c8cff; --accent2:#ff9f6c;
+        --font-heading:Inter; --font-body:Inter; --radius:10; }
+#sheet { direction:column; gap:10; padding:28; margin:24; width:1500; radius:18; background:rgba(255,255,255,0.06); color:#f4f2ee; }
+.row { direction:row; gap:22; align:center; }
+.w3 { font:"Inter 26"; font-weight:300; }
+.w4 { font:"Inter 26"; }
+.w5 { font:"Inter 26"; font-weight:medium; }
+.w6 { font:"Inter 26"; font-weight:600; }
+.w7 { font:"bold 26px Inter"; }
+.w9 { font:"Inter 26"; font-weight:900; }
+.it { font:"italic 26px Inter"; }
+.bi { font:"bold italic 26px Inter"; }
+.lora { font:"Lora 26"; font-weight:bold; font-style:italic; }
+.synth { font:"Sora 26"; font-style:italic; }
+.syn2 { font:"Caveat 30"; font-weight:900; }
+.track { font:"Inter 15"; text-transform:uppercase; letter-spacing:0.2em; font-weight:600; color:#9aa0b0; }
+.cap { font:"Inter 18"; text-transform:capitalize; }
+.low { font:"Inter 18"; text-transform:lowercase; }
+.shadow { font:"bold 30px Inter"; text-shadow:0 3 8 rgba(255,120,80,0.9); }
+.ell { width:220; font:"Inter 16"; white-space:nowrap; background:rgba(255,255,255,0.08); padding:6; }
+.clamp { width:240; font:"Inter 15"; line-clamp:2; text-align:center; background:rgba(255,255,255,0.08); padding:6; }
+.icons applist { gap:14; }
+.icons item { icon-size:48; gap:4; font:"Inter 12"; text-align:center; width:76; }
+#c item { icon-style:color; }
+#t item { icon-style:color; icon-shape:squircle; }
+#m item { icon-style:mono; color:#cfe0ff; }
+#k item { icon-style:classic; }
+#l item { icon-style:line; }
+#f icon { icon-size:48; size:56; }
+</style>
+<desktop>
+  <column id="sheet" place="top-left">
+    <row class="row"><text class="w3">Light 300</text><text class="w4">Regular</text><text class="w5">Medium</text><text class="w6">Semibold</text><text class="w7">Bold</text><text class="w9">Black</text></row>
+    <row class="row"><text class="it">Italic</text><text class="bi">Bold italic</text><text class="lora">Lora bold italic</text><text class="synth">Sora oblique</text><text class="syn2">Caveat heavy</text></row>
+    <row class="row"><text class="track">Tracked caps</text><text class="cap">capitalize every word</text><text class="low">LOWER CASE</text><text class="shadow">Text shadow</text></row>
+    <row class="row"><text class="ell">A label much too long for the box it is in</text><text class="clamp">A centred paragraph that wraps onto lines and is clamped to two of them, with the rest cut</text></row>
+    <row class="row icons"><applist id="c" apps="all" labels="below"/></row>
+    <row class="row icons"><applist id="t" apps="all" labels="below"/></row>
+    <row class="row icons"><applist id="m" apps="all" labels="below"/></row>
+    <row class="row icons"><applist id="k" apps="all" labels="none"/></row>
+    <row class="row icons"><applist id="l" apps="all" labels="none"/></row>
+    <row id="f" class="row"><icon name="folder"/><icon name="document"/><icon name="image"/><icon name="audio"/><icon name="video"/><icon name="archive"/><icon name="code"/><icon name="executable"/></row>
+  </column>
+</desktop>
+<template id="window"><frame><titlebar drag="window"><text bind="window.title"/></titlebar><slot/></frame></template>
+</facet>

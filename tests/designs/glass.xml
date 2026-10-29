@@ -1,0 +1,50 @@
+<facet>
+<meta ai-name="Sol" user-name="Kai" greeting="Evening, Kai." tagline="everything in its place" rationale="Quiet glass over a slow violet sky: a bar for the time, a dock for your favourites, and the rest one key away."/>
+<apps><app id="files" label="Finder"/><app id="companion" label="Sol"/><app id="notes" label="Notes"/><app id="settings" label="Preferences"/><app id="about" label="About"/><app id="redesign" label="Reimagine"/><app id="power" label="Shut down"/></apps>
+<wallpaper kind="nebula" colors="#120c24 #7b5cff #ff7ac8 #05030d" seed="21" intensity="0.85"/>
+<style>
+:root { --bg:#120c24; --surface:rgba(30,24,48,0.78); --text:#f4ecff; --muted:#b8a8d8; --accent:#9b7bff; --accent2:#ff7ac8; --font-heading:Sora; --font-body:Inter; --radius:14; }
+menubar { height:32; padding:0 16; gap:20; blur:24; saturate:1.6; background:rgba(20,16,30,0.42); color:#f4ecff; font:"Inter 14"; border:1 rgba(255,255,255,0.06); }
+#me { font:"Sora 14"; color:#fff; }
+menubar button { padding:4 8; radius:6; }
+menubar button:hover { background:rgba(255,255,255,0.14); }
+dock { padding:10; gap:8; radius:26; blur:28; saturate:1.7; background:rgba(255,255,255,0.13); border:1 rgba(255,255,255,0.28); margin:0 0 14 0; shadow:0 20 50 rgba(0,0,0,0.4); align:end; }
+dock applist { gap:8; align:end; }
+dock item { padding:2; icon-size:52; icon-shape:squircle; transition:140; }
+dock item:hover { transform:scale(1.3) translate(0,-12); }
+dock divider { width:1; height:46; margin:0 4; }
+#all { size:52; radius:16; background:rgba(255,255,255,0.16); icon-size:24; color:#fff; }
+#launch { background:rgba(12,8,24,0.62); blur:36; padding:80 120; gap:36; direction:column; align:center; }
+#launch search { width:520; height:50; radius:25; padding:0 22; background:rgba(255,255,255,0.12); border:1 rgba(255,255,255,0.25); color:#fff; font-size:17; }
+#launch applist { display:grid; columns:4; gap:34; }
+#launch item { icon-size:76; icon-shape:squircle; gap:10; color:#fff; font-size:15; transition:160; }
+#launch item:hover { scale:1.1; }
+#hello { direction:column; align:center; gap:2; margin:0 0 160 0; color:#fff; }
+#hello clock { font:"Sora 96"; color:rgba(255,255,255,0.95); }
+#hello text { font:"Inter 20"; color:rgba(244,236,255,0.8); }
+frame { direction:column; radius:14; background:var(--surface); blur:30; saturate:1.5; border:1 rgba(255,255,255,0.16); shadow:0 24 60 rgba(0,0,0,0.5); overflow:hidden; color:#f4ecff; }
+titlebar { height:40; padding:0 14; gap:8; }
+titlebar button { size:13; radius:50%; }
+#close { background:#ff5f57; } #min { background:#febc2e; } #max { background:#28c840; }
+frame:focus titlebar button { opacity:1; }
+titlebar text { grow:1; text-align:center; color:rgba(255,255,255,0.7); font-size:13; margin:0 60 0 0; }
+slot { padding:6 22 22 22; }
+menubar network, menubar volume, menubar notifications, menubar quicksettings { icon-size:17; padding:3; radius:7; transition:120; }
+menubar network:hover, menubar volume:hover, menubar notifications:hover, menubar quicksettings:hover, menubar clock:hover { background:rgba(255,255,255,0.14); }
+menubar network:open, menubar volume:open, menubar notifications:open, menubar quicksettings:open { background:rgba(255,255,255,0.22); }
+</style>
+<desktop>
+  <menubar dock="top" width="full">
+    <text id="me" bind="ai.name" what="open:companion"/>
+    <button what="open:files">Files</button><button what="toggle:#launch">Everything</button>
+    <spacer/><network/><volume/><notifications/><quicksettings/><clock id="clock" format="%a %d %b  %H:%M"/>
+  </menubar>
+  <column id="hello" place="center"><clock/><text bind="greeting"/></column>
+  <dock dock="bottom">
+    <applist apps="files,companion,notes,settings" labels="hover"/><divider/>
+    <button id="all" what="toggle:#launch" icon="grid"/>
+  </dock>
+  <sheet id="launch" hotkey="meta"><search placeholder="Find anything"/><applist/></sheet>
+</desktop>
+<template id="window"><frame><titlebar drag="window"><button id="close" what="window:close"/><button id="min" what="window:minimize"/><button id="max" what="window:maximize"/><text bind="window.title"/></titlebar><slot/></frame></template>
+</facet>

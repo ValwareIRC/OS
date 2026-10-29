@@ -1,0 +1,32 @@
+<facet>
+<meta ai-name="Vega" user-name="Noor" greeting="Quiet hours, Noor." tagline="after the shift" rationale="Deep glass under a slow night sky: one bar, one dock, and a light switch for the mornings."/>
+<apps><app id="files" label="Files"/><app id="companion" label="Vega"/><app id="notes" label="Notes"/><app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/><app id="redesign" label="Reimagine"/><app id="power" label="Shut down"/></apps>
+<wallpaper kind="nebula" colors="#0d0b1e #4b6bff #b56cff #04030a" seed="5" intensity="0.8"/>
+<style>
+:root { --bg:#0d0b1e; --surface:rgba(24,22,44,0.86); --text:#eef0ff; --muted:#a9acd0; --accent:#7f8cff; --accent2:#c38bff; --font-heading:Sora; --font-body:Inter; --radius:14; }
+menubar { height:34; padding:0 16; gap:18; blur:24; saturate:1.5; background:rgba(14,12,30,0.5); color:#eef0ff; font:"Inter 14"; }
+menubar button { padding:4 10; radius:8; gap:6; icon-size:16; }
+menubar button:hover { background:rgba(255,255,255,0.14); }
+#tray orb { size:22; }
+dock { padding:10; gap:8; radius:24; blur:28; saturate:1.6; background:rgba(255,255,255,0.10); border:1 rgba(255,255,255,0.22); margin:0 0 14 0; }
+dock item { padding:2; icon-size:50; icon-shape:squircle; transition:140; }
+dock item:hover { transform:scale(1.2) translate(0,-8); }
+frame { direction:column; radius:14; background:var(--surface); blur:30; border:1 rgba(255,255,255,0.14); shadow:0 24 60 rgba(0,0,0,0.5); overflow:hidden; color:#eef0ff; }
+titlebar { height:40; padding:0 14; gap:8; }
+titlebar button { size:13; radius:50%; }
+#close { background:#ff5f57; } #min { background:#febc2e; } #max { background:#28c840; }
+titlebar text { grow:1; text-align:center; color:rgba(255,255,255,0.7); font-size:13; margin:0 60 0 0; }
+slot { padding:6 18 18 18; }
+</style>
+<desktop>
+  <menubar dock="top" width="full">
+    <text bind="ai.name" what="open:companion"/>
+    <spacer/>
+    <button id="lights" what="theme:toggle" icon="moon">Light</button>
+    <row id="tray"><orb/></row>
+    <clock format="%a %d %b  %H:%M"/>
+  </menubar>
+  <dock dock="bottom"><applist apps="files,companion,notes,settings,about,terminal" labels="hover"/></dock>
+</desktop>
+<template id="window"><frame><titlebar drag="window"><button id="close" what="window:close"/><button id="min" what="window:minimize"/><button id="max" what="window:maximize"/><text bind="window.title"/></titlebar><slot/></frame></template>
+</facet>

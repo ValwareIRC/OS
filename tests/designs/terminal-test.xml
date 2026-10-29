@@ -1,0 +1,12 @@
+<facet>
+<meta ai-name="Echo" user-name="Tester" greeting="Terminal test"/>
+<wallpaper kind="nebula" colors="#10121a #3a4a8a #9a6ad0 #05060a" seed="3" intensity="0.6"/>
+<style>
+:root { --surface:#161a24; --text:#e8ecf4; }
+#dock { padding:8; gap:6; radius:20; blur:24; background:rgba(255,255,255,0.12); margin:0 0 14 0; }
+#dock item { icon-size:40; }
+</style>
+<desktop>
+  <row id="dock" dock="bottom"><applist labels="hover"/></row>
+</desktop>
+</facet>

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Prism
+Comment=An agentic code editor for any model
+Exec=prism %U
+Icon=com.valware.prism
+Categories=Development;IDE;
+StartupWMClass=Prism

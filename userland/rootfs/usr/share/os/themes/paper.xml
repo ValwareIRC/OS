@@ -1,0 +1,115 @@
+<facet>
+<meta ai-name="Quill" user-name="Sam" greeting="Good morning, Sam." tagline="Today's edition: one page, your own."
+      rationale="Set like a well-made newspaper: a masthead, a table of contents, quiet ink on warm paper."
+      theme-about="paper and editorial: warm paper, a newspaper masthead with the date, a numbered contents column of apps in a serif, a lead story with their greeting, ink-ruled windows with square corners. Literary and unhurried. (#masthead, #contents, #lead, #index)"/>
+<apps>
+  <app id="files" label="Archive"/><app id="companion" label="Quill"/><app id="notes" label="Drafts"/>
+  <app id="settings" label="Preferences"/><app id="about" label="Colophon"/><app id="terminal" label="Typewriter"/>
+  <app id="redesign" label="Reset the type"/><app id="power" label="Lights out"/>
+</apps>
+<wallpaper kind="paper" colors="#f3eee4 #ebe4d7 #ddd2bf #bcae96" seed="3" intensity="0.3"/>
+<style>
+:root { --bg:#f3eee4; --surface:#fbf8f2; --surface-2:#efe8dc; --surface-text:#221e1a; --text:#221e1a;
+        --muted:#5c544a; --accent:#9b2d20; --accent2:#2f4a6d; --font-heading:PlayfairDisplay; --font-body:Lora;
+        --radius:2; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:16; }
+
+#masthead { height:96; padding:0 56; gap:24; background:rgba(251,248,242,0.9); border:1 rgba(34,30,26,0.85);
+            margin:0; }
+#masthead .side { width:260; direction:column; gap:2; }
+#masthead .right { align:end; }
+#edition { font:"Lora 14"; color:var(--muted); text-transform:uppercase; }
+#mdate { font:"Lora 16"; color:var(--text); }
+#name { grow:1; justify:center; font:"PlayfairDisplay 46"; color:var(--text); text-align:center; }
+#mtime { font:"PlayfairDisplay 26"; color:var(--text); }
+
+#contents { width:330; padding:28 28 20 28; gap:6; background:rgba(251,248,242,0.82); border:1 rgba(34,30,26,0.25);
+            margin:40 0 0 56; }
+#contents .kicker { font:"Lora 13"; color:var(--accent); text-transform:uppercase; }
+#contents .rule { height:2; background:var(--text); margin:6 0 8 0; }
+#contents item { direction:row; justify:start; gap:14; padding:9 6; radius:2; icon-size:22; icon-shape:none;
+                 icon-style:line; font:"Lora 19"; color:var(--text); transition:100; }
+#contents item:hover { background:rgba(155,45,32,0.08); color:var(--accent); }
+#contents divider { height:1; background:rgba(34,30,26,0.2); margin:2 0; }
+
+#lead { width:620; gap:12; align:start; margin:72 0 0 96; }
+#lead .kicker { font:"Lora 13"; color:var(--accent); text-transform:uppercase; }
+#greet { font:"PlayfairDisplay 54"; color:var(--text); line-height:1.1; }
+#standfirst { font:"Lora 21"; color:var(--muted); line-height:1.45; }
+#byline { margin:8 0 0 0; font:"Lora 15"; color:var(--text); }
+#ask { grow:0; width:460; height:48; margin:18 0 0 0; padding:0 18; radius:2; background:#fbf8f2;
+       border:1 rgba(34,30,26,0.7); font:"Lora 17"; color:var(--text); }
+
+#foot { height:48; padding:0 56; gap:16; background:rgba(251,248,242,0.9); border:1 rgba(34,30,26,0.85); }
+#foot windowlist item { height:34; padding:0 14; gap:8; radius:2; icon-size:16; icon-shape:none; icon-style:line;
+                        font:"Lora 14"; color:var(--text); }
+#foot windowlist item:open { background:var(--text); color:#fbf8f2; }
+#indexbtn { height:34; padding:0 16; radius:2; font:"Lora 15"; color:var(--text); border:1 rgba(34,30,26,0.7); }
+#indexbtn:hover, #indexbtn:open { background:var(--text); color:#fbf8f2; }
+
+#index { width:360; padding:22 24; gap:6; radius:2; background:var(--surface); color:var(--surface-text);
+         border:1 var(--text); shadow:6 6 0 rgba(34,30,26,0.18); }
+#index title { font:"PlayfairDisplay 26"; }
+#index .rule { height:2; background:var(--text); margin:2 0 6 0; }
+#index item { direction:row; justify:start; gap:12; padding:7 6; radius:2; icon-size:20; icon-shape:none;
+              icon-style:line; font:"Lora 17"; color:var(--surface-text); }
+#index item:hover { background:var(--surface-2); color:var(--accent); }
+#index button { height:36; padding:0 8; justify:start; gap:12; radius:2; icon-size:18; font:"Lora 16"; color:var(--accent); }
+#index button:hover { background:var(--surface-2); }
+
+frame { direction:column; radius:2; overflow:hidden; background:var(--surface); color:var(--surface-text);
+        border:1 rgba(34,30,26,0.9); shadow:8 8 0 rgba(34,30,26,0.14); }
+titlebar { height:46; padding:0 8 0 20; gap:4; font:"PlayfairDisplay 19"; color:var(--muted); }
+frame:focus titlebar { color:var(--surface-text); }
+titlebar text { grow:1; }
+titlebar button { size:30; radius:2; icon-size:12; color:var(--surface-text); }
+titlebar button:hover { background:var(--surface-2); }
+titlebar #x:hover { background:var(--accent); color:#fbf8f2; }
+frame divider { height:1; margin:0 20; background:rgba(34,30,26,0.8); }
+slot { padding:12 20 20 20; }
+</style>
+<desktop>
+  <row id="masthead" dock="top" width="full">
+    <column class="side"><text id="edition">The Sam Edition</text><clock id="mdate" format="%A, %d %B %Y"/></column>
+    <text id="name" bind="ai.name"/>
+    <column class="side right"><clock id="mtime" format="%H:%M"/></column>
+  </row>
+  <row id="foot" dock="bottom" width="full">
+    <button id="indexbtn" what="toggle:#index" hotkey="meta">Index</button>
+    <windowlist/>
+  </row>
+  <column id="contents" place="top-left">
+    <text class="kicker">In this edition</text>
+    <row class="rule"/>
+    <applist apps="companion,notes,files,terminal" labels="right"/>
+    <divider/>
+    <applist apps="settings,about" labels="right"/>
+  </column>
+  <column id="lead" place="top">
+    <text class="kicker">Today</text>
+    <text id="greet" bind="greeting"/>
+    <text id="standfirst" bind="tagline"/>
+    <search id="ask" placeholder="Ask Quill, or name a page"/>
+  </column>
+  <popover id="index" placement="above" align="start">
+    <title>Index</title>
+    <row class="rule"/>
+    <applist apps="files,companion,notes,settings,about,terminal,flower,smoke,prism" labels="right"/>
+    <divider/>
+    <button what="redesign" icon="sparkle">Reset the type</button>
+    <button what="power:off" icon="power">Lights out</button>
+  </popover>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button id="x" what="window:close" icon="close"/>
+    </titlebar>
+    <divider/>
+    <slot/>
+  </frame>
+</template>
+</facet>

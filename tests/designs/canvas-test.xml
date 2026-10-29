@@ -1,0 +1,19 @@
+<facet>
+<meta ai-name="Test" user-name="T"/>
+<style>:root { --accent:#ff8a5c; --bg:#000; --surface:#111; --text:#fff; }</style>
+<desktop>
+  <canvas id="waves" place="center" style="size:400">
+    function draw(w, h, t)
+      for i = 0, 12 do
+        local y = h / 2 + math.sin(t + i * 0.5) * 40
+        if i < 6 then g.circle(i * 30 + 20, y, 6, "--accent") else g.circle(i * 30 + 20, y, 4, "#ffffff") end
+      end
+      g.text(10, 10, "a & b < c", "#ffffff", 14)
+    end
+    function click(x, y) return "open:notes" end
+  </canvas>
+  <canvas id="slow" place="top-left">function draw(w, h, t) while true do end end</canvas>
+  <canvas id="broken" place="top-right">function draw( oops</canvas>
+  <canvas id="escape" place="bottom">function draw() local f = io.open("/etc/passwd") end</canvas>
+</desktop>
+</facet>
