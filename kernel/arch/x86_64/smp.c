@@ -1,6 +1,6 @@
+#include <asm/msr.h>
 #include <kernel/arch.h>
 #include <kernel/boot.h>
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
@@ -8,6 +8,16 @@
 
 struct cpu *cpus[MAX_CPUS];
 uint32_t cpu_count = 1;
+
+void arch_send_resched(struct cpu *c) { lapic_send_ipi(c->arch.lapic_id, VEC_RESCHED); }
+
+/* Device interrupts all go to the boot CPU's local APIC. */
+bool arch_msi_setup(const struct pci_dev *d, unsigned irq, uint64_t *addr, uint32_t *data) {
+    (void)d;
+    *addr = 0xfee00000u | (cpus[0]->arch.lapic_id << 12);
+    *data = irq;
+    return true;
+}
 
 static void timer_irq(struct regs *r) {
     lapic_eoi();
@@ -36,7 +46,7 @@ void tlb_service(void) {
     struct cpu *c = this_cpu();
     /* Clear first, then flush: a request that arrives after the clear stays
      * pending (and has its own IPI), so none is lost. */
-    if (__atomic_exchange_n(&c->tlb_flush_pending, 0, __ATOMIC_ACQ_REL))
+    if (__atomic_exchange_n(&c->arch.tlb_flush_pending, 0, __ATOMIC_ACQ_REL))
         write_cr3(read_cr3());
 }
 
@@ -64,16 +74,16 @@ void tlb_shootdown(struct mm *mm) {
         if (!any)
             __atomic_add_fetch(&tlb_shootdowns_active, 1, __ATOMIC_SEQ_CST);
         any = true;
-        __atomic_store_n(&c->tlb_flush_pending, 1, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&c->arch.tlb_flush_pending, 1, __ATOMIC_SEQ_CST);
         sent[i / 64] |= 1ULL << (i % 64);
-        lapic_send_ipi(c->lapic_id, VEC_TLB);
+        lapic_send_ipi(c->arch.lapic_id, VEC_TLB);
     }
     for (uint32_t i = 0; any && i < cpu_count; i++) {
         if (!(sent[i / 64] & (1ULL << (i % 64))))
             continue;
         /* Answer requests aimed at us while we wait, or two CPUs shooting
          * at each other would wait forever. */
-        while (__atomic_load_n(&cpus[i]->tlb_flush_pending, __ATOMIC_ACQUIRE)) {
+        while (__atomic_load_n(&cpus[i]->arch.tlb_flush_pending, __ATOMIC_ACQUIRE)) {
             __asm__ volatile("pause");
             tlb_service();
         }
@@ -121,7 +131,7 @@ void smp_init(void) {
         struct cpu *c = kzalloc(sizeof *c);
         KASSERT(c);
         c->id = cpu_count;
-        c->lapic_id = info->lapic_id;
+        c->arch.lapic_id = info->lapic_id;
         cpus[cpu_count++] = c;
         info->extra_argument = (uint64_t)c;
         __atomic_store_n(&info->goto_address, ap_entry, __ATOMIC_SEQ_CST);
@@ -131,7 +141,7 @@ void smp_init(void) {
     for (uint32_t i = 1; i < cpu_count; i++)
         while (!__atomic_load_n(&cpus[i]->online, __ATOMIC_ACQUIRE)) {
             if (global_ticks > deadline)
-                panic("smp: cpu %u (apic %u) did not come online", i, cpus[i]->lapic_id);
+                panic("smp: cpu %u (apic %u) did not come online", i, cpus[i]->arch.lapic_id);
             __asm__ volatile("sti; pause");
         }
     kprintf("smp: %u cpu(s) online%s\n", cpu_count, mp->flags & LIMINE_MP_RESPONSE_X86_64_X2APIC ? " (x2apic)" : "");

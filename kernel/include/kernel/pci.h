@@ -22,6 +22,5 @@ uint16_t pci_read16(const struct pci_dev *d, uint8_t off);
 void pci_write16(const struct pci_dev *d, uint8_t off, uint16_t v);
 /* Enables memory/I-O decoding and bus mastering (DMA). */
 void pci_enable(const struct pci_dev *d);
-/* Routes the device's legacy interrupt to `vector` if the firmware gave it a
- * line; returns false when no usable route is known (caller should poll). */
-bool pci_route_irq(const struct pci_dev *d, uint8_t vector);
+/* Offset of the next capability `id` after the one at `from` (0: the first), or 0 if there is none. */
+uint8_t pci_find_cap(const struct pci_dev *d, uint8_t id, uint8_t from);

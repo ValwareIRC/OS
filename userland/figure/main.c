@@ -66,6 +66,15 @@ struct seccomp_data {
 #define BPF_STMT(code, k) {(unsigned short)(code), 0, 0, (k)}
 #define BPF_JUMP(code, k, jt, jf) {(unsigned short)(code), (jt), (jf), (k)}
 #define AUDIT_ARCH_X86_64 0xC000003Eu
+#define AUDIT_ARCH_AARCH64 0xC00000B7u
+#ifdef __aarch64__
+#define AUDIT_ARCH_HERE AUDIT_ARCH_AARCH64
+#else
+#define AUDIT_ARCH_HERE AUDIT_ARCH_X86_64
+#endif
+#ifndef SYS_poll /* arm64 has only ppoll */
+#define SYS_poll 0xffffffffu
+#endif
 #define SECCOMP_SET_MODE_FILTER 1
 #define SECCOMP_RET_KILL_PROCESS 0x80000000u
 #define SECCOMP_RET_ERRNO 0x00050000u
@@ -139,7 +148,7 @@ static void sandbox(void) {
 #define ALLOW(nr) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
     struct sock_filter f[] = {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_HERE, 1, 0),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         ALLOW(SYS_read), ALLOW(SYS_write), ALLOW(SYS_close), ALLOW(SYS_poll), ALLOW(SYS_ppoll), ALLOW(SYS_mmap),

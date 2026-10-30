@@ -1,3 +1,4 @@
+#include <asm/io.h>
 #include <kernel/boot.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
@@ -70,8 +71,8 @@ struct e1000 {
     struct netif nif;
 };
 
-static inline uint32_t rd(struct e1000 *e, uint32_t reg) { return *(volatile uint32_t *)(e->mmio + reg); }
-static inline void wr(struct e1000 *e, uint32_t reg, uint32_t v) { *(volatile uint32_t *)(e->mmio + reg) = v; }
+static inline uint32_t rd(struct e1000 *e, uint32_t reg) { return mmio_read32(e->mmio + reg); }
+static inline void wr(struct e1000 *e, uint32_t reg, uint32_t v) { mmio_write32(e->mmio + reg, v); }
 
 static void *dma_alloc(size_t bytes, uint64_t *phys) {
     size_t pages = ALIGN_UP(bytes, PAGE_SIZE) / PAGE_SIZE;
@@ -98,7 +99,7 @@ static int e1000_tx(struct netif *nif, const void *frame, size_t len) {
     d->cmd = TX_CMD_EOP | TX_CMD_IFCS | TX_CMD_RS;
     d->status = 0;
     e->tx_cur = (e->tx_cur + 1) % NTX;
-    __asm__ volatile("" ::: "memory");
+    dma_wmb();
     wr(e, REG_TDT, e->tx_cur);
     nif->tx_packets++;
     return 0;
@@ -116,11 +117,13 @@ static int e1000_poll(struct netif *nif) {
     (void)rd(e, REG_ICR); /* clear any latched causes */
     while (e->rx[e->rx_cur].status & DESC_DD) {
         struct rx_desc *d = &e->rx[e->rx_cur];
+        dma_rmb();
         if (!d->errors && (d->status & 0x02 /* EOP */))
             net_rx(nif, e->rx_buf[e->rx_cur], d->length);
         d->status = 0;
         uint32_t done = e->rx_cur;
         e->rx_cur = (e->rx_cur + 1) % NRX;
+        dma_wmb();
         wr(e, REG_RDT, done);
         nif->rx_packets++;
         if (++n == NRX)

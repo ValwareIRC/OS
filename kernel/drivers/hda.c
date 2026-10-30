@@ -1,6 +1,6 @@
+#include <asm/io.h>
 #include <kernel/arch.h>
 #include <kernel/boot.h>
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/pci.h>
@@ -124,7 +124,6 @@
 #define NBDL          (RING / PERIOD)
 #define OUT_TAG       1
 #define IN_TAG        2
-#define VEC_HDA       0x2c
 
 /* A stream whose position has not moved for this long is treated as dead:
  * there is no backend behind the codec (e.g. QEMU's wav audiodev has no
@@ -218,12 +217,12 @@ static struct {
 
 /* ---- register access ---- */
 
-static inline uint8_t rd8(uint32_t r) { return *(volatile uint8_t *)(hda.mmio + r); }
-static inline uint16_t rd16(uint32_t r) { return *(volatile uint16_t *)(hda.mmio + r); }
-static inline uint32_t rd32(uint32_t r) { return *(volatile uint32_t *)(hda.mmio + r); }
-static inline void wr8(uint32_t r, uint8_t v) { *(volatile uint8_t *)(hda.mmio + r) = v; }
-static inline void wr16(uint32_t r, uint16_t v) { *(volatile uint16_t *)(hda.mmio + r) = v; }
-static inline void wr32(uint32_t r, uint32_t v) { *(volatile uint32_t *)(hda.mmio + r) = v; }
+static inline uint8_t rd8(uint32_t r) { return mmio_read8(hda.mmio + r); }
+static inline uint16_t rd16(uint32_t r) { return mmio_read16(hda.mmio + r); }
+static inline uint32_t rd32(uint32_t r) { return mmio_read32(hda.mmio + r); }
+static inline void wr8(uint32_t r, uint8_t v) { mmio_write8(hda.mmio + r, v); }
+static inline void wr16(uint32_t r, uint16_t v) { mmio_write16(hda.mmio + r, v); }
+static inline void wr32(uint32_t r, uint32_t v) { mmio_write32(hda.mmio + r, v); }
 
 /* Time since `since`, or 0 if `since` is later: callers read the clock
  * before taking the lock, so another CPU may have stored a newer time. */
@@ -232,7 +231,7 @@ static inline uint64_t elapsed(uint64_t now, uint64_t since) { return now > sinc
 static void udelay(uint64_t us) {
     uint64_t end = time_monotonic_ns() + us * 1000;
     while (time_monotonic_ns() < end)
-        __asm__ volatile("pause");
+        cpu_relax();
 }
 
 /* Polls until (reg & mask) == want or `us` microseconds pass. */
@@ -260,11 +259,12 @@ static void *dma_alloc(size_t bytes, uint64_t *phys) {
 static bool corb_cmd(uint32_t cmd, uint32_t *resp) {
     hda.corb_wp = (uint16_t)((hda.corb_wp + 1) % hda.corb_entries);
     hda.corb[hda.corb_wp] = cmd;
-    __asm__ volatile("" ::: "memory");
+    dma_wmb();
     wr16(CORBWP, hda.corb_wp);
     uint64_t end = time_monotonic_ns() + 20 * 1000000ULL;
     for (;;) {
         uint16_t wp = rd16(RIRBWP) & 0xff;
+        dma_rmb();
         while (hda.rirb_rp != wp) {
             hda.rirb_rp = (uint16_t)((hda.rirb_rp + 1) % hda.rirb_entries);
             uint32_t r = hda.rirb[hda.rirb_rp * 2], ex = hda.rirb[hda.rirb_rp * 2 + 1];
@@ -278,7 +278,7 @@ static bool corb_cmd(uint32_t cmd, uint32_t *resp) {
         }
         if (time_monotonic_ns() > end)
             return false;
-        __asm__ volatile("pause");
+        cpu_relax();
     }
 }
 
@@ -799,7 +799,7 @@ static void hda_irq(struct regs *r) {
     if (hda.in.present && (sts & (1u << hda.in.index)))
         wr8(hda.in.sd + SD_STS, SD_STS_MASK);
     service();
-    lapic_eoi();
+    irq_eoi();
 }
 
 static bool streams_running(void *arg) {
@@ -1436,7 +1436,7 @@ static const struct vnode_ops mixer_ops = {.ioctl = mixer_ioctl};
 
 /* Message-signalled interrupts avoid the legacy INTx routing, which needs
  * the ACPI _PRT tables we don't parse yet. */
-static bool enable_msi(struct pci_dev *d, uint8_t vector) {
+static bool enable_msi(struct pci_dev *d, unsigned irq) {
     if (!(pci_read16(d, 0x06) & 0x10)) /* no capability list */
         return false;
     uint8_t ptr = pci_read32(d, 0x34) & 0xfc;
@@ -1444,12 +1444,16 @@ static bool enable_msi(struct pci_dev *d, uint8_t vector) {
         uint32_t hdr = pci_read32(d, ptr);
         if ((hdr & 0xff) == 0x05) {
             uint16_t ctl = (uint16_t)(hdr >> 16);
-            pci_write32(d, (uint8_t)(ptr + 4), 0xfee00000u | (cpus[0]->lapic_id << 12));
+            uint64_t addr;
+            uint32_t data;
+            if (!arch_msi_setup(d, irq, &addr, &data))
+                return false;
+            pci_write32(d, (uint8_t)(ptr + 4), (uint32_t)addr);
             if (ctl & 0x80) { /* 64-bit address */
-                pci_write32(d, (uint8_t)(ptr + 8), 0);
-                pci_write16(d, (uint8_t)(ptr + 12), vector);
+                pci_write32(d, (uint8_t)(ptr + 8), (uint32_t)(addr >> 32));
+                pci_write16(d, (uint8_t)(ptr + 12), (uint16_t)data);
             } else {
-                pci_write16(d, (uint8_t)(ptr + 8), vector);
+                pci_write16(d, (uint8_t)(ptr + 8), (uint16_t)data);
             }
             pci_write16(d, (uint8_t)(ptr + 2), (uint16_t)((ctl & ~0x70u) | 1)); /* one vector, enabled */
             pci_write16(d, 0x04, pci_read16(d, 0x04) | 0x400);                 /* INTx off */
@@ -1522,9 +1526,9 @@ static bool bring_up(struct pci_dev *pd) {
     if (iss && res.adc && !stream_init(&hda.in, false, 0, IN_TAG))
         hda.in.present = false;
 
-    hda.irq = enable_msi(pd, VEC_HDA);
+    hda.irq = enable_msi(pd, IRQ_HDA);
     if (hda.irq) {
-        idt_set_handler(VEC_HDA, hda_irq);
+        irq_set_handler(IRQ_HDA, hda_irq);
         uint32_t mask = 1u << hda.out.index;
         if (hda.in.present)
             mask |= 1u << hda.in.index;

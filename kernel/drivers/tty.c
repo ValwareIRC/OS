@@ -1,8 +1,8 @@
 #include <kernel/arch.h>
-#include <kernel/cpu.h>
 #include <kernel/drivers.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
+#include <kernel/platform.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
 #include <linux/abi.h>
@@ -233,22 +233,6 @@ static const struct vnode_ops devtty_ops = {
     .read = tty_read, .write = tty_write, .ioctl = tty_ioctl, .poll = tty_poll, .open = devtty_open,
 };
 
-/* ---- serial input interrupt ---- */
-
-#define COM1 0x3f8
-#define VEC_COM1 0x24
-
-static void com1_irq(struct regs *r) {
-    (void)r;
-    for (int n = 0; n < 64 && (inb(COM1 + 5) & 1); n++) {
-        char c = (char)inb(COM1);
-        if (c == 0x7f)
-            c = '\b';
-        tty_input(c);
-    }
-    lapic_eoi();
-}
-
 void tty_init(void) {
     waitq_init(&tty.wq);
     struct linux_termios *t = &tty.termios;
@@ -278,11 +262,7 @@ void tty_init(void) {
     vfs_create_node("/dev/tty", v);
     vnode_put(v);
 
-    idt_set_handler(VEC_COM1, com1_irq);
-    bool level, active_low;
-    uint32_t gsi = irq_to_gsi(4, &level, &active_low);
-    ioapic_route(gsi, VEC_COM1, cpus[0]->lapic_id, level, active_low);
-    outb(COM1 + 1, 0x01); /* interrupt on received data */
+    serial_rx_init();
 }
 
 /* ---- the simple character devices ---- */
@@ -317,9 +297,7 @@ void random_bytes(void *buf, size_t len) {
     uint8_t *b = buf;
     for (size_t i = 0; i < len; i++) {
         if (i % 8 == 0) {
-            uint32_t lo, hi;
-            __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
-            rng_state ^= ((uint64_t)hi << 32) | lo;
+            rng_state ^= arch_counter();
         }
         b[i] = (uint8_t)(rng_next() >> 32);
     }
@@ -332,7 +310,7 @@ static int64_t random_read(struct vnode *v, struct file *f, void *buf, size_t le
 
 static int64_t hostclip_read(struct vnode *v, struct file *f, void *buf, size_t len, uint64_t off) {
     (void)v, (void)f, (void)off;
-    return com2_read(buf, len);
+    return platform_hostlink_read(buf, len);
 }
 
 static const struct vnode_ops null_ops = {.read = null_read, .write = sink_write};
@@ -356,16 +334,14 @@ static void add_dev(const char *path, const struct vnode_ops *ops, uint32_t majo
 
 void devfs_init(void) {
     vfs_mkdir_p("/dev", 0755);
-    uint32_t lo, hi;
-    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
-    rng_state = (((uint64_t)hi << 32) | lo) | 1;
+    rng_state = arch_counter() | 1;
     add_dev("/dev/null", &null_ops, 1, 3);
     add_dev("/dev/zero", &zero_ops, 1, 5);
     add_dev("/dev/full", &full_ops, 1, 7);
     add_dev("/dev/random", &random_ops, 1, 8);
     add_dev("/dev/urandom", &random_ops, 1, 9);
-    if (com2_init())
-        add_dev("/dev/hostclip", &hostclip_ops, 4, 65); /* COM2 */
+    if (platform_hostlink_init())
+        add_dev("/dev/hostclip", &hostclip_ops, 4, 65);
     tty_init();
     pty_init();
 }

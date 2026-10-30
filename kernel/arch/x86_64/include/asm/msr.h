@@ -1,15 +1,6 @@
 #pragma once
 #include <stdint.h>
 
-static inline void outb(uint16_t port, uint8_t v) { __asm__ volatile("outb %0, %1" ::"a"(v), "Nd"(port)); }
-static inline uint8_t inb(uint16_t port) {
-    uint8_t v;
-    __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port));
-    return v;
-}
-static inline void outw(uint16_t port, uint16_t v) { __asm__ volatile("outw %0, %1" ::"a"(v), "Nd"(port)); }
-static inline void io_wait(void) { outb(0x80, 0); }
-
 static inline uint64_t rdmsr(uint32_t msr) {
     uint32_t lo, hi;
     __asm__ volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
@@ -33,13 +24,7 @@ static inline uint64_t read_cr3(void) {
 }
 static inline void write_cr3(uint64_t v) { __asm__ volatile("mov %0, %%cr3" ::"r"(v) : "memory"); }
 static inline void invlpg(uint64_t va) { __asm__ volatile("invlpg (%0)" ::"r"(va) : "memory"); }
-static inline void cli(void) { __asm__ volatile("cli"); }
-static inline void sti(void) { __asm__ volatile("sti"); }
-static inline void hlt(void) { __asm__ volatile("hlt"); }
 
 #define MSR_EFER 0xC0000080
 #define EFER_NXE (1ULL << 11)
-
-/* Writing here makes QEMU exit when started with -device isa-debug-exit;
- * on real hardware and in `make run` the port is unused and this is a no-op. */
-#define QEMU_DEBUG_EXIT_PORT 0xf4
+#define MSR_FS_BASE 0xC0000100

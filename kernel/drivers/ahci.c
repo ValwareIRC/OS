@@ -1,3 +1,4 @@
+#include <asm/io.h>
 #include <kernel/arch.h>
 #include <kernel/blkdev.h>
 #include <kernel/boot.h>
@@ -28,6 +29,7 @@
 #define HBA_BOHC 0x28
 
 #define CAP_S64A  (1u << 31) /* 64-bit DMA addresses */
+#define CAP_SSS   (1u << 27) /* staggered spin-up */
 #define CAP_SCLO  (1u << 24) /* command list override */
 #define CAP2_BOH  (1u << 0)  /* BIOS/OS handoff */
 #define GHC_IE    (1u << 1)
@@ -111,8 +113,8 @@ struct ahci_port {
     int port;
 };
 
-static inline uint32_t rd(volatile uint8_t *base, uint32_t reg) { return *(volatile uint32_t *)(base + reg); }
-static inline void wr(volatile uint8_t *base, uint32_t reg, uint32_t v) { *(volatile uint32_t *)(base + reg) = v; }
+static inline uint32_t rd(volatile uint8_t *base, uint32_t reg) { return mmio_read32(base + reg); }
+static inline void wr(volatile uint8_t *base, uint32_t reg, uint32_t v) { mmio_write32(base + reg, v); }
 
 /* Waits until (reg & mask) == want. Register changes take micro- to
  * milliseconds; the timeout is coarse (timer ticks). */
@@ -126,7 +128,7 @@ static bool wait_reg(volatile uint8_t *base, uint32_t reg, uint32_t mask, uint32
         if (spins > 256)
             thread_yield();
         else
-            __asm__ volatile("pause");
+            cpu_relax();
     }
 }
 
@@ -245,7 +247,7 @@ static int issue(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count,
         return -EIO;
     }
     wr(pr, PX_IS, 0xffffffff);
-    __atomic_thread_fence(__ATOMIC_SEQ_CST); /* table contents before the doorbell */
+    dma_wmb();
     wr(pr, PX_CI, 1);
 
     uint64_t deadline = global_ticks + (uint64_t)CMD_TIMEOUT_MS * HZ / 1000;
@@ -266,8 +268,9 @@ static int issue(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count,
         if (spins > 256)
             thread_yield();
         else
-            __asm__ volatile("pause");
+            cpu_relax();
     }
+    dma_rmb();
     if (r == 0 && (rd(pr, PX_TFD) & TFD_ERR))
         r = -EIO;
     if (r < 0) {
@@ -311,14 +314,30 @@ static void ata_string(char *out, const uint16_t *words, int nwords) {
     out[k] = 0;
 }
 
+/* The device's first D2H FIS sets PxSIG and clears BSY and DRQ. */
+static void wait_first_fis(volatile uint8_t *pr) {
+    uint64_t deadline = global_ticks + 3000 * HZ / 1000;
+    for (uint32_t spins = 0; (rd(pr, PX_TFD) & (TFD_BSY | TFD_DRQ)) && rd(pr, PX_SIG) == 0xffffffff; spins++) {
+        if (global_ticks > deadline)
+            return;
+        if (spins > 256)
+            thread_yield();
+        else
+            cpu_relax();
+    }
+}
+
 static void probe_port(volatile uint8_t *abar, int port, uint32_t cap) {
     volatile uint8_t *pr = abar + 0x100 + port * 0x80;
-    uint32_t ssts = rd(pr, PX_SSTS), sig = rd(pr, PX_SIG);
-    if ((ssts & 0xf) != SSTS_DET_PRESENT || sig != SIG_ATA)
-        return; /* empty, or ATAPI (CD/DVD), port multiplier, ... */
+    if (cap & CAP_SSS) {
+        wr(pr, PX_CMD, rd(pr, PX_CMD) | CMD_SUD);
+        wait_reg(pr, PX_SSTS, 0xf, SSTS_DET_PRESENT, 20);
+    }
+    if ((rd(pr, PX_SSTS) & 0xf) != SSTS_DET_PRESENT)
+        return;
 
-    /* On the failure paths below the port's memory is deliberately leaked:
-     * the HBA may still point at it, and a disk that fails here is rare. */
+    /* We give the port's memory back only when the port stops cleanly; on
+     * the other failure paths below we leak it, since the HBA may still point at it. */
     struct ahci_port *p = kzalloc(sizeof *p);
     if (!p)
         return;
@@ -343,6 +362,19 @@ static void probe_port(volatile uint8_t *abar, int port, uint32_t cap) {
     wr(pr, PX_IS, 0xffffffff);
     wr(pr, PX_IE, 0); /* polled */
     wr(pr, PX_CMD, rd(pr, PX_CMD) | CMD_SUD | CMD_POD | CMD_ICC_ACTIVE);
+    /* An HBA that firmware never started fills in the device's signature
+     * only once it may receive FISes, so we allow that and wait for the
+     * first one before we read it. */
+    wr(pr, PX_CMD, rd(pr, PX_CMD) | CMD_FRE);
+    wait_first_fis(pr);
+    if (rd(pr, PX_SIG) != SIG_ATA) { /* ATAPI (CD/DVD), port multiplier, ... */
+        if (port_stop(pr)) {
+            pmm_free(cl_phys, 1);
+            pmm_free(p->ct_phys, ALIGN_UP(sizeof(struct cmd_table), PAGE_SIZE) / PAGE_SIZE);
+            kfree(p);
+        }
+        return;
+    }
     if (!port_start(p)) {
         kprintf("ahci: port %d: device does not become ready\n", port);
         return;

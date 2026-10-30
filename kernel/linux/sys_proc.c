@@ -1,11 +1,9 @@
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
 #include <linux/syscall.h>
 
-#define MSR_FS_BASE 0xC0000100
 #define MAX_EXEC_STRINGS 1024
 
 /* ---- fork / clone ---- */
@@ -48,7 +46,7 @@ static int64_t clone_thread(uint64_t flags, uint64_t newsp, uint64_t ptid, uint6
     ut->tid = proc_alloc_tid();
     pid_register(p->ns.pid, ut->tid);
     ut->sigmask = cur->user->sigmask;
-    ut->fs_base = (flags & CLONE_SETTLS) ? tls : cur->user->fs_base;
+    ut->tls = (flags & CLONE_SETTLS) ? tls : cur->user->tls;
     fpu_save(cur->user->fpu);
     fpu_copy(ut->fpu, cur->user->fpu);
     if (flags & CLONE_CHILD_CLEARTID)
@@ -58,9 +56,7 @@ static int64_t clone_thread(uint64_t flags, uint64_t newsp, uint64_t ptid, uint6
      * seeing 0. */
     struct regs *frame = (struct regs *)(thread_kstack_top(t) - sizeof(struct regs));
     *frame = *current_user_frame();
-    frame->rax = 0;
-    if (newsp)
-        frame->rsp = newsp;
+    arch_fork_child_regs(frame, newsp);
 
     int tid = pid_to_user(ut->tid);
     if (flags & CLONE_PARENT_SETTID)
@@ -149,7 +145,7 @@ static int64_t do_clone(uint64_t flags, uint64_t newsp, uint64_t ptid, uint64_t 
     ut->proc = child;
     ut->tid = child->pid;
     ut->sigmask = cur->user->sigmask;
-    ut->fs_base = (flags & CLONE_SETTLS) ? tls : cur->user->fs_base;
+    ut->tls = (flags & CLONE_SETTLS) ? tls : cur->user->tls;
     fpu_save(cur->user->fpu);
     fpu_copy(ut->fpu, cur->user->fpu);
     if (flags & CLONE_CHILD_CLEARTID)
@@ -158,9 +154,7 @@ static int64_t do_clone(uint64_t flags, uint64_t newsp, uint64_t ptid, uint64_t 
 
     struct regs *frame = (struct regs *)(thread_kstack_top(t) - sizeof(struct regs));
     *frame = *current_user_frame();
-    frame->rax = 0;
-    if (newsp)
-        frame->rsp = newsp;
+    arch_fork_child_regs(frame, newsp);
 
     int pid = pid_to_user(child->pid), cpid = pid_in(child->ns.pid, child->pid);
     if (flags & CLONE_PARENT_SETTID)
@@ -191,8 +185,7 @@ SYSCALL(vfork) {
 
 SYSCALL(clone) {
     UNUSED_ARGS();
-    /* x86-64 argument order: flags, newsp, parent_tid, child_tid, tls */
-    return do_clone(a1, a2, a3, a4, a5);
+    return do_clone(CLONE_ARGS(a1, a2, a3, a4, a5));
 }
 
 /* clone3 (newer glibc's pthread_create and posix_spawn): the same thing,
@@ -267,7 +260,7 @@ SYSCALL(execve) {
     free_strings(argv);
     free_strings(envp);
     kfree(path);
-    return res < 0 ? res : (int64_t)frame->rax; /* success: keep the new frame's rax (0) */
+    return res < 0 ? res : (int64_t)regs_return(frame); /* success: keep the new frame's return value (0) */
 }
 
 /* ---- exit / wait ---- */
@@ -793,11 +786,11 @@ SYSCALL(arch_prctl) {
     case ARCH_SET_FS:
         if (a2 >= USER_TOP)
             return -EPERM;
-        u->fs_base = a2;
-        wrmsr(MSR_FS_BASE, a2);
+        u->tls = a2;
+        arch_load_tls(a2);
         return 0;
     case ARCH_GET_FS:
-        return copy_to_user(a2, &u->fs_base, 8);
+        return copy_to_user(a2, &u->tls, 8);
     case ARCH_SET_GS:
     case ARCH_GET_GS:
         return -EINVAL;

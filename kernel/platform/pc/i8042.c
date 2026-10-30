@@ -1,110 +1,14 @@
+#include <asm/io.h>
 #include <kernel/arch.h>
-#include <kernel/cpu.h>
+#include <kernel/input.h>
 #include <kernel/lib.h>
-#include <kernel/mm.h>
-#include <kernel/proc.h>
+#include <kernel/platform.h>
 #include <kernel/vfs.h>
 
-/* Keyboard and mouse as Linux evdev devices (/dev/input/event0 keyboard,
- * /dev/input/event1 pointer), so programs read struct input_event exactly
- * as on Linux. Sources: the i8042 PS/2 controller, plus the VMware/QEMU
+/* Evdev sources: the i8042 PS/2 controller, plus the VMware/QEMU
  * "vmmouse" backdoor for absolute pointer positions (a mouse that follows
  * the host cursor without grabbing). While nobody has the keyboard open,
  * keys also go to the console terminal. */
-
-#define EV_SYN 0
-#define EV_KEY 1
-#define EV_REL 2
-#define EV_ABS 3
-#define BTN_LEFT 0x110
-#define BTN_RIGHT 0x111
-#define BTN_MIDDLE 0x112
-
-struct input_event {
-    int64_t sec, usec;
-    uint16_t type, code;
-    int32_t value;
-};
-
-#define QLEN 512
-
-struct evdev {
-    struct input_event q[QLEN];
-    uint32_t head, tail;
-    int opens;
-    struct waitq wq;
-    spinlock_t lock;
-};
-
-static struct evdev kbd, mouse;
-
-static void push(struct evdev *d, uint16_t type, uint16_t code, int32_t value) {
-    uint64_t ns = time_monotonic_ns();
-    uint64_t f = spin_lock_irqsave(&d->lock);
-    if (d->head - d->tail < QLEN) {
-        struct input_event *e = &d->q[d->head++ % QLEN];
-        e->sec = (int64_t)(ns / 1000000000ULL);
-        e->usec = (int64_t)(ns % 1000000000ULL / 1000);
-        e->type = type;
-        e->code = code;
-        e->value = value;
-    }
-    spin_unlock_irqrestore(&d->lock, f);
-}
-
-static void sync_wake(struct evdev *d) {
-    push(d, EV_SYN, 0, 0);
-    waitq_wake_all(&d->wq);
-}
-
-static bool has_events(void *arg) {
-    struct evdev *d = arg;
-    return d->head != d->tail;
-}
-
-static int64_t ev_read(struct vnode *v, struct file *f, void *buf, size_t len, uint64_t off) {
-    (void)off;
-    struct evdev *d = v->data;
-    if (len < sizeof(struct input_event))
-        return -EINVAL;
-    for (;;) {
-        uint64_t fl = spin_lock_irqsave(&d->lock);
-        size_t n = 0;
-        while (d->tail != d->head && (n + 1) * sizeof(struct input_event) <= len) {
-            ((struct input_event *)buf)[n++] = d->q[d->tail++ % QLEN];
-        }
-        spin_unlock_irqrestore(&d->lock, fl);
-        if (n)
-            return (int64_t)(n * sizeof(struct input_event));
-        if (f && (f->flags & O_NONBLOCK))
-            return -EAGAIN;
-        if (waitq_wait_cond(&d->wq, has_events, d) < 0)
-            return -EINTR;
-    }
-}
-
-static int ev_poll(struct vnode *v, struct file *f, struct waitq **wq) {
-    (void)f;
-    struct evdev *d = v->data;
-    if (wq)
-        *wq = &d->wq;
-    return has_events(d) ? POLLIN : 0;
-}
-
-static int ev_open(struct vnode *v, struct file *f) {
-    (void)f;
-    struct evdev *d = v->data;
-    __atomic_add_fetch(&d->opens, 1, __ATOMIC_RELAXED);
-    return 0;
-}
-
-static void ev_close(struct vnode *v, struct file *f) {
-    (void)f;
-    struct evdev *d = v->data;
-    __atomic_sub_fetch(&d->opens, 1, __ATOMIC_RELAXED);
-}
-
-static const struct vnode_ops ev_ops = {.read = ev_read, .poll = ev_poll, .open = ev_open, .close = ev_close};
 
 /* ---- PS/2 keyboard: scan code set 1 (translated) -> Linux key codes ---- */
 
@@ -161,9 +65,9 @@ static void kbd_byte(uint8_t sc) {
     if (key == 29 || key == 97)
         ctrl = !release;
 
-    if (kbd.opens > 0) {
-        push(&kbd, EV_KEY, key, release ? 0 : 1);
-        sync_wake(&kbd);
+    if (evdev_is_open(&input_kbd)) {
+        evdev_push(&input_kbd, EV_KEY, key, release ? 0 : 1);
+        evdev_sync(&input_kbd);
         return;
     }
     if (release || was_e0 || code >= sizeof plain)
@@ -214,17 +118,17 @@ static void vmmouse_poll(void) {
             return;
         backdoor(39, 4, r);
         uint32_t buttons = r[0] & 0xffff;
-        push(&mouse, EV_ABS, 0, (int32_t)r[1]);
-        push(&mouse, EV_ABS, 1, (int32_t)r[2]);
+        evdev_push(&input_mouse, EV_ABS, 0, (int32_t)r[1]);
+        evdev_push(&input_mouse, EV_ABS, 1, (int32_t)r[2]);
         int32_t wheel = (int8_t)(r[3] & 0xff);
         if (wheel)
-            push(&mouse, EV_REL, 8, -wheel);
+            evdev_push(&input_mouse, EV_REL, 8, -wheel);
         static const struct { uint32_t bit; uint16_t code; } map[] = {{0x20, BTN_LEFT}, {0x10, BTN_RIGHT}, {0x08, BTN_MIDDLE}};
         for (int i = 0; i < 3; i++)
             if ((buttons ^ last_buttons) & map[i].bit)
-                push(&mouse, EV_KEY, map[i].code, (buttons & map[i].bit) ? 1 : 0);
+                evdev_push(&input_mouse, EV_KEY, map[i].code, (buttons & map[i].bit) ? 1 : 0);
         last_buttons = buttons;
-        sync_wake(&mouse);
+        evdev_sync(&input_mouse);
     }
 }
 
@@ -247,16 +151,16 @@ static void mouse_byte(uint8_t b) {
     int dx = packet[1] - ((packet[0] << 4) & 0x100);
     int dy = packet[2] - ((packet[0] << 3) & 0x100);
     if (dx)
-        push(&mouse, EV_REL, 0, dx);
+        evdev_push(&input_mouse, EV_REL, 0, dx);
     if (dy)
-        push(&mouse, EV_REL, 1, -dy);
+        evdev_push(&input_mouse, EV_REL, 1, -dy);
     uint32_t buttons = packet[0] & 7;
     static const uint16_t codes[3] = {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE};
     for (int i = 0; i < 3; i++)
         if ((buttons ^ last_buttons) & (1u << i))
-            push(&mouse, EV_KEY, codes[i], (int32_t)((buttons >> i) & 1));
+            evdev_push(&input_mouse, EV_KEY, codes[i], (int32_t)((buttons >> i) & 1));
     last_buttons = buttons;
-    sync_wake(&mouse);
+    evdev_sync(&input_mouse);
 }
 
 /* ---- i8042 controller ---- */
@@ -303,25 +207,11 @@ static void i8042_irq(struct regs *r) {
 static void route(uint8_t isa, uint8_t vec) {
     bool level, low;
     uint32_t gsi = irq_to_gsi(isa, &level, &low);
-    ioapic_route(gsi, vec, cpus[0]->lapic_id, level, low);
-}
-
-static void add_dev(const char *path, struct evdev *d) {
-    waitq_init(&d->wq);
-    struct vnode *v = vnode_alloc(VN_CHR, 0660, &ev_ops);
-    KASSERT(v);
-    v->data = d;
-    v->rdev = (13 << 8) | (d == &kbd ? 64 : 65);
-    vfs_create_node(path, v);
-    vnode_put(v);
+    ioapic_route(gsi, vec, cpus[0]->arch.lapic_id, level, low);
 }
 
 
-void input_init(void) {
-    vfs_mkdir_p("/dev/input", 0755);
-    add_dev("/dev/input/event0", &kbd);
-    add_dev("/dev/input/event1", &mouse);
-
+void platform_input_init(void) {
     /* Quiet both ports, flush, enable the aux port and both interrupts,
      * keep translation. The flush is bounded: under Windows' hypervisor a
      * mouse moving over the window keeps the queue filling, and an endless

@@ -1,12 +1,12 @@
 #include <kernel/arch.h>
 #include <kernel/blkdev.h>
 #include <kernel/boot.h>
-#include <kernel/cpu.h>
 #include <kernel/drivers.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/net.h>
 #include <kernel/pci.h>
+#include <kernel/platform.h>
 #include <kernel/proc.h>
 #include <kernel/sched.h>
 #include <kernel/vfs.h>
@@ -52,22 +52,11 @@ static volatile uint64_t limine_requests_end[] = LIMINE_REQUESTS_END_MARKER;
 uint64_t hhdm_offset;
 
 static struct cpu bsp_cpu;
-static uint8_t bsp_df_stack[16384] __attribute__((aligned(16)));
 
 /* ---- Boot self-tests: each prints a line the boot test looks for ---- */
 
-static volatile int breakpoint_hits;
-static void on_breakpoint(struct regs *r) {
-    (void)r;
-    breakpoint_hits++;
-}
-
 static void selftest_memory(void) {
-    idt_set_handler(3, on_breakpoint);
-    __asm__ volatile("int3");
-    KASSERT(breakpoint_hits == 1);
-    idt_set_handler(3, NULL);
-    kprintf("selftest: interrupts ok\n");
+    arch_selftest_breakpoint();
 
     uint64_t before = pmm_free_pages();
     uint64_t a = pmm_alloc(1), b = pmm_alloc(8);
@@ -308,13 +297,14 @@ static void init_main(void *arg) {
 
     vfs_init();
     devfs_init();
+    pci_init(); /* before input_init, since we find virtio input devices on PCI */
     fbdev_init();
     input_init();
     struct limine_file *initrd = find_module("initrd.cpio");
     if (!initrd) {
         kprintf("no initrd module: kernel-only boot\n");
         kprintf("OS BOOT OK\n");
-        outb(QEMU_DEBUG_EXIT_PORT, 0x00); /* QEMU exit code 1 = success in tests */
+        platform_test_exit(0x00); /* QEMU exit code 1 = success in tests */
         return;
     }
     /* The base system first (the Freedesktop Platform and what is built on
@@ -332,7 +322,6 @@ static void init_main(void *arg) {
     mind_from_cmdline();
     procfs_init(); /* after the initramfs: /proc and /sys are mounted over its directories */
     sysfs_init();
-    pci_init();
     storage_init();
     hda_init(); /* drivers/hda.c: /dev/dsp, /dev/mixer */
     net_init();
@@ -351,30 +340,22 @@ void kmain(void) {
     fbcon_init();
     kprintf("Operating System kernel starting\n");
 
-    bsp_cpu.df_stack = bsp_df_stack;
-    gdt_init(&bsp_cpu);
-    cpu_set_percpu(&bsp_cpu);
+    arch_init_bsp(&bsp_cpu);
     cpus[0] = &bsp_cpu;
-    idt_init();
-    idt_load();
-    kprintf("cpu: gdt, tss and idt loaded\n");
 
     pmm_init();
     kprintf("mm: %lu MiB usable, %lu MiB free\n", pmm_total_pages() * PAGE_SIZE >> 20,
             pmm_free_pages() * PAGE_SIZE >> 20);
     vmm_init();
+    serial_remap();
     kprintf("mm: running on kernel page tables\n");
     heap_init();
 
-    fpu_init_cpu();
-    syscall_init_cpu();
-    acpi_init();
-    apic_init();
-    bsp_cpu.lapic_id = lapic_id();
+    arch_init_interrupts(&bsp_cpu);
     sched_init_cpu();
     smp_init();
 
     KASSERT(thread_create("init", init_main, NULL));
     for (;;) /* this boot context is now CPU 0's idle thread */
-        __asm__ volatile("sti; hlt");
+        cpu_idle_wait();
 }

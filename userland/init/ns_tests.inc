@@ -309,6 +309,14 @@ struct t_prog {
 #define JEQ(v, t, f) {0x15, t, f, (uint32_t)(v)}     /* jeq #v */
 #define RET(v) {0x06, 0, 0, (uint32_t)(v)}           /* ret #v */
 
+#ifdef __aarch64__
+#define UC_NR(uc) ((uc)->uc_mcontext.regs[8])
+#define UC_RET(uc) ((uc)->uc_mcontext.regs[0])
+#else
+#define UC_NR(uc) ((uc)->uc_mcontext.gregs[REG_RAX])
+#define UC_RET(uc) ((uc)->uc_mcontext.gregs[REG_RAX])
+#endif
+
 static volatile int trapped_nr, trapped_code;
 
 static void on_sigsys(int sig, siginfo_t *si, void *ctx) {
@@ -316,9 +324,9 @@ static void on_sigsys(int sig, siginfo_t *si, void *ctx) {
     ucontext_t *uc = ctx;
     trapped_code = si->si_code;
     trapped_nr = si->si_syscall;
-    /* Chromium checks the saved rax is the call's number, then answers in it */
-    if (uc->uc_mcontext.gregs[REG_RAX] == si->si_syscall)
-        uc->uc_mcontext.gregs[REG_RAX] = 777;
+    /* Chromium checks the saved register holds the call's number, then answers in the return register */
+    if (UC_NR(uc) == (unsigned long)si->si_syscall)
+        UC_RET(uc) = 777;
 }
 
 static int child_seccomp_inherited(void) {
