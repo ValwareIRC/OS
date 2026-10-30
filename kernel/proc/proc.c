@@ -1,12 +1,10 @@
+#include <asm/elf.h>
 #include <kernel/arch.h>
 #include <kernel/boot.h>
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
-
-#define MSR_FS_BASE 0xC0000100
 
 static struct process kernel_proc = {.pid = 0, .name = "kernel"};
 static struct process *all_procs; /* linked through next_all */
@@ -103,12 +101,15 @@ void proc_dump_threads(void) {
                             ut->sc_hist[i].a1, ut->sc_hist[i].a2, ut->sc_hist[i].a3, ut->sc_hist[i].ret);
                 }
             }
-            if ((ut->sc_nr == 232 || ut->sc_nr == 281 || ut->sc_nr == 441) && p->fds && ut->sc_a1 < MAX_FDS) {
+            const char *sc = syscall_name(ut->sc_nr);
+            if ((!strcmp(sc, "epoll_wait") || !strcmp(sc, "epoll_pwait") || !strcmp(sc, "epoll_pwait2")) && p->fds &&
+                ut->sc_a1 < MAX_FDS) {
                 void epoll_debug_dump(struct file *f);
                 epoll_debug_dump(p->fds->fd[ut->sc_a1]);
             }
             /* blocked reading: what it reads, and whether there is something there now */
-            if ((ut->sc_nr == 0 || ut->sc_nr == 45 || ut->sc_nr == 47) && p->fds && ut->sc_a1 < MAX_FDS) {
+            if ((!strcmp(sc, "read") || !strcmp(sc, "recvfrom") || !strcmp(sc, "recvmsg")) && p->fds &&
+                ut->sc_a1 < MAX_FDS) {
                 struct file *fl = p->fds->fd[ut->sc_a1];
                 if (fl && fl->vnode) {
                     struct waitq *wq;
@@ -332,26 +333,6 @@ bool signal_pending_current(void) {
     return sigs_wanted(ut->proc, pending & (~ut->sigmask | sigbit(SIGKILL))) != 0;
 }
 
-/* Linux x86-64 signal frame (what rt_sigreturn and debuggers expect). */
-struct sigcontext {
-    uint64_t r8, r9, r10, r11, r12, r13, r14, r15, rdi, rsi, rbp, rbx, rdx, rax, rcx, rsp, rip, eflags;
-    uint16_t cs, gs, fs, ss;
-    uint64_t err, trapno, oldmask, cr2, fpstate, reserved[8];
-};
-struct ucontext {
-    uint64_t uc_flags, uc_link;
-    uint64_t ss_sp;
-    int32_t ss_flags, pad;
-    uint64_t ss_size;
-    struct sigcontext mc;
-    uint64_t sigmask;
-};
-struct siginfo {
-    int32_t si_signo, si_errno, si_code, pad;
-    uint8_t rest[112];
-};
-#define FPU_FRAME_SIZE 4096 /* generous: covers AVX-512 XSAVE areas */
-
 static void setup_signal_frame(struct regs *r, int sig, struct linux_sigaction *sa);
 
 /* Called on every return to user mode. */
@@ -403,45 +384,22 @@ void signal_deliver(struct regs *r) {
 
 /* Builds the handler's frame on the user stack and points `r` at the handler. */
 static void setup_signal_frame(struct regs *r, int sig, struct linux_sigaction *sa) {
-    struct thread *t = thread_current();
-    struct user_thread *ut = t->user;
+    struct user_thread *ut = thread_current()->user;
 
-    /* Linux layout, growing down from below the red zone: XSAVE area, then
-     * {return address -> restorer, ucontext, siginfo}. At handler entry
-     * (rsp + 8) is 16-byte aligned, as if the handler had been called. */
-    uint64_t fpstate = ALIGN_DOWN(r->rsp - 128 - FPU_FRAME_SIZE, 64);
-    uint64_t frame_size = 8 + sizeof(struct ucontext) + sizeof(struct siginfo);
-    uint64_t sp = ALIGN_DOWN(fpstate - frame_size, 16) - 8;
-    uint64_t uc_addr = sp + 8;
-    uint64_t si_addr = uc_addr + sizeof(struct ucontext);
-
-    struct ucontext uc = {0};
-    uc.mc = (struct sigcontext){
-        .r8 = r->r8, .r9 = r->r9, .r10 = r->r10, .r11 = r->r11, .r12 = r->r12, .r13 = r->r13,
-        .r14 = r->r14, .r15 = r->r15, .rdi = r->rdi, .rsi = r->rsi, .rbp = r->rbp, .rbx = r->rbx,
-        .rdx = r->rdx, .rax = r->rax, .rcx = r->rcx, .rsp = r->rsp, .rip = r->rip, .eflags = r->rflags,
-        .cs = (uint16_t)r->cs, .ss = (uint16_t)r->ss, .fpstate = fpstate,
-    };
     /* sigreturn restores the mask from before the call that installed a
      * temporary one (rt_sigsuspend, ppoll...), not the temporary mask. */
-    uc.sigmask = ut->restore_sigmask ? ut->saved_sigmask : ut->sigmask;
-    uc.mc.oldmask = uc.sigmask;
+    uint64_t mask = ut->restore_sigmask ? ut->saved_sigmask : ut->sigmask;
     struct siginfo si = {.si_signo = sig};
     if (sig == SIGSYS && ut->sigsys_pending) { /* from seccomp: which call, from where */
         ut->sigsys_pending = false;
         si.si_code = 1; /* SYS_SECCOMP */
         si.si_errno = ut->sigsys_errno;
-        uint32_t arch = 0xC000003EU;
+        uint32_t arch = AUDIT_ARCH;
         memcpy(si.rest, &ut->sigsys_ip, 8);
         memcpy(si.rest + 8, &ut->sigsys_nr, 4);
         memcpy(si.rest + 12, &arch, 4);
     }
-    uint64_t restorer = sa->restorer;
-
-    fpu_save(ut->fpu);
-    if (!(sa->flags & SA_RESTORER) || copy_to_user(fpstate, ut->fpu, FPU_FRAME_SIZE) < 0 ||
-        copy_to_user(uc_addr, &uc, sizeof uc) < 0 || copy_to_user(si_addr, &si, sizeof si) < 0 ||
-        copy_to_user(sp, &restorer, 8) < 0)
+    if (!arch_signal_setup(r, &si, mask, sa))
         proc_exit(SIGSEGV); /* cannot deliver: like Linux, force-kill */
 
     /* The handler runs with the current mask (the temporary one, if any)
@@ -452,36 +410,15 @@ static void setup_signal_frame(struct regs *r, int sig, struct linux_sigaction *
         ut->sigmask |= sigbit(sig);
     if (sa->flags & SA_RESETHAND)
         sa->handler = SIG_DFL;
-    r->rip = sa->handler;
-    r->rsp = sp;
-    r->rdi = (uint64_t)sig;
-    r->rsi = si_addr;
-    r->rdx = uc_addr;
-    r->rax = 0;
-    r->rflags &= ~0x400ULL; /* DF clear per ABI */
 }
 
 int64_t signal_return(struct regs *r);
 int64_t signal_return(struct regs *r) {
-    struct thread *t = thread_current();
-    /* The handler's `ret` popped the return address, so rsp is at the
-     * ucontext the delivery code wrote. */
-    uint64_t uc_addr = r->rsp;
-    struct ucontext uc;
-    if (copy_from_user(&uc, uc_addr, sizeof uc) < 0)
+    uint64_t mask;
+    if (!arch_signal_return(r, &mask))
         proc_exit(SIGSEGV);
-    struct sigcontext *m = &uc.mc;
-    r->r8 = m->r8, r->r9 = m->r9, r->r10 = m->r10, r->r11 = m->r11, r->r12 = m->r12;
-    r->r13 = m->r13, r->r14 = m->r14, r->r15 = m->r15, r->rdi = m->rdi, r->rsi = m->rsi;
-    r->rbp = m->rbp, r->rbx = m->rbx, r->rdx = m->rdx, r->rax = m->rax, r->rcx = m->rcx;
-    r->rsp = m->rsp, r->rip = m->rip;
-    r->rflags = (r->rflags & ~0x40dd5ULL) | (m->eflags & 0x40dd5ULL); /* user-changeable flags only */
-    t->user->sigmask = uc.sigmask & ~SIG_UNBLOCKABLE;
-    if (m->fpstate && copy_from_user(t->user->fpu, m->fpstate, 512) == 0) {
-        /* Restore at least the legacy area; full XSAVE restore needs header validation. */
-        fpu_restore(t->user->fpu);
-    }
-    return (int64_t)r->rax;
+    thread_current()->user->sigmask = mask & ~SIG_UNBLOCKABLE;
+    return (int64_t)regs_return(r);
 }
 
 /* ---- exit and wait ---- */
@@ -732,39 +669,36 @@ int64_t proc_wait(int pid, int *status, int options) {
 
 static bool debug_trace;
 
-static void page_fault(struct regs *r) {
-    uint64_t addr = read_cr2();
+/* Called by the arch page-fault handler. Returns false for a kernel-mode
+ * fault nothing resolves, which the arch reports with its own fault details. */
+bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec);
+bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     if (debug_trace)
-        kprintf("#PF addr=%lx rip=%lx err=%lx\n", addr, r->rip, r->error);
+        kprintf("#PF addr=%lx rip=%lx\n", addr, regs_ip(r));
     struct thread *t = thread_current();
     struct mm *mm = t && t->user ? t->user->proc->mm : NULL;
-    if (mm && mm_handle_fault(mm, addr, r->error & 2, r->error & 16))
-        return;
-    if (r->cs & 3) {
+    if (mm && mm_handle_fault(mm, addr, write, exec))
+        return true;
+    if (regs_user_mode(r)) {
         kprintf("pid %d (%s): segmentation fault at %lx, rip %lx\n", t->user->proc->pid, t->user->proc->name,
-                addr, r->rip);
+                addr, regs_ip(r));
         proc_exit(SIGSEGV);
     }
     /* A user-memory access from the kernel (copy_from_user and friends):
      * resume at its fixup, which returns -EFAULT. */
-    uint64_t fixup = exception_fixup(r->rip);
+    uint64_t fixup = exception_fixup(regs_ip(r));
     if (fixup) {
-        r->rip = fixup;
-        return;
+        regs_set_ip(r, fixup);
+        return true;
     }
-    kprintf("\nkernel page fault at %lx, rip %lx, error %lx\n", addr, r->rip, r->error);
-    panic("page fault in kernel mode");
+    return false;
 }
 
-/* Called by isr_dispatch for CPU exceptions raised in user mode. */
-void user_exception(struct regs *r);
-void user_exception(struct regs *r) {
+/* Called by the arch for CPU exceptions raised in user mode. */
+void user_exception(struct regs *r, uint64_t vector, int sig);
+void user_exception(struct regs *r, uint64_t vector, int sig) {
     struct process *p = proc_current();
-    int sig = r->vector == 0 || r->vector == 16 || r->vector == 19 ? SIGFPE
-              : r->vector == 6                                     ? SIGILL
-              : r->vector == 3 || r->vector == 1                   ? SIGTRAP
-                                                                   : SIGSEGV;
-    kprintf("pid %d (%s): exception %lu at rip %lx -> signal %d\n", p->pid, p->name, r->vector, r->rip, sig);
+    kprintf("pid %d (%s): exception %lu at rip %lx -> signal %d\n", p->pid, p->name, vector, regs_ip(r), sig);
     proc_exit(sig);
 }
 
@@ -806,7 +740,7 @@ static void init_entry(void *arg) {
     if (r < 0)
         panic("cannot run %s (error %d)", init_path, r);
     if (debug_trace)
-        kprintf("init: entering user mode at rip=%lx rsp=%lx\n", frame->rip, frame->rsp);
+        kprintf("init: entering user mode at rip=%lx rsp=%lx\n", regs_ip(frame), regs_sp(frame));
     return_to_user(frame);
 }
 
@@ -847,7 +781,7 @@ void proc_start_init(const char *path) {
     fs_context(&kernel_proc.root, &kernel_proc.cwd); /* the first namespace's root */
     kernel_proc.mntns = proc_first_mntns();
     ns_init(&kernel_proc.ns);
-    idt_set_handler(14, page_fault);
+    arch_page_fault_init();
     init_path = path;
 
     struct process *p = proc_alloc(NULL);

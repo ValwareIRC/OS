@@ -1,7 +1,6 @@
 #include <kernel/arch.h>
 #include <kernel/lib.h>
 #include <kernel/boot.h>
-#include <kernel/cpu.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
 #include <kernel/sched.h>
@@ -13,10 +12,8 @@
  * have not been saved yet. Per-CPU queues with work stealing come later. */
 
 #define KSTACK_SIZE (32 * 1024)
-#define MSR_FS_BASE 0xC0000100
 
 void switch_context(uint64_t *save_rsp, uint64_t new_rsp);
-void thread_start_trampoline(void);
 void thread_start(void);
 
 static spinlock_t rq_lock = SPINLOCK_INIT;
@@ -42,7 +39,7 @@ static void kick_idle_cpu(void) {
     for (uint32_t i = 0; i < cpu_count; i++) {
         struct cpu *c = cpus[i];
         if (c && c != self && c->online && c->current == c->idle) {
-            lapic_send_ipi(c->lapic_id, VEC_RESCHED);
+            arch_send_resched(c);
             return;
         }
     }
@@ -68,9 +65,7 @@ static struct thread *rq_pop(void) {
  * read the CPU it left — someone else's thread. That gave syscalls another
  * process's files and signals: double frees, null user pointers. */
 struct thread *thread_current(void) {
-    struct thread *t;
-    __asm__ volatile("mov %%gs:%c1, %0" : "=r"(t) : "i"(__builtin_offsetof(struct cpu, current)));
-    return t;
+    return this_cpu_read(current);
 }
 
 static void thread_free(struct thread *t) {
@@ -88,14 +83,11 @@ static void sched_finish(void) {
     struct cpu *c = this_cpu();
     struct thread *prev = c->prev, *cur = c->current;
     c->prev = NULL;
-    if (cur != c->idle) {
-        uint64_t top = thread_kstack_top(cur);
-        c->kernel_rsp = top;
-        c->tss.rsp[0] = top;
-    }
+    if (cur != c->idle)
+        arch_set_kernel_stack(c, thread_kstack_top(cur));
     struct mm *mm = NULL;
     if (cur->user) {
-        wrmsr(MSR_FS_BASE, cur->user->fs_base);
+        arch_load_tls(cur->user->tls);
         fpu_restore(cur->user->fpu);
         /* An exiting thread has let go of the mm: the last thread of its
          * process may already be freeing it. */
@@ -167,7 +159,7 @@ static void schedule(enum thread_state new_state) {
 void thread_start(void) {
     sched_finish();
     struct thread *t = thread_current();
-    __asm__ volatile("sti");
+    irq_enable();
     t->entry(t->arg);
     thread_exit();
 }
@@ -199,14 +191,7 @@ struct thread *thread_create_ex(const char *name, void (*entry)(void *), void *a
     t->switch_reserve = ALIGN_UP(reserve, 16);
     ksnprintf(t->name, sizeof t->name, "%s", name);
 
-    /* Initial frame consumed by switch_context: six callee-saved registers,
-     * then the return address. After the ret, rsp is 16-byte aligned, so the
-     * trampoline's call enters thread_start with ABI-correct alignment. */
-    uint64_t *sp = (uint64_t *)(t->kstack + KSTACK_SIZE - t->switch_reserve);
-    *--sp = (uint64_t)thread_start_trampoline;
-    for (int i = 0; i < 6; i++)
-        *--sp = 0;
-    t->rsp = (uint64_t)sp;
+    t->rsp = arch_thread_initial_sp((uint64_t)(t->kstack + KSTACK_SIZE - t->switch_reserve));
     t->state = THREAD_BLOCKED;
 
     uint64_t f = spin_lock_irqsave(&rq_lock);
@@ -235,7 +220,7 @@ void thread_yield(void) {
 }
 
 void thread_exit(void) {
-    __asm__ volatile("cli");
+    irq_disable();
     schedule(THREAD_DEAD);
     panic("thread_exit: dead thread was scheduled again");
 }

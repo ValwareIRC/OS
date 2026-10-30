@@ -1,7 +1,11 @@
-#include <kernel/cpu.h>
+#include <asm/io.h>
+#include <kernel/arch.h>
 #include <kernel/drivers.h>
+#include <kernel/platform.h>
+#include <kernel/vfs.h>
 
 #define COM1 0x3f8
+#define VEC_COM1 0x24
 
 static bool present;
 
@@ -20,6 +24,8 @@ bool serial_init(void) {
     return present = true;
 }
 
+void serial_remap(void) {}
+
 static void serial_putc(char c) {
     for (int spins = 0; spins < 100000 && !(inb(COM1 + 5) & 0x20); spins++)
         ;
@@ -36,6 +42,25 @@ void serial_write(const char *s, uint64_t len) {
     }
 }
 
+static void com1_irq(struct regs *r) {
+    (void)r;
+    for (int n = 0; n < 64 && (inb(COM1 + 5) & 1); n++) {
+        char c = (char)inb(COM1);
+        if (c == 0x7f)
+            c = '\b';
+        tty_input(c);
+    }
+    lapic_eoi();
+}
+
+void serial_rx_init(void) {
+    idt_set_handler(VEC_COM1, com1_irq);
+    bool level, active_low;
+    uint32_t gsi = irq_to_gsi(4, &level, &active_low);
+    ioapic_route(gsi, VEC_COM1, cpus[0]->arch.lapic_id, level, active_low);
+    outb(COM1 + 1, 0x01); /* interrupt on received data */
+}
+
 /* ---- COM2: text from the host (clipboard sharing in VMs) ----
  * The VM launcher connects COM2 to a small program on the host that sends
  * the host's clipboard whenever it changes. the OS reads it from
@@ -45,7 +70,7 @@ void serial_write(const char *s, uint64_t len) {
 
 static bool com2_present;
 
-bool com2_init(void) {
+bool platform_hostlink_init(void) {
     outb(COM2 + 1, 0x00);
     outb(COM2 + 3, 0x80);
     outb(COM2 + 0, 0x01);
@@ -67,7 +92,7 @@ bool com2_init(void) {
 /* Non-blocking: returns what has arrived (0 if nothing). Every port access
  * is a VM exit, so it reads only what is ready, a FIFO's worth at a time,
  * and never waits: the shell calls it every frame anyway. */
-int64_t com2_read(void *buf, uint64_t len) {
+int64_t platform_hostlink_read(void *buf, uint64_t len) {
     if (!com2_present)
         return 0;
     uint8_t *b = buf;

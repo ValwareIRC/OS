@@ -1,4 +1,5 @@
-#include <kernel/cpu.h>
+#include <asm/elf.h>
+#include <kernel/arch.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/ns.h>
@@ -8,7 +9,6 @@
 /* execve: ELF64 executables (static, static-pie, or dynamic with an
  * interpreter such as ld-musl / ld-linux) and #! scripts. */
 
-#define MSR_FS_BASE 0xC0000100
 #define PIE_BASE    0x0000555555554000ULL
 #define MAX_ARGS    1024
 #define MAX_SHEBANG 4
@@ -80,7 +80,7 @@ static int load_elf(struct mm *mm, struct vnode *file, uint64_t dyn_base, struct
     const struct elf64_ehdr *eh = &ehdr;
     if (len < sizeof ehdr || file_read_at(file, &ehdr, sizeof ehdr, 0) < 0)
         return -ENOEXEC;
-    if (memcmp(eh->ident, "\x7f" "ELF", 4) || eh->ident[4] != 2 || eh->ident[5] != 1 || eh->machine != 0x3e ||
+    if (memcmp(eh->ident, "\x7f" "ELF", 4) || eh->ident[4] != 2 || eh->ident[5] != 1 || eh->machine != ELF_MACHINE ||
         (eh->type != 2 && eh->type != 3) || eh->phentsize != sizeof(struct elf64_phdr) || eh->phnum > 512 ||
         eh->phoff + (uint64_t)eh->phnum * sizeof(struct elf64_phdr) > len)
         return -ENOEXEC;
@@ -178,7 +178,7 @@ static int build_stack(struct mm *mm, char *const argv[], char *const envp[], co
         if (++envc > MAX_ARGS)
             return -E2BIG;
     }
-    strings += strlen(execfn) + 1 + sizeof "x86_64" + 16;
+    strings += strlen(execfn) + 1 + sizeof UTS_MACHINE + 16;
     if (strings > 128 * 1024)
         return -E2BIG;
 
@@ -212,18 +212,16 @@ static int build_stack(struct mm *mm, char *const argv[], char *const envp[], co
         vec[k++] = PUT_STR(envp[i]);
     vec[k++] = 0;
     uint64_t fn = PUT_STR(execfn);
-    uint64_t platform = PUT_STR("x86_64");
+    uint64_t platform = PUT_STR(UTS_MACHINE);
     uint64_t rnd = str_at;
     random_bytes(buf + (rnd - base), 16);
     str_at += 16;
 
-    uint32_t a, b, c, d;
-    cpuid(1, 0, &a, &b, &c, &d);
     uint64_t aux[][2] = {
         {AT_PHDR, exe->phdr}, {AT_PHENT, sizeof(struct elf64_phdr)}, {AT_PHNUM, exe->phnum},
         {AT_PAGESZ, PAGE_SIZE}, {AT_BASE, interp ? interp->base : 0}, {AT_FLAGS, 0},
         {AT_ENTRY, exe->entry}, {AT_UID, 0}, {AT_EUID, 0}, {AT_GID, 0}, {AT_EGID, 0},
-        {AT_HWCAP, d}, {AT_CLKTCK, 100}, {AT_SECURE, 0}, {AT_RANDOM, rnd},
+        {AT_HWCAP, arch_hwcap()}, {AT_CLKTCK, 100}, {AT_SECURE, 0}, {AT_RANDOM, rnd},
         {AT_PLATFORM, platform}, {AT_EXECFN, fn}, {AT_NULL, 0},
     };
     _Static_assert(sizeof aux / sizeof aux[0] == 18, "auxc must match");
@@ -389,17 +387,12 @@ static int execve_depth(const char *path, char *const argv[], char *const envp[]
     else
         p->cap_eff_off = p->cap_perm_off = ~0ull;
 
-    t->user->fs_base = 0;
-    wrmsr(MSR_FS_BASE, 0);
+    t->user->tls = 0;
+    arch_load_tls(0);
     fpu_reset(t->user->fpu);
     fpu_restore(t->user->fpu);
 
-    memset(frame, 0, sizeof *frame);
-    frame->rip = has_interp ? interp.entry : exe.entry;
-    frame->rsp = rsp;
-    frame->cs = GDT_USER_CODE;
-    frame->ss = GDT_USER_DATA;
-    frame->rflags = 0x202;
+    arch_exec_init_regs(frame, has_interp ? interp.entry : exe.entry, rsp);
 
     if (!p->vfork_done) {
         p->vfork_done = true;

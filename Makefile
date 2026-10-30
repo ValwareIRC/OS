@@ -3,8 +3,9 @@
 #   make run      boot it in QEMU (UEFI) with a window
 #   make test     headless boot test (serial log assertions)
 
+ARCH        ?= x86_64
 LIMINE_DIR  := vendor/limine
-BUILD       := build
+BUILD       := build$(if $(filter arm64,$(ARCH)),/arm64)
 ISO         := $(BUILD)/os.iso
 KERNEL      := $(BUILD)/kernel.elf
 INITRD      := $(BUILD)/initrd.cpio
@@ -22,27 +23,55 @@ OVMF_VARS   ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_VARS_4M.fd \
                  /opt/homebrew/share/qemu/edk2-i386-vars.fd /usr/local/share/qemu/edk2-i386-vars.fd))
 QEMU        ?= qemu-system-x86_64
 QEMU_FLAGS  ?= -M q35 -m 2G -smp 4 -cpu max -no-reboot -netdev user,id=n0 -device e1000,netdev=n0
+DOCKER_PLATFORM := linux/amd64
+BUILDER     := os-builder
+EFI_BOOT    := BOOTX64.EFI
+BIOS_INSTALL := $(LIMINE_DIR)/limine bios-install
+ISO_MODULES := initrd base
+DISK_BUS    := ide.0
+ifeq ($(ARCH),arm64)
+OVMF        := $(firstword $(wildcard /usr/share/AAVMF/AAVMF_CODE.fd /usr/share/qemu-efi-aarch64/QEMU_EFI.fd \
+                 /opt/homebrew/share/qemu/edk2-aarch64-code.fd /usr/local/share/qemu/edk2-aarch64-code.fd))
+OVMF_VARS   := $(firstword $(wildcard /usr/share/AAVMF/AAVMF_VARS.fd \
+                 /opt/homebrew/share/qemu/edk2-arm-vars.fd /usr/local/share/qemu/edk2-arm-vars.fd))
+QEMU        := qemu-system-aarch64
+# QEMU virt has no IDE controller of its own, so the disk goes on an AHCI one.
+# tests/boot_test.sh boots this machine too, with its own memory, network and sound.
+QEMU_MACHINE := -M virt,gic-version=3 -accel $(if $(filter Darwin,$(shell uname -s)),hvf,kvm) -cpu host \
+               -device ramfb -device virtio-keyboard-pci -device virtio-tablet-pci -device ich9-ahci,id=ahci
+QEMU_FLAGS  := $(QEMU_MACHINE) -smp 4 -m 2G -fw_cfg name=opt/os/display,string=1600x900 \
+               -netdev user,id=n0 -device e1000,netdev=n0 -device intel-hda -device hda-duplex
+DOCKER_PLATFORM := linux/arm64
+BUILDER     := os-builder-arm64
+EFI_BOOT    := BOOTAA64.EFI
+# The base system and the limine host tool in vendor/ are x86-64 builds; the ports build in the source tree.
+BIOS_INSTALL := :
+ISO_MODULES := initrd
+PORTS_ENV   := PREFIX=$(CURDIR)/$(BUILD)/ports PORTS_DIR=$(HOME)/os-ports-arm64
+DISK_BUS    := ahci.0
+export QEMU_MACHINE DISK_BUS
+endif
 # The persistent disk for `make run`: /dev/sda inside the OS, created empty
 # (1 GiB, sparse) on first use. `make clean` keeps it; delete it by hand to
 # start over as a new person.
 DISK_IMG    ?= $(BUILD)/os-disk.img
-DISK_FLAGS  := -drive id=disk0,file=$(DISK_IMG),format=raw,if=none -device ide-hd,drive=disk0,bus=ide.0
+DISK_FLAGS  := -drive id=disk0,file=$(DISK_IMG),format=raw,if=none -device ide-hd,drive=disk0,bus=$(DISK_BUS)
 
 .PHONY: all kernel ports userland initrd iso run run-bios test test-persist clean distclean
 
 all: iso
 
 ifeq ($(shell uname -s),Darwin)
-# The build needs an x86-64 Linux toolchain, so on macOS we run it in an Ubuntu container.
+# The build needs a Linux toolchain for the target, so on macOS we run it in an Ubuntu container.
 kernel ports userland initrd base iso:
-	docker build -q --platform linux/amd64 -t os-builder - < scripts/builder.Dockerfile >/dev/null
-	docker run --rm --platform linux/amd64 -v "$(CURDIR)":/os -w /os os-builder make $@
+	docker build -q --platform $(DOCKER_PLATFORM) -t $(BUILDER) - < scripts/builder.Dockerfile >/dev/null
+	docker run --rm --platform $(DOCKER_PLATFORM) -v "$(CURDIR)":/os -w /os $(BUILDER) make $@ ARCH=$(ARCH)
 else
 kernel:
 	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel OUT=../$(KERNEL)
 
 ports:
-	bash ports/build-ports.sh
+	$(PORTS_ENV) bash ports/build-ports.sh
 
 userland: ports
 	$(MAKE) -C userland OUT=../$(BUILD)/userland PORTS=../$(BUILD)/ports
@@ -63,6 +92,8 @@ initrd: userland
 	for app in $$($(BUSYBOX) --list); do \
 		[ -e $(BUILD)/initrd/bin/$$app ] || ln -s busybox $(BUILD)/initrd/bin/$$app; done
 	cp -r userland/rootfs/. $(BUILD)/initrd/
+	# the build machine's CA bundle, so HTTPS works on images without the base system
+	install -D -m 644 /etc/ssl/certs/ca-certificates.crt $(BUILD)/initrd/usr/share/os/ca-certificates.crt
 	chmod +x $(BUILD)/initrd/etc/hello.sh
 	chmod +x $(BUILD)/initrd/usr/libexec/os/*
 	chmod +x $(BUILD)/initrd/usr/bin/run-appimage
@@ -79,7 +110,7 @@ $(BASE_CPIO): $(shell [ -f $(BASE_DIR)/.stamp ] && echo $(BASE_DIR)/.stamp)
 
 base: $(BASE_CPIO)
 
-iso: kernel initrd base $(LIMINE_DIR)
+iso: kernel $(ISO_MODULES) $(LIMINE_DIR)
 	rm -rf $(BUILD)/iso_root
 	mkdir -p $(BUILD)/iso_root/boot/limine $(BUILD)/iso_root/EFI/BOOT
 	cp $(KERNEL) $(BUILD)/iso_root/boot/kernel.elf
@@ -98,13 +129,13 @@ iso: kernel initrd base $(LIMINE_DIR)
 	fi
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin $(BUILD)/iso_root/boot/limine/
-	cp $(LIMINE_DIR)/BOOTX64.EFI $(BUILD)/iso_root/EFI/BOOT/
+	cp $(LIMINE_DIR)/$(EFI_BOOT) $(BUILD)/iso_root/EFI/BOOT/
 	xorriso -as mkisofs -R -r -J -b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table -hfsplus \
 		-apm-block-size 2048 --efi-boot boot/limine/limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
 		$(BUILD)/iso_root -o $(ISO) 2>/dev/null
-	$(LIMINE_DIR)/limine bios-install $(ISO) 2>/dev/null
+	$(BIOS_INSTALL) $(ISO) 2>/dev/null
 endif
 
 # On a Windows drive under WSL (/mnt/c) NTFS keeps the file sparse only if

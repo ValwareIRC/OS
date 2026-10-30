@@ -1,6 +1,7 @@
-#include <kernel/cpu.h>
 #include <kernel/drivers.h>
 #include <kernel/lib.h>
+#include <kernel/mm.h>
+#include <kernel/platform.h>
 #include <kernel/spinlock.h>
 
 /* Minimal printf: %d %i %u %x %X %p %s %c %%, with optional '0' flag, width,
@@ -151,13 +152,13 @@ void kprintf(const char *fmt, ...) {
 
 void halt_forever(void) {
     for (;;) {
-        cli();
-        hlt();
+        irq_disable();
+        halt();
     }
 }
 
 void panic(const char *fmt, ...) {
-    cli();
+    irq_disable();
     char buf[512];
     va_list ap;
     va_start(ap, fmt);
@@ -168,12 +169,12 @@ void panic(const char *fmt, ...) {
     log_write("\n", 1);
     /* where it came from: the frame-pointer chain (addr2line -e kernel.elf) */
     uint64_t *fp = __builtin_frame_address(0);
-    for (int i = 0; i < 16 && fp && (uint64_t)fp >= 0xffff800000000000ULL && ((uint64_t)fp & 7) == 0; i++) {
+    for (int i = 0; i < 16 && fp && (uint64_t)fp >= KERNEL_VIRT_BASE && ((uint64_t)fp & 7) == 0; i++) {
         char line[40];
         int l = ksnprintf(line, sizeof line, "  at %lx\n", fp[1]);
         log_write(line, (size_t)l);
         fp = (uint64_t *)fp[0];
     }
-    outb(QEMU_DEBUG_EXIT_PORT, 0x01); /* QEMU exit code 3 = failure */
+    platform_test_exit(0x01); /* QEMU exit code 3 = failure */
     halt_forever();
 }

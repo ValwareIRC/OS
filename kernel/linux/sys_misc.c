@@ -1,8 +1,9 @@
+#include <asm/elf.h>
 #include <kernel/arch.h>
 #include <kernel/blkdev.h>
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
+#include <kernel/platform.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
 #include <linux/syscall.h>
@@ -16,7 +17,7 @@ SYSCALL(uname) {
     ksnprintf(u.nodename, sizeof u.nodename, "%s", uts_hostname());
     ksnprintf(u.release, sizeof u.release, "6.1.0-os");
     ksnprintf(u.version, sizeof u.version, "#1 SMP");
-    ksnprintf(u.machine, sizeof u.machine, "x86_64");
+    ksnprintf(u.machine, sizeof u.machine, UTS_MACHINE);
     ksnprintf(u.domainname, sizeof u.domainname, "%s", uts_domainname());
     return copy_to_user(a1, &u, sizeof u);
 }
@@ -158,11 +159,10 @@ SYSCALL(reboot) {
     blkdev_sync_all();
     /* Under the QEMU test harness this ends the run; ACPI power-off proper
      * comes with the AML interpreter. Exit code: 1 = clean shutdown. */
-    outb(QEMU_DEBUG_EXIT_PORT, 0x00);
-    if (a3 == LINUX_REBOOT_CMD_RESTART) {
-        outb(0x64, 0xfe); /* keyboard-controller reset */
-    }
-    outw(0x604, 0x2000); /* QEMU q35 PM1a_CNT: SLP_EN with S5 */
+    platform_test_exit(0x00);
+    if (a3 == LINUX_REBOOT_CMD_RESTART)
+        platform_reboot();
+    platform_poweroff();
     halt_forever();
 }
 

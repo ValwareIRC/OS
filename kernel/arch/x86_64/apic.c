@@ -1,6 +1,7 @@
+#include <asm/io.h>
+#include <asm/msr.h>
 #include <kernel/arch.h>
 #include <kernel/boot.h>
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/spinlock.h>

@@ -1,5 +1,4 @@
 #include <kernel/arch.h>
-#include <kernel/cpu.h>
 #include <kernel/lib.h>
 #include <kernel/proc.h>
 #include <linux/syscall.h>

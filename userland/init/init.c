@@ -1735,9 +1735,15 @@ static void ramfs_perf_test(void) {
 #include "ext2_tests.inc"
 #include "lock_tests.inc"
 
+#ifdef __aarch64__
+#define MACHINE "aarch64"
+#else
+#define MACHINE "x86_64"
+#endif
+
 static void tests(void) {
     struct utsname u;
-    CHECK(uname(&u) == 0 && !strcmp(u.machine, "x86_64"), "uname");
+    CHECK(uname(&u) == 0 && !strcmp(u.machine, MACHINE), "uname");
 
     CHECK(mkdir("/tmp", 0755) == 0 || errno == EEXIST, "mkdir");
     int fd = open("/tmp/hello.txt", O_CREAT | O_WRONLY | O_TRUNC, 0644);
