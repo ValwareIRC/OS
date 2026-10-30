@@ -58,6 +58,8 @@ initrd: userland
 	ln -sf os-audio $(BUILD)/initrd/bin/os-play
 	ln -sf os-audio $(BUILD)/initrd/bin/os-rec
 	[ ! -f $(BUILD)/userland/os-shell ] || cp $(BUILD)/userland/os-shell $(BUILD)/initrd/bin/os-shell
+	mkdir -p $(BUILD)/initrd/usr/libexec
+	[ ! -f $(BUILD)/userland/os-figure ] || cp $(BUILD)/userland/os-figure $(BUILD)/initrd/usr/libexec/os-figure
 	[ ! -d $(BUILD)/ports/fonts ] || cp $(BUILD)/ports/fonts/*.ttf $(BUILD)/initrd/usr/share/fonts/
 	cp $(BUSYBOX) $(BUILD)/initrd/bin/busybox
 	for app in $$($(BUSYBOX) --list); do \

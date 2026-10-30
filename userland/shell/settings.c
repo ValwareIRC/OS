@@ -933,9 +933,38 @@ static void settings_use_model(int i) {
     mind_use(NULL);
 }
 
+void companion_rename(const char *raw); /* desktop.c */
+
+/* their companion's name: chosen in onboarding, theirs to change any time */
+static void name_row(rect c, int *y, font *f) {
+    static struct textfield nm;
+    static char shown[64];
+    if (strcmp(shown, D.ai_name)) { /* renamed elsewhere (or first time here): start from the name it has */
+        snprintf(shown, sizeof shown, "%s", D.ai_name);
+        snprintf(nm.buf, sizeof nm.buf, "%s", D.ai_name);
+        nm.len = (int)strlen(nm.buf);
+    }
+    draw_text(A.frame, f, c.x, *y, "Name", P.muted);
+    *y += LH(f) + 8;
+    rect tf = {c.x, *y, c.w - 160 > 260 ? 320 : c.w - 160, 40};
+    ui_textfield(tf, &nm, true, "Their name", f, color_alpha(P.ink, 0.06f), P.ink, P.muted, 12);
+    rect b = {tf.x + tf.w + 12, *y, 130, 40};
+    if (log_now)
+        LOGRECT("settings-name", tf);
+    bool enter = ui_type(&nm);
+    bool changed = nm.len > 0 && strcmp(nm.buf, D.ai_name);
+    if ((ctl_button(b, "Rename", f, changed, changed, &P) || (enter && changed)) && nm.len > 0) {
+        companion_rename(nm.buf);
+        snprintf(shown, sizeof shown, "%s", D.ai_name);
+    }
+    *y += 40 + 22;
+}
+
 static int page_mind(rect c, int y) {
     int y0 = y;
     font *f = BODY();
+    if (mind.step == MIND_SHOW)
+        name_row(c, &y, f);
     if (mind.step == MIND_SHOW) {
         rect card = {c.x, y, c.w, 112};
         fill_round(A.frame, card, 18, color_alpha(P.ink, 0.05f));

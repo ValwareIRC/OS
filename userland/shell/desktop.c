@@ -12,6 +12,7 @@
 #include "launcher.h"
 #include "wm.h"
 #include "theme.h"
+#include "presence.h"
 #include "caption.h"
 #include "notes.h"
 #include "alive.h"
@@ -23,6 +24,7 @@
 #include "portal.h"
 #include "capture.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -209,6 +211,9 @@ static void collect_whys(char *out, size_t len) {
         out[len - 1] = 0;
 }
 
+static void chat_strip(rect r);
+bool chat_on_desktop(void);
+
 static const char *companion_system(void) {
     static char buf[28000];
     /* With a preview open, the document it talks about and edits is that one. */
@@ -239,7 +244,12 @@ static const char *companion_system(void) {
              "[[ui:remove #id]] removes one. [[open:files]] (or notes, settings, about, terminal, companion) opens an app. "
              "[[capture:shot]] opens the screenshot bar ([[capture:record]] to record the screen, [[capture:now]] takes "
              "the whole screen at once; Print Screen does the same). Your name is theirs to give: if they want to call "
-             "you something else, take it warmly and end with [[name:The New Name]]; it changes everywhere.\n"
+             "you something else, take it warmly and end with [[name:The New Name]]; it changes everywhere. "
+             "Starter designs come with the system: aqua aquarium arcade bento beos blueprint brutalist calm codec "
+             "commander corkboard crt cube frost fsn gears hud luna matrix metro neon notebook orrery paper platinum "
+             "progman radar shelf sky subway swiss tiling workbench (codec: a Metal Gear codec call, their companion's "
+             "face on the right, the conversation along the bottom). When they ask for one by name, end with "
+             "[[theme:name]]: it is applied at once, with their names kept.\n"
              "Your own past replies show your words without their tags; what each tag did is written in a note "
              "after it. Believe those notes: a change listed as done was made, and one marked FAILED was not.\n"
              "Use ui tags for specific, small changes they ask for. When one part should become a different kind of "
@@ -257,10 +267,11 @@ static const char *companion_system(void) {
              "few minutes and that they'll see it being drawn. New colours alone (a theme, warmer, darker, an accent) "
              "are not a redesign: restyle the parts with ui:style tags, done in seconds. A change only happens through a tag, so never "
              "claim one without it, and only use tags when their last message asks for something. You can't browse "
-             "the web for them yet; say so honestly if asked.%s%s%s",
+             "the web for them yet; say so honestly if asked.%s%s%s%s",
              D.ai_name, D.user_name[0] ? D.user_name : "the person", A.prof.autonomy[0] ? A.prof.autonomy : "ask first",
              A.prof.redesign[0] ? A.prof.redesign : "only when asked", portrait[0] ? portrait : "(nothing yet)\n",
              whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", preview_prompt(), alive_prompt(),
+             presence_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
     free(tree);
     return buf;
@@ -406,7 +417,7 @@ static void rename_in(fm_node *n, const char *old, const char *name) {
  * is kept: their portrait, the design, the desktop document. ([[name:...]]:
  * a name is theirs to give; it was chosen once, in onboarding, and nothing
  * could change it after.) */
-static void companion_rename(const char *raw) {
+void companion_rename(const char *raw) {
     char name[40];
     snprintf(name, sizeof name, "%s", raw + strspn(raw, " \"'"));
     for (size_t l = strlen(name); l && strchr(" \"'.\n", name[l - 1]); l--)
@@ -429,6 +440,54 @@ static void companion_rename(const char *raw) {
     design_save(&A.d, STATE_DIR "/design.json");
     portrait_save(&A.prof, STATE_DIR "/portrait.txt");
     LOG("companion: renamed %s -> %s\n", old, name);
+}
+
+
+/* [[theme:NAME]]: one of the starter designs, as it comes, applied now (the
+ * names in it become theirs: their companion's, their own). */
+static bool apply_starter(const char *raw) {
+    char name[48];
+    int k = 0;
+    for (const char *p = raw + strspn(raw, " \"'"); *p && k < 47; p++)
+        if (isalnum((unsigned char)*p) || *p == '-' || *p == '_')
+            name[k++] = (char)tolower((unsigned char)*p);
+        else
+            break;
+    name[k] = 0;
+    char path[160];
+    snprintf(path, sizeof path, STYLIST_THEMES "/%s.xml", name);
+    FILE *f = k ? fopen(path, "r") : NULL;
+    if (!f) {
+        LOG("companion: no starter design \"%s\"\n", name);
+        return false;
+    }
+    static char text[262144];
+    size_t n = fread(text, 1, sizeof text - 1, f);
+    text[n] = 0;
+    fclose(f);
+    fm_doc *doc = fm_parse(text);
+    design d;
+    if (!doc || !design_from_facet(&d, doc, &A.prof, NULL, 0)) {
+        fm_free(doc);
+        return false;
+    }
+    /* the theme's sample names (its ai-name, "Sam") give way to theirs */
+    char theirs_ai[64], theirs_user[64];
+    snprintf(theirs_ai, sizeof theirs_ai, "%s", D.ai_name);
+    snprintf(theirs_user, sizeof theirs_user, "%s", D.user_name);
+    if (theirs_ai[0] && strcmp(d.ai_name, theirs_ai)) {
+        rename_in(doc->root, d.ai_name, theirs_ai);
+        if (!strcasecmp(d.apps[APP_COMPANION].label, d.ai_name))
+            snprintf(d.apps[APP_COMPANION].label, sizeof d.apps[APP_COMPANION].label, "%s", theirs_ai);
+        snprintf(d.ai_name, sizeof d.ai_name, "%s", theirs_ai);
+    }
+    if (theirs_user[0] && strcmp(d.user_name, theirs_user)) {
+        rename_in(doc->root, d.user_name, theirs_user);
+        snprintf(d.user_name, sizeof d.user_name, "%s", theirs_user);
+    }
+    desktop_adopt(doc, &d, false);
+    LOG("companion: applied starter design %s\n", name);
+    return true;
 }
 
 void companion_note(const char *note, bool act) {
@@ -510,6 +569,16 @@ static void companion_update(void) {
             preview_discard();
         int opened = 0;
         char *o;
+        presence_tags(m->text, from_person); /* her body: [[act:]] [[mood:]] [[figure:]] */
+        while ((o = strstr(m->text, "[[theme:"))) { /* one of the starter designs, as it comes */
+            char *e = strstr(o, "]]");
+            char nm[64];
+            snprintf(nm, sizeof nm, "%.*s", e ? (int)(e - o - 8) : 0, o + 8);
+            char *after = e ? e + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            if (from_person && e && !apply_starter(nm))
+                convo_add(c, "hidden", "(The [[theme:]] tag FAILED: there is no starter design by that name.)");
+        }
         while ((o = strstr(m->text, "[[name:"))) { /* they gave it a new name */
             char *e = strstr(o, "]]");
             char nm[64];
@@ -574,9 +643,10 @@ static void companion_update(void) {
          * (in the preview's own window when that is open). */
         bool in_preview = preview_showing() && (A.screen != SCR_DESKTOP || (A.win[WIN_PREVIEW].open &&
                                                                             !A.win[WIN_PREVIEW].minimized));
-        if (!in_preview)
+        if (!in_preview && !chat_on_desktop())
             caption_say(m->text, 0);
-        if (!in_preview && (!A.win[WIN_COMPANION].open || A.win[WIN_COMPANION].minimized)) /* kept to read later */
+        if (!in_preview && !chat_on_desktop() &&
+            (!A.win[WIN_COMPANION].open || A.win[WIN_COMPANION].minimized)) /* kept to read later */
             notify(D.ai_name[0] ? D.ai_name : "Your companion", m->text, "companion");
         if ((ui_ran || tag_failed) && tag_report[0]) {
             /* What its tags did, for it to read from now on: without this it
@@ -677,6 +747,67 @@ static void companion_body(rect r) {
         convo_send(c, companion_system(), 1600);
     }
 }
+
+
+/* <view app="chat">: the conversation as part of the desktop, codec style:
+ * the last few lines, each "NAME: words" in the design's own type, newest at
+ * the bottom, and a line to type on under them. Replies land here instead
+ * of a caption or a window. */
+static uint64_t chat_view_at;
+
+static void chat_strip(rect r) {
+    struct conversation *c = &A.companion;
+    chat_view_at = A.now;
+    float px = D.body_px + 3;
+    font *f = font_get(D.font_body, px), *fb = font_get(D.font_heading, px);
+    int lh = (int)(font_line_height(f) * 1.35f);
+    int ih = lh + 18 > 46 ? lh + 18 : 46; /* tall enough for its own words */
+    rect input = {r.x, r.y + r.h - ih, r.w, ih};
+    rect area = {r.x, r.y, r.w, r.h - ih - 14};
+    color ink = D.text, who_ai = D.accent, who_me = color_mix(D.text, D.accent2, 0.35f);
+    canvas_clip(A.frame, area);
+    int y = area.y + area.h;
+    char you[64];
+    snprintf(you, sizeof you, "%s", D.user_name[0] ? D.user_name : "You");
+    if (c->pending) {
+        int dots = 1 + (int)((A.now / 350) % 3);
+        char d[64];
+        snprintf(d, sizeof d, "%s: %.*s", D.ai_name, dots, "...");
+        y -= lh;
+        draw_text(A.frame, fb, area.x, y, d, who_ai);
+    }
+    for (int i = c->n - 1; i >= 0 && y > area.y; i--) {
+        struct msg *m = &c->msgs[i];
+        if (!strcmp(m->role, "hidden") || !m->text[strspn(m->text, " \t\r\n")])
+            continue;
+        bool mine = !strcmp(m->role, "user");
+        char name[80];
+        snprintf(name, sizeof name, "%s: ", mine ? you : D.ai_name);
+        int nw = text_width(fb, name);
+        int h = draw_text_wrapped(NULL, f, (rect){0, 0, area.w - nw, 4000}, m->text, 0, 1.35f);
+        y -= h + lh / 3;
+        draw_text(A.frame, fb, area.x, y, name, mine ? who_me : who_ai);
+        draw_text_wrapped(A.frame, f, (rect){area.x + nw, y, area.w - nw, h}, m->text, ink, 1.35f);
+    }
+    canvas_unclip(A.frame);
+    char ph[96];
+    snprintf(ph, sizeof ph, "Talk to %s...", D.ai_name);
+    ui_textfield(input, &A.chat, !c->pending, ph, f, color_alpha(D.text, 0.06f), D.text, D.muted, 4);
+    static uint64_t last_log;
+    if (A.now - last_log > 2000) {
+        last_log = A.now;
+        LOGRECT("chat-input", input);
+    }
+    if (!c->pending && ui_type(&A.chat) && A.chat.len) {
+        convo_add(c, "user", A.chat.buf);
+        A.chat.len = 0;
+        A.chat.buf[0] = 0;
+        convo_send(c, companion_system(), 1600);
+    }
+}
+
+/* the conversation is on the desktop itself: no captions or pop-ups for it */
+bool chat_on_desktop(void) { return A.now - chat_view_at < 1500; }
 
 /* Opens a text file from Files in Notes (notes.c). */
 void open_in_notes(const char *path) {
@@ -1227,13 +1358,28 @@ void fm_host_draw_view(const char *app, rect r) {
     default:
         if (app && !strcasecmp(app, "senses")) /* <view app="senses"/>: what it can sense */
             alive_panel(r);
+        else if (app && !strcasecmp(app, "chat"))
+            chat_strip(r);
         else
             companion_body(r);
         break;
     }
 }
 
+void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active) {
+    if (fm_lint_offscreen) { /* a picture for the stylist: a stand-in */
+        fill_rect(A.frame, r, color_mix(D.bg, D.accent, 0.25f));
+        return;
+    }
+    if (presence_draw_avatar(A.frame, r, active || A.companion.pending != NULL, frame, tint, shot))
+        return;
+    fm_host_draw_orb(r, active); /* no face (yet): the light */
+}
+
 void fm_host_draw_orb(rect r, bool active) {
+    active = active || A.companion.pending != NULL;
+    if (presence_draw_home(A.frame, r, active))
+        return; /* her face, in its frame */
     caption_anchor(r); /* its words appear beside it */
     float s = (float)(r.w < r.h ? r.w : r.h);
     color a = D.accent, b = D.accent2;
@@ -1713,6 +1859,7 @@ void desktop_draw(void) {
 
     if (!cached)
         fm_render_layer(ui, A.frame, 0);
+    presence_draw_corner(A.frame); /* her face, when the design has nowhere for it */
     input_state saved = A.in;
     int focused = focused_window();
     for (int i = 0; i < n; i++) {

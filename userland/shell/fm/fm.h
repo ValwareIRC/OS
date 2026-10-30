@@ -297,6 +297,9 @@ void fm_host_action(fm_doc *d, fm_node *src, const char *action);
 bool fm_host_bind(const char *key, char *out, size_t n);
 void fm_host_draw_view(const char *app, rect r);   /* built-in app bodies */
 void fm_host_draw_orb(rect r, bool active);
+/* <avatar frame="rect|circle" tint="none|codec">: her live portrait (the light when she has no face) */
+/* shot="face|bust|waist|full": how close the camera is */
+void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active);
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover);
 font *fm_host_font(const char *family, float px);
 color fm_host_wallpaper_tone(void);      /* average wallpaper colour */

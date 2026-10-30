@@ -265,7 +265,7 @@ static bool drawn_elem(const fm_node *k) {
 static bool drawn_text(const fm_node *k) { return k->kind == FM_TEXT && in_flow(k) && k->laid_out; }
 
 static bool is_leaf_tag(const fm_node *n) {
-    static const char *const leaves[] = {"icon", "orb", "clock", "canvas", "view", "spacer", "divider", "slot",
+    static const char *const leaves[] = {"icon", "orb", "avatar", "clock", "canvas", "view", "spacer", "divider", "slot",
                                          "search", "input", "text", "label", "title", NULL};
     for (int i = 0; leaves[i]; i++)
         if (tag_is(n, leaves[i]))

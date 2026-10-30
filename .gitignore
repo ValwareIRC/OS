@@ -23,3 +23,5 @@ __pycache__/
 
 # Personal launchers for running it in a VM on one PC
 *.cmd
+# VRM models people bring (their licences are their own)
+*.vrm

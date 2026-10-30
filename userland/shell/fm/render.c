@@ -685,6 +685,9 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
         draw_icon_el(c, n, op);
     } else if (tag_is(n, "orb")) {
         fm_host_draw_orb(r, n->hover || n->open);
+    } else if (tag_is(n, "avatar")) {
+        fm_host_draw_avatar(r, fm_attr_get(n, "frame"), fm_attr_get(n, "tint"), fm_attr_get(n, "shot"),
+                            n->hover || n->open);
     } else if (tag_is(n, "view")) {
         const char *app = fm_attr_get(n, "app");
         clipbox cb = clip_push(c, r);

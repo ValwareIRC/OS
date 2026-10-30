@@ -22,7 +22,7 @@
 # QEMU ahead of other programs for the processor. Ctrl+Alt+F leaves and
 # re-enters full screen; Ctrl+Alt+G lets go of the mouse.
 param([string]$Iso = "", [string]$Disk = "", [string]$Facet = "", [switch]$Claude, [string]$Model = "sonnet", [string]$Display = "gtk",
-      [string]$Memory = "", [switch]$Fullscreen)
+      [string]$Memory = "", [switch]$Fullscreen, [string]$Vrm = "")
 $root = Split-Path -Parent $PSScriptRoot
 # The newest finished image in dist\ (not the build in progress), else the build.
 if (-not $Iso) {
@@ -127,6 +127,11 @@ if ($Fullscreen) {
     [IO.File]::WriteAllText($size, "max $($mw)x$($mh)")
 }
 $facetArgs += @("-fw_cfg", "name=opt/os/display,file=$size")
+# Her own body: a VRM model (-Vrm path, or figure.vrm beside the launchers),
+# handed to the OS at boot; it keeps it (/etc/os/figure.vrm) and shows her
+# face in the design's orb.
+if (-not $Vrm -and (Test-Path (Join-Path $root "figure.vrm"))) { $Vrm = Join-Path $root "figure.vrm" }
+if ($Vrm) { $facetArgs += @("-fw_cfg", ("name=opt/os/figure.vrm,file=" + ((Resolve-Path $Vrm).Path -replace ",", ",,"))) }
 # The last session's console is kept (what happened before a restart).
 $serialLog = Join-Path $root "build\os-vm-serial.log"
 if (Test-Path $serialLog) { Copy-Item $serialLog (Join-Path $root "build\os-vm-serial.previous.log") -Force }

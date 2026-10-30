@@ -32,7 +32,7 @@ static fm_node *hit_in(fm_node *n, int x, int y) {
         return NULL;
     /* plain layout boxes and text with nothing to click let clicks through */
     bool solid = n->st.bg.kind != FM_BG_NONE || n->st.border_w > 0 || n->st.blur > 0 || fmi_action_of(n) ||
-                 is_popover(n) || tag_is(n, "icon") || tag_is(n, "orb") || tag_is(n, "view") ||
+                 is_popover(n) || tag_is(n, "icon") || tag_is(n, "orb") || tag_is(n, "avatar") || tag_is(n, "view") ||
                  tag_is(n, "search") || tag_is(n, "input") || tag_is(n, "item") || tag_is(n, "button") || tag_is(n, "canvas") ||
                  fm_attr_get(n, "drag");
     if (!solid)

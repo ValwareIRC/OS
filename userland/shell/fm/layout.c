@@ -630,6 +630,8 @@ void fmi_measure(fm_doc *d, fm_node *n, float aw, float ah) {
         cw = ch = fmi_icon_size(n);
     } else if (tag_is(n, "orb")) {
         cw = ch = st->icon_size > 0 ? st->icon_size : 56;
+    } else if (tag_is(n, "avatar")) { /* her portrait: taller than wide unless styled */
+        cw = 220, ch = 300;
     } else if (tag_is(n, "view")) {
         cw = 420, ch = 320;
     } else if (is_tray(n)) {
@@ -878,7 +880,7 @@ static void arrange_stack(fm_doc *d, fm_node *n, fm_node **kids, int nk, rect c)
         fm_node *k = kids[i];
         /* Layers stretch by default, but an orb or a ring of apps is a
          * shape with its own size: it is centred in the stack instead. */
-        bool shape = tag_is(k, "orb") || k->st.mode == FM_ORBIT || tag_is(k, "clock") || tag_is(k, "icon");
+        bool shape = tag_is(k, "orb") || tag_is(k, "avatar") || k->st.mode == FM_ORBIT || tag_is(k, "clock") || tag_is(k, "icon");
         enum fm_align al = shape && st->align == FM_A_STRETCH ? FM_A_CENTER : st->align;
         enum fm_justify ju = shape && st->justify == FM_J_START ? FM_J_CENTER : st->justify;
         float w = cross_size(k, al, (float)c.w, false, (float)c.w);
@@ -1156,7 +1158,7 @@ const char *fmi_action_of(const fm_node *n) {
         if (v && *v)
             return v;
     }
-    if (tag_is(n, "orb"))
+    if (tag_is(n, "orb") || tag_is(n, "avatar"))
         return "open:companion";
     /* the tray opens its popovers; every clock opens a calendar unless told not to */
     if (is_tray(n)) {

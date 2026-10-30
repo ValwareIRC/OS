@@ -1,0 +1,91 @@
+<facet>
+<meta ai-name="Mei" user-name="Sam" greeting="Codec open. Go ahead." tagline="140.85"
+      rationale="A codec call that never ends: she is on the line on the right, the radio in the middle, your things on the left, and the conversation runs along the bottom like subtitles."
+      theme-about="codec call: a black screen with a green radio unit at the top centre (PTT box, a frequency readout like 140.85 in big segment digits, a curved signal meter that swells while she talks, tuning arrows, a MEMORY box), her live portrait in a tall green-tinted scanline frame on the right, the apps as a quiet column of icons on the left, and the conversation itself along the bottom as white subtitle lines with a line to type on. Military radio, Metal Gear, nocturnal. (#radio, #face, #talk, #desk)"/>
+<apps>
+  <app id="files" label="Files"/><app id="companion" label="Mei"/><app id="notes" label="Notes"/>
+  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
+  <app id="redesign" label="Reshape"/><app id="power" label="Sleep"/>
+</apps>
+<wallpaper kind="gradient" colors="#000000 #000302 #010604 #000000" seed="5" intensity="0.1"/>
+<style>
+:root { --bg:#000000; --surface:rgba(2,14,9,0.96); --surface-2:#06261a; --surface-text:#c9ffe4; --text:#eef3ef; --muted:#4f9c7a;
+        --accent:#6dffb6; --accent2:#a8ffd6; --font-heading:JetBrainsMono; --font-body:Inter; --radius:0; icon-style:line; }
+desktop { color:var(--text); font-family:var(--font-body); font-size:20; }
+#screen { size:full; }
+#desk { margin:120 0 0 60; gap:18; align:start; }
+#desk applist { direction:column; align:start; gap:14; }
+#desk item { direction:row; gap:14; padding:6 10; icon-size:30; icon-shape:none; icon-style:line; color:#8fdcb6; font:"JetBrainsMono 15"; }
+#desk item:hover { background:rgba(109,255,182,0.12); color:#d8ffe9; }
+#radio { margin:118 0 0 0; width:640; height:440; }
+#face { margin:118 70 0 0; width:250; height:440; border:3 #7dffc4; glow:22 rgba(109,255,182,0.45); }
+#talk { margin:0 0 60 0; width:1000; height:270; }
+frame { direction:column; radius:0; overflow:hidden; background:var(--surface); color:var(--surface-text); border:1 #6dffb6;
+        glow:12 rgba(109,255,182,0.2); }
+titlebar { height:30; padding:0 4 0 12; gap:4; background:rgba(109,255,182,0.08); color:#6dffb6; font:"JetBrainsMono 12"; text-transform:uppercase; }
+frame:focus titlebar { background:rgba(109,255,182,0.2); color:#d8ffe9; }
+titlebar text { grow:1; letter-spacing:0.12em; }
+titlebar button { size:26; radius:0; icon-size:10; color:inherit; }
+titlebar button:hover { background:#6dffb6; color:#00140b; }
+slot { padding:6; }
+</style>
+<desktop>
+  <canvas id="screen" place="fill">
+    function draw(w, h, t)
+      g.rect(0, 0, w, h, "#000000")
+      for y = 0, h, 4 do g.rect(0, y, w, 1, "rgba(109,255,182,0.018)") end
+    end
+  </canvas>
+  <column id="desk" place="top-left">
+    <applist apps="files,notes,terminal,settings,about,prism" labels="right"/>
+  </column>
+  <canvas id="radio" place="top">
+    local G, D, B = "#6dffb6", "#0b3d27", "rgba(109,255,182,"
+    local function box(x, y, w, h, fill, edge)
+      g.rect(x, y, w, h, fill)
+      g.rect(x, y, w, 2, edge) g.rect(x, y + h - 2, w, 2, edge) g.rect(x, y, 2, h, edge) g.rect(x + w - 2, y, 2, h, edge)
+    end
+    function draw(w, h, t)
+      local cx = w / 2
+      -- the frame lines either side, as on the unit
+      g.rect(0, 30, w, 1, B .. "0.25)") g.rect(0, h - 30, w, 1, B .. "0.25)")
+      -- PTT, lit
+      box(cx - 100, 8, 200, 44, "#04160d", G)
+      g.text(cx - 46, 16, "PTT", "#d8ffe9", 26, "JetBrainsMono")
+      -- the screen
+      local sx, sy, sw, sh = cx - 190, 96, 380, 250
+      box(sx, sy, sw, sh, "#010a06", B .. "0.6)")
+      for i = 0, 3 do g.rect(sx + 14, sy + 14 + i * 22, sw - 28, 12, B .. (0.18 + 0.05 * i) .. ")") end
+      -- the signal meter: a quarter curve of bars that swells and settles
+      local level = 0.55 + 0.25 * math.sin(t * 1.7) + 0.15 * math.sin(t * 5.3)
+      for i = 0, 6 do
+        local bw = 24 + i * 14
+        local on = i / 6 < level
+        g.rect(sx + 18, sy + sh - 30 - i * 22, bw, 14, on and "#b8ffdc" or B .. "0.15)")
+      end
+      g.poly({sx + 110, sy + sh - 16, sx + sw - 16, sy + 96, sx + sw - 16, sy + sh - 16}, "#04140c")
+      -- the frequency
+      g.text(sx + 120, sy + 140, "140.85", "#b8ffdc", 64, "JetBrainsMono")
+      -- tuning arrows
+      g.poly({cx - 300, 220, cx - 250, 194, cx - 250, 246}, B .. "0.45)")
+      g.poly({cx + 300, 220, cx + 250, 194, cx + 250, 246}, B .. "0.45)")
+      -- MEMORY, dim
+      box(cx - 120, h - 62, 240, 44, "#020c07", B .. "0.35)")
+      g.text(cx - 76, h - 54, "MEMORY", B .. "0.55)", 24, "JetBrainsMono")
+    end
+  </canvas>
+  <avatar id="face" place="top-right" frame="rect" tint="codec" shot="face"/>
+  <view id="talk" app="chat" place="bottom"/>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

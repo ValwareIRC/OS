@@ -197,8 +197,24 @@ static struct limine_file *find_module(const char *suffix) {
 int fwcfg_read_file(const char *name, char *buf, size_t size);
 void hda_init(void);
 
+long fwcfg_stream_file(const char *name, void (*sink)(void *ctx, const char *p, size_t n), void *ctx);
+
+static void sink_to_file(void *ctx, const char *p, size_t n) { file_write((struct file *)ctx, p, n); }
+
 static void preload_state_from_fwcfg(void) {
-    static const char *const names[] = {"mind.json", "design.json", "facet.xml", "app.env", "autorun.sh", "display"};
+    /* her own body, a VRM model (megabytes): streamed in */
+    struct file *vf;
+    char probe[2];
+    if (fwcfg_read_file("opt/os/figure.vrm", probe, sizeof probe) > 0) {
+        vfs_mkdir_p("/etc/os", 0700);
+        if (vfs_open(NULL, "/etc/os/figure.vrm", O_WRONLY | O_CREAT | O_TRUNC, 0644, &vf) == 0) {
+            long n = fwcfg_stream_file("opt/os/figure.vrm", sink_to_file, vf);
+            file_put(vf);
+            kprintf("preloaded /etc/os/figure.vrm from the host (%ld KB)\n", n >> 10);
+        }
+    }
+    static const char *const names[] = {"mind.json", "design.json", "facet.xml", "app.env", "autorun.sh", "display", "presence",
+                                        "figure.xml"};
     static char buf[131072];
     for (size_t i = 0; i < ARRAY_LEN(names); i++) {
         char key[64], path[64];

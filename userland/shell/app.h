@@ -138,7 +138,7 @@ extern app A;
 uint64_t now_ms(void);
 void set_screen(enum screen s);
 /* The release this build is (shown in About; the image is dist/Operating-System-<it>.iso). */
-#define OS_VERSION "0.8.0"
+#define OS_VERSION "0.9.5"
 
 void toast(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /* Apps were installed or removed (Flatpak): read the list again (desktop.c). */

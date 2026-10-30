@@ -1,6 +1,7 @@
 /* os-shell: the whole visible the OS experience. First boot (choose a
  * mind, connect, get to know each other), the AI designing the desktop, and
  * the desktop itself, drawn straight to /dev/fb0 from the AI's design. */
+#include "presence.h"
 #include "app.h"
 #include "fm/fm.h"
 #include "wallpaper.h"
@@ -234,6 +235,7 @@ int main(void) {
     }
     settings_boot(); /* resolution, keyboard and sound as they chose them */
     portal_init();   /* where os-portal reaches us */
+    presence_init(); /* the light, or her face (os-figure) */
     set_screen(SCR_SPLASH);
 
     int fds[2];
@@ -244,6 +246,7 @@ int main(void) {
         wls_dispatch();
         portal_poll(); /* os-portal: file choosers, notifications */
         models_poll(); /* model downloads, wherever they were started */
+        presence_poll(); /* her frames, and what she should know */
         input_poll(&A.in);
         switch (A.screen) {
         case SCR_SPLASH: splash_draw(); break;
@@ -268,6 +271,7 @@ int main(void) {
         struct pollfd p[40] = {{.fd = fds[0], .events = POLLIN}, {.fd = fds[1], .events = POLLIN}};
         int wfds[38], nw = wls_fds(wfds, 30);
         nw += portal_fds(wfds + nw, 38 - nw);
+        nw += presence_fds(wfds + nw, 38 - nw);
         for (int i = 0; i < nw; i++)
             p[2 + i] = (struct pollfd){.fd = wfds[i], .events = POLLIN};
         poll(p, (nfds_t)(2 + nw), wm_poll_ms(33));
