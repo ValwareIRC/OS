@@ -17,6 +17,15 @@ SRC=$ROOT/build/base-src
 OUT=${BASE_OUT:-$HOME/osbuild/base}   # on the Linux file system: symlinks, case, speed
 BLD=${BASE_BUILD:-$HOME/osbuild/base-build}
 RT=26.08
+# The machine's own architecture: x86_64, or aarch64 (an arm64 build, e.g. natively on an Apple Silicon Mac)
+FA=$(uname -m)
+TRIPLET=$FA-linux-gnu
+# The CPU features llama.cpp and whisper.cpp may count on: AVX2 and FMA on x86-64 (any PC of the last
+# decade, and the VM's CPU model); on arm64 the dot-product instructions (every Apple Silicon Mac)
+case "$(uname -m)" in
+    aarch64|arm64) GGML_CPU="-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16" ;;
+    *) GGML_CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+esac
 mkdir -p "$SRC" "$OUT" "$BLD"
 source "$ROOT/scripts/ostools-env.sh"
 
@@ -73,8 +82,8 @@ fetch() { # name -> unpacked source directory
 # base visible, and the base's libraries found before the SDK's own.
 in_sdk() {
     flatpak run --user --devel --share=network --filesystem="$ROOT" --filesystem="$OUT" --filesystem="$BLD" --env=PKG_CONFIG_PATH="$BLD/pc" \
-        --env=LD_LIBRARY_PATH="$OUT/usr/lib/x86_64-linux-gnu:$OUT/usr/lib" --env=PATH="$OUT/usr/bin:/usr/bin" \
-        --env=CPATH="$OUT/usr/include" --env=PYTHONPATH="$BLD/pylib" --env=LIBRARY_PATH="$OUT/usr/lib/x86_64-linux-gnu:$OUT/usr/lib" \
+        --env=LD_LIBRARY_PATH="$OUT/usr/lib/$TRIPLET:$OUT/usr/lib" --env=PATH="$OUT/usr/bin:/usr/bin" \
+        --env=CPATH="$OUT/usr/include" --env=PYTHONPATH="$BLD/pylib" --env=LIBRARY_PATH="$OUT/usr/lib/$TRIPLET:$OUT/usr/lib" \
         --command=bash org.freedesktop.Sdk//$RT -c "$*"
 }
 
@@ -83,7 +92,7 @@ in_sdk() {
 fix_pc() {
     mkdir -p "$BLD/pc"
     local f
-    for f in "$OUT"/usr/lib/x86_64-linux-gnu/pkgconfig/*.pc "$OUT"/usr/share/pkgconfig/*.pc "$OUT"/usr/lib/pkgconfig/*.pc; do
+    for f in "$OUT"/usr/lib/$TRIPLET/pkgconfig/*.pc "$OUT"/usr/share/pkgconfig/*.pc "$OUT"/usr/lib/pkgconfig/*.pc; do
         [ -e "$f" ] || continue
         sed -e "s|^prefix=/usr|prefix=$OUT/usr|" -e "s|=/usr/|=$OUT/usr/|g" "$f" > "$BLD/pc/$(basename "$f")"
     done
@@ -107,7 +116,7 @@ meson_build() { # name [meson options...]
     local src; src=$(fetch "$name")
     local b=$BLD/$name
     rm -rf "$b"
-    in_sdk "meson setup '$b' '$src' --prefix=/usr --libdir=lib/x86_64-linux-gnu --buildtype=release $* && ninja -C '$b' && DESTDIR='$OUT' ninja -C '$b' install"
+    in_sdk "meson setup '$b' '$src' --prefix=/usr --libdir=lib/$TRIPLET --buildtype=release $* && ninja -C '$b' && DESTDIR='$OUT' ninja -C '$b' install"
     fix_pc
 }
 
@@ -117,7 +126,7 @@ auto_build() { # name [configure options...]
     local b=$BLD/$name
     rm -rf "$b"
     mkdir -p "$b"
-    in_sdk "cd '$b' && '$src/configure' --prefix=/usr --libdir=/usr/lib/x86_64-linux-gnu --sysconfdir=/etc --localstatedir=/var $* && make -j\$(nproc) && make DESTDIR='$OUT' install"
+    in_sdk "cd '$b' && '$src/configure' --prefix=/usr --libdir=/usr/lib/$TRIPLET --sysconfdir=/etc --localstatedir=/var $* && make -j\$(nproc) && make DESTDIR='$OUT' install"
     fix_pc
 }
 
@@ -127,17 +136,21 @@ platform() { # the runtime's files as /usr
     # extension points (docs, locales, GL) that are not installed: real directories
     find "$OUT/usr" -maxdepth 3 -xtype l -lname '*runtime/*' -exec sh -c 'rm -f "$1" && mkdir -p "$1"' _ {} \;
     # the dynamic loader where binaries look for it, and the merged-/usr links
-    mkdir -p "$OUT/lib64"
-    ln -sfn ../usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 "$OUT/lib64/ld-linux-x86-64.so.2"
     for d in lib; do [ -e "$OUT/$d" ] || ln -s usr/$d "$OUT/$d"; done
+    if [ "$FA" = x86_64 ]; then
+        mkdir -p "$OUT/lib64"
+        ln -sfn ../usr/lib/$TRIPLET/ld-linux-x86-64.so.2 "$OUT/lib64/ld-linux-x86-64.so.2"
+    else # arm64 programs ask for /lib/ld-linux-aarch64.so.1 (/lib is usr/lib)
+        [ -e "$OUT/usr/lib/ld-linux-aarch64.so.1" ] || ln -sfn $TRIPLET/ld-linux-aarch64.so.1 "$OUT/usr/lib/ld-linux-aarch64.so.1"
+    fi
 }
 
 
 flatpak_system() { # the base /usr is the installed Platform runtime; Flathub configured
-    local dep; dep=$(readlink -f "$HOME/.local/share/flatpak/runtime/org.freedesktop.Platform/x86_64/$RT/active")
+    local dep; dep=$(readlink -f "$HOME/.local/share/flatpak/runtime/org.freedesktop.Platform/$FA/$RT/active")
     local commit; commit=$(basename "$dep")
     local inst=$OUT/var/lib/flatpak
-    local d=$inst/runtime/org.freedesktop.Platform/x86_64/$RT
+    local d=$inst/runtime/org.freedesktop.Platform/$FA/$RT
     rm -rf "$inst"
     mkdir -p "$d/$commit" "$inst/repo"/{objects,tmp,extensions,state,refs/heads,refs/mirrors,refs/remotes/flathub}
     cp "$dep/deploy" "$dep/metadata" "$d/$commit/"
@@ -149,7 +162,7 @@ flatpak_system() { # the base /usr is the installed Platform runtime; Flathub co
 repo_version=1
 mode=bare-user-only
 min-free-space-size=500MB
-xa.masked=runtime/org.freedesktop.Platform/x86_64/$RT
+xa.masked=runtime/org.freedesktop.Platform/$FA/$RT
 xa.languages=en
 
 [remote "flathub"]
@@ -166,9 +179,9 @@ CFG
 llama_server() { # llama.cpp's server (MIT): runs the built-in model and any the person downloads
     local src=$SRC/llama.cpp b=$BLD/llama.cpp
     [ -d "$src/.git" ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp "$src"
-    # AVX2 and FMA (any x86-64 PC of the last decade, and the VM's CPU model); no network fetching in it
+    # the CPU features in GGML_CPU (above); no network fetching in it
     in_sdk "cmake -S '$src' -B '$b' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
-        -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF \
+        $GGML_CPU -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF \
         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON >/dev/null && \
         cmake --build '$b' -j\$(nproc) --target llama-server >/dev/null && \
         install -Dm755 '$b/bin/llama-server' '$OUT/usr/bin/llama-server'"
@@ -179,7 +192,7 @@ voice() { # the companion's ears and voice: whisper.cpp (MIT), built here; Piper
     local src=$SRC/whisper.cpp b=$BLD/whisper.cpp v=$ROOT/build/voice
     [ -d "$src/.git" ] || git clone --depth 1 https://github.com/ggml-org/whisper.cpp "$src"
     in_sdk "cmake -S '$src' -B '$b' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
-        -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF \
+        $GGML_CPU -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF \
         -DWHISPER_BUILD_EXAMPLES=ON >/dev/null && \
         cmake --build '$b' -j\$(nproc) --target whisper-cli >/dev/null && \
         install -Dm755 '$b/bin/whisper-cli' '$OUT/usr/bin/whisper-cli'"

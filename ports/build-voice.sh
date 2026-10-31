@@ -3,6 +3,12 @@
 # whisper.cpp (MIT) for speech recognition, with a small English model.
 # Output goes to build/voice; scripts/build-base.sh voice packs it.
 set -euo pipefail
+# The CPU features llama.cpp and whisper.cpp may count on: AVX2 and FMA on x86-64 (any PC of the last
+# decade, and the VM's CPU model); on arm64 the dot-product instructions (every Apple Silicon Mac)
+case "$(uname -m)" in
+    aarch64|arm64) GGML_CPU="-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16" ;;
+    *) GGML_CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+esac
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PORTS_DIR=${PORTS_DIR:-$HOME/os-ports}
 OUT=$ROOT/build/voice
@@ -15,7 +21,7 @@ if [ ! -d "$W" ]; then
 fi
 if [ ! -x "$OUT/whisper-cli" ]; then
     cmake -S "$W" -B "$W/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
-        -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DWHISPER_BUILD_TESTS=OFF \
+        $GGML_CPU -DWHISPER_BUILD_TESTS=OFF \
         -DWHISPER_BUILD_EXAMPLES=ON -DGGML_OPENMP=OFF >/dev/null
     cmake --build "$W/build" -j"$(nproc)" --target whisper-cli >/dev/null
     cp "$W/build/bin/whisper-cli" "$OUT/"
@@ -28,11 +34,12 @@ fi
 ls -la "$OUT"
 
 # Piper (MIT; its phonemizer espeak-ng is GPL-3: revisit before release) for
-# the companion's voice, as the prebuilt Linux release with its own libraries.
+# the companion's voice, as the prebuilt Linux release with its own libraries (x86_64 or aarch64, as
+# the machine building it).
 P=$PORTS_DIR/piper
 if [ ! -x "$P/piper" ]; then
     curl -sSL -o "$PORTS_DIR/piper.tar.gz" \
-        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz
+        https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_$(uname -m).tar.gz
     (cd "$PORTS_DIR" && tar xzf piper.tar.gz)
 fi
 VOICE=${PIPER_VOICE:-en_US-amy-medium}

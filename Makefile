@@ -44,9 +44,10 @@ QEMU_FLAGS  := $(QEMU_MACHINE) -smp 4 -m 2G -fw_cfg name=opt/os/display,string=1
 DOCKER_PLATFORM := linux/arm64
 BUILDER     := os-builder-arm64
 EFI_BOOT    := BOOTAA64.EFI
-# The base system and the limine host tool in vendor/ are x86-64 builds; the ports build in the source tree.
+# No BIOS on arm64 (UEFI only). The base system is the arm64 one, built natively (scripts/build-base.sh
+# on an arm64 machine or in the arm64 container); without it the image is the OS alone.
 BIOS_INSTALL := :
-ISO_MODULES := initrd
+ISO_MODULES := initrd $(if $(wildcard $(BASE_DIR)/usr),base)
 PORTS_ENV   := PREFIX=$(CURDIR)/$(BUILD)/ports PORTS_DIR=$(HOME)/os-ports-arm64
 DISK_BUS    := ahci.0
 export QEMU_MACHINE DISK_BUS
@@ -57,16 +58,25 @@ endif
 DISK_IMG    ?= $(BUILD)/os-disk.img
 DISK_FLAGS  := -drive id=disk0,file=$(DISK_IMG),format=raw,if=none -device ide-hd,drive=disk0,bus=$(DISK_BUS)
 
-.PHONY: all kernel ports userland initrd iso run run-bios test test-persist clean distclean
+.PHONY: all kernel ports userland initrd base-system iso run run-bios test test-persist clean distclean
 
 all: iso
 
 ifeq ($(shell uname -s),Darwin)
 # The build needs a Linux toolchain for the target, so on macOS we run it in an Ubuntu container.
-kernel ports userland initrd base iso:
+kernel ports userland initrd base base-system iso:
 	docker build -q --platform $(DOCKER_PLATFORM) -t $(BUILDER) - < scripts/builder.Dockerfile >/dev/null
-	docker run --rm --platform $(DOCKER_PLATFORM) -v "$(CURDIR)":/os -w /os $(BUILDER) make $@ ARCH=$(ARCH)
+	docker run --rm --platform $(DOCKER_PLATFORM) $(if $(filter base-system,$@),--privileged) -v "$(CURDIR)":/os -v os-home-$(ARCH):/root -w /os $(BUILDER) make $@ ARCH=$(ARCH)
 else
+# The base system (Flatpak, its portals, llama.cpp, whisper.cpp...) for this machine's architecture,
+# into $(BASE_DIR); `make` then packs it into the image. Flatpak builds in its own sandbox, so in a
+# container it needs --privileged (the Darwin rule above gives it). The SDK comes from Flathub once.
+base-system:
+	flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+	flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
+	bash scripts/build-base.sh
+	touch $(BASE_DIR)/.stamp
+
 kernel:
 	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel OUT=../$(KERNEL)
 
