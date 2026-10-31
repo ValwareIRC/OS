@@ -317,6 +317,14 @@ static void init_main(void *arg) {
     struct limine_file *apps = find_module("apps.cpio");
     if (apps)
         initramfs_unpack(apps->address, apps->size);
+    /* The archives are copied into the files now: their memory (gigabytes,
+     * with the base system) goes back to be used. */
+    uint64_t before = pmm_free_pages();
+    struct limine_file *archives[] = {base, initrd, apps};
+    for (int i = 0; i < 3; i++)
+        if (archives[i])
+            pmm_give(virt_to_phys_hhdm(archives[i]->address), archives[i]->size);
+    kprintf("mm: %lu MiB of unpacked boot archives given back\n", (pmm_free_pages() - before) * PAGE_SIZE >> 20);
     files_from_modules();
     preload_state_from_fwcfg();
     mind_from_cmdline();
@@ -346,6 +354,12 @@ void kmain(void) {
     pmm_init();
     kprintf("mm: %lu MiB usable, %lu MiB free\n", pmm_total_pages() * PAGE_SIZE >> 20,
             pmm_free_pages() * PAGE_SIZE >> 20);
+    /* the firmware's map, briefly: where the memory is (big usable stretches only) */
+    for (uint64_t i = 0; i < boot_memmap_request.response->entry_count; i++) {
+        struct limine_memmap_entry *e = boot_memmap_request.response->entries[i];
+        if (e->length >= (64ull << 20))
+            kprintf("mm: %lx-%lx type %lu (%lu MiB)\n", e->base, e->base + e->length, e->type, e->length >> 20);
+    }
     vmm_init();
     serial_remap();
     kprintf("mm: running on kernel page tables\n");

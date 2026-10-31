@@ -170,3 +170,21 @@ void page_pin(uint64_t phys) {
 }
 
 uint32_t page_refcount(uint64_t phys) { return __atomic_load_n(&page_refs[phys / PAGE_SIZE], __ATOMIC_ACQUIRE); }
+
+/* Memory the bootloader lent us that we are done with (a boot module once
+ * it has been unpacked): its whole pages join the free memory for good. */
+void pmm_give(uint64_t phys, uint64_t len) {
+    uint64_t first = ALIGN_UP(phys, PAGE_SIZE) / PAGE_SIZE, last = ALIGN_DOWN(phys + len, PAGE_SIZE) / PAGE_SIZE;
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
+    uint64_t n = 0;
+    for (uint64_t f = first; f < last && f < total_frames; f++)
+        if (test_bit(f) && !page_refs[f]) {
+            clear_bit(f);
+            n++;
+        }
+    free_frames += n;
+    usable_frames += n;
+    if (n && first < next_hint)
+        next_hint = first;
+    spin_unlock_irqrestore(&pmm_lock, flags);
+}

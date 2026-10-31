@@ -11,6 +11,8 @@ uint64_t pmm_alloc(size_t pages);
 void pmm_free(uint64_t phys, size_t pages);
 uint64_t pmm_free_pages(void);
 uint64_t pmm_total_pages(void);
+/* Gives memory the bootloader lent (an unpacked boot module) to the allocator. */
+void pmm_give(uint64_t phys, uint64_t len);
 
 /* Reference-counted single pages, for memory with several owners at once
  * (a file's page that is also mapped by processes). page_alloc_shared
