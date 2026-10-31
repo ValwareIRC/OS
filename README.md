@@ -51,8 +51,8 @@ your real files, planets that orbit, fish that swim, a sky that follows the time
 | **Subway** · apps are stations | **Swiss** · a modernist poster |
 | ![Tiling: a single thin dark status line across the TOP in small monospace](docs/screenshots/tiling.jpg) | ![Workbench: a flat bright blue screen with a white-and-blue screen title bar across the top showing free memory, the apps as small chunky drawer and disk icons in a loose grid at the top-left,](docs/screenshots/workbench.jpg) |
 | **Tiling** · a tiling window manager | **Workbench** · Amiga, with the Boing ball |
-| ![Afternoon: nothing but warm late-afternoon light, a peach-to-rose wash with a low sun glowing on the left, faint slanting beams and dust glinting in them, lavender in the shade, the time on a frosted cream card and the apps in a frosted dock](docs/screenshots/afternoon.jpg) | ![Starlit: a sleepy violet night sky with slowly twinkling stars, a crescent moon and drifting clouds, the time on a soft cushion in the middle, the apps as pastel pebbles in a floating dock](docs/screenshots/starlit.jpg) |
-| **Afternoon** · warm light, coming home | **Starlit** · sleepy, soft and slow |
+| ![Starlit: a dim violet night fading to pink-mauve, warm four-point stars in soft halos, amber lamplight low in the corners, the time on a translucent violet cushion in the middle and the apps in a translucent dock](docs/screenshots/starlit.jpg) | |
+| **Starlit** · sleepy, soft and slow | |
 <!-- /gallery -->
 
 ## Building (inside WSL Ubuntu or Linux)

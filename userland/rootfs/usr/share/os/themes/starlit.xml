@@ -1,85 +1,80 @@
 <facet>
 <meta ai-name="Rin" user-name="Sam" greeting="Mm... you're back. Stay a while." tagline="soft and sleepy"
-      rationale="A sleepy night sky: stars blinking slowly, clouds drifting past the moon. Nothing hurries here."
-      theme-about="sleepy starry night, soft and cosy, with no objects: a full-screen canvas of a deep violet-to-navy night sky with slowly twinkling stars, a big gentle crescent moon, drifting puffy clouds and a soft violet glow low down, drowsy 'z' letters floating up now and then; the companion resting above a soft cushion with the time in a round font, the apps as pastel pebble buttons in a floating dock; lavender, periwinkle and warm cream. Quiet and restful. (#sky, #nest, #sill)"/>
+      rationale="A dim violet night: little warm stars scattered everywhere like a star projector, amber lamplight pooling at the edges, a pink-mauve haze. Nothing hurries here."
+      theme-about="sleepy night light, soft and cosy, made only of light and colour: a full-screen canvas of dusky violet fading to pink-mauve, scattered warm cream four-point stars (each point joined by inward-curving sides) twinkling slowly in soft pink-gold halos, faint amber lamp-glow pools low in the corners and a lilac haze; the time on a translucent violet cushion in the middle, the apps in a translucent violet dock with amber highlights; warm cream text, rounded and soft. No moon is drawn: if the companion likes, it can be the moon. (#sky, #nest, #sill)"/>
 <apps>
   <app id="files" label="Keepsakes"/><app id="companion" label="Rin"/><app id="notes" label="Dreams"/>
   <app id="settings" label="Blankets"/><app id="about" label="Starlight"/><app id="terminal" label="Night owl"/>
   <app id="redesign" label="Rearrange"/><app id="power" label="Goodnight"/>
 </apps>
-<wallpaper kind="constellation" colors="#141634 #2a2560 #6a5aa8 #f2e6ff" seed="9" intensity="0.3"/>
+<wallpaper kind="constellation" colors="#2b2456 #4a3a7a #7a5a8e #ffe3a8" seed="9" intensity="0.3"/>
 <style>
-:root { --bg:#141634; --surface:#221f4a; --surface-2:#2e2a5e; --surface-text:#f2ecff; --text:#f2ecff;
-        --muted:#b7aee0; --accent:#ffc9a6; --accent2:#a99cff; --font-heading:Outfit; --font-body:Manrope; --radius:22; }
+:root { --bg:#2b2456; --surface:#3a2f6a; --surface-2:#463a7c; --surface-text:#f6ecff; --text:#f6ecff;
+        --muted:#c9b8e6; --accent:#ffc46b; --accent2:#c99ad8; --font-heading:Outfit; --font-body:Manrope; --radius:22; }
 desktop { color:var(--text); font-family:Manrope; font-size:15; }
 #sky { size:full; }
-#nest { margin:0 0 80 0; gap:14; align:center; }
+#nest { margin:0 0 70 0; gap:14; align:center; }
 #core { size:130; }
-#cushion { padding:10 26; gap:2; radius:30; background:rgba(242,236,255,0.14); align:center; }
-#cushion clock { font:"Outfit 52"; color:#f2ecff; line-height:1; }
-#cushion text { font:"Outfit 18"; color:#d9d0ff; }
-#sill { margin:0 0 30 0; padding:12 18; gap:12; radius:30; background:rgba(34,31,74,0.86); border:1 rgba(242,236,255,0.18); }
-#sill applist { direction:row; gap:10; }
-#sill item { height:46; padding:0 16; gap:10; direction:row; radius:23; background:#3a3576; color:#f2ecff; font:"Outfit 15";
-             icon-size:20; icon-style:line; transition:160; }
-#sill item:hover { background:#ffc9a6; color:#221f4a; transform:translate(0, -4); }
-#sill button { height:46; padding:0 16; gap:10; radius:23; background:#5a4fb0; color:#f2ecff; font:"Outfit 15";
-               icon-size:18; transition:160; }
-#sill button:hover { background:#ffc9a6; color:#221f4a; }
-frame { direction:column; radius:24; overflow:hidden; background:#221f4a; color:#f2ecff;
-        border:1 rgba(242,236,255,0.22); shadow:0 24 70 rgba(0,0,0,0.5); }
-titlebar { height:46; padding:0 10 0 20; gap:6; background:#2e2a5e; color:#b7aee0; font:"Outfit 16"; }
-frame:focus titlebar { color:#f2ecff; background:#3a3576; }
+#cushion { padding:12 30; gap:2; radius:28; align:center; background:rgba(58,47,106,0.55); blur:14;
+           border:1 rgba(255,227,168,0.18); shadow:0 18 44 rgba(20,10,50,0.35); }
+#cushion clock { font:"Outfit 54"; color:#fff1d6; line-height:1; }
+#cushion text { font:"Outfit 17"; color:#e4d6fa; }
+#sill { margin:0 0 28 0; padding:10 12; gap:8; radius:30; background:rgba(58,47,106,0.7); blur:16;
+        border:1 rgba(255,227,168,0.16); shadow:0 20 50 rgba(20,10,50,0.4); }
+#sill applist { direction:row; gap:8; }
+#sill item { height:46; padding:0 16; gap:10; direction:row; radius:23; background:rgba(255,255,255,0); color:#f6ecff;
+             font:"Outfit 15"; icon-size:20; icon-style:line; transition:160; }
+#sill item:hover { background:#ffc46b; color:#2b2456; transform:translate(0, -3); }
+#sill button { height:46; padding:0 16; gap:10; radius:23; background:#ffc46b; color:#2b2456; font:"Outfit 15";
+               icon-size:18; transition:160; shadow:0 0 22 rgba(255,196,107,0.45); }
+#sill button:hover { background:#ffd896; }
+#sill button.quiet { background:rgba(201,154,216,0.22); color:#f6ecff; shadow:none; }
+#sill button.quiet:hover { background:#c99ad8; color:#2b2456; }
+frame { direction:column; radius:24; overflow:hidden; background:#3a2f6a; color:#f6ecff;
+        border:1 rgba(255,227,168,0.2); shadow:0 24 70 rgba(15,8,40,0.55); }
+titlebar { height:46; padding:0 10 0 20; gap:6; background:#463a7c; color:#c9b8e6; font:"Outfit 16"; }
+frame:focus titlebar { color:#fff1d6; background:#54468e; }
 titlebar text { grow:1; }
-titlebar button { size:28; radius:14; icon-size:11; color:#d9d0ff; }
-titlebar button:hover { background:#ffc9a6; color:#221f4a; }
+titlebar button { size:28; radius:14; icon-size:11; color:#e4d6fa; }
+titlebar button:hover { background:#ffc46b; color:#2b2456; }
 slot { padding:6 18 18 18; }
 </style>
 <desktop>
   <canvas id="sky" place="fill" over="screen">
-    local function cloud(x, y, s, c)
-      g.circle(x, y, 30 * s, c); g.circle(x + 34 * s, y - 14 * s, 38 * s, c); g.circle(x + 74 * s, y, 30 * s, c)
-      g.rect(x - 4 * s, y - 2 * s, 82 * s, 32 * s, c, 16 * s)
-    end
     function draw(w, h, t)
-      g.gradient(0, 0, w, h, "#11132e", "#3a2f72")
-      -- stars, each breathing at its own pace
-      for i = 0, 140 do
-        local x, y = (i * 263) % w, (i * 151) % (h * 0.78)
-        local a = (math.sin(t * (0.4 + (i % 7) * 0.12) + i) + 1) / 2
-        local r = (i % 9 == 0) and 2.2 or 1.2
-        g.circle(x, y, r, string.format("#fff6e0%02x", math.floor(70 + 170 * a)))
-        if i % 23 == 0 then g.glow(x, y, 10, string.format("#fff6e0%02x", math.floor(50 * a))) end
+      -- dusky violet above, mauve lower down, a lilac haze
+      g.gradient(0, 0, w, h, "#2c2252", "#875a8c")
+      g.glow(w * 0.5, h * 0.6, h * 0.8, "#b9789f33")
+      g.glow(w * 0.2, h * 0.35, h * 0.5, "#a46a9e22")
+      -- amber lamplight pooling low in the corners
+      local b = 0.5 + 0.5 * math.sin(t * 0.5)
+      g.glow(w * 0.06, h * 0.92, h * (0.42 + 0.02 * b), "#ffb36444")
+      g.glow(w * 0.95, h * 0.88, h * 0.36, "#ffb36433")
+      -- warm little stars in soft pink-gold halos
+      local seed = 7
+      local function rnd() seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 end
+      -- the star's outline: four equal points joined by curves bowed inwards (|x|^0.6 + |y|^0.6 = 1)
+      local shape = {}
+      for k = 0, 47 do
+        local th = k / 48 * 2 * math.pi
+        local c, s = math.cos(th), math.sin(th)
+        shape[#shape + 1] = (c < 0 and -1 or 1) * math.abs(c) ^ 3.33
+        shape[#shape + 1] = (s < 0 and -1 or 1) * math.abs(s) ^ 3.33
       end
-      -- the moon, a soft crescent
-      local mx, my = w * 0.8, h * 0.2
-      g.glow(mx, my, 150, "#fff3d633")
-      -- a real crescent: the moon's edge one way, the shadow's edge back
-      local R, r, ox, oy = 64, 58, 26, -14
-      local c = (math.atan2 or math.atan)(-oy, -ox)
-      local pts = {}
-      for k = -40, 40 do
-        local a = c + k / 40 * 2.6
-        local px, py = R * math.cos(a), R * math.sin(a)
-        if (px - ox) ^ 2 + (py - oy) ^ 2 >= r * r then pts[#pts + 1] = mx + px; pts[#pts + 1] = my + py end
+      local function star(x, y, l, a)
+        g.glow(x, y, l * 1.3, string.format("#d99ad0%02x", math.floor(a * 0.4)))
+        g.glow(x, y, l * 0.7, string.format("#ffd7a0%02x", math.floor(a * 0.5)))
+        local pts = {}
+        for k = 1, #shape, 2 do pts[k] = x + shape[k] * l; pts[k + 1] = y + shape[k + 1] * l end
+        g.poly(pts, string.format("#ffeccc%02x", a))
+        if l > 8 then g.circle(x, y, l * 0.14, string.format("#fffaf0%02x", a)) end
       end
-      for k = 40, -40, -1 do
-        local a = c + k / 40 * 1.9
-        local px, py = ox + r * math.cos(a), oy + r * math.sin(a)
-        if px * px + py * py <= R * R then pts[#pts + 1] = mx + px; pts[#pts + 1] = my + py end
-      end
-      g.poly(pts, "#fff3d6")
-      -- clouds drifting past
-      for i = 0, 3 do
-        local cx = ((i * 520 + t * (6 + i * 2)) % (w + 400)) - 200
-        cloud(cx, h * (0.32 + i * 0.09), 0.8 + (i % 2) * 0.4, "#c9c0ff22")
-      end
-      -- a soft violet glow low on the horizon
-      g.glow(w * 0.5, h * 1.15, h * 0.7, "#8a6fd844")
-      -- a sleepy z, drifting up now and then
-      local zp = (t * 0.25) % 1
-      if zp < 0.8 then
-        g.text(w * 0.56 + zp * 60, h * 0.5 - zp * 120, "z", string.format("#d9d0ff%02x", math.floor(200 * (1 - zp))), 22 + zp * 18, "Outfit")
+      for i = 0, 170 do
+        local x, y = rnd() * w, rnd() * h
+        local tw = (math.sin(t * (0.25 + rnd() * 0.5) + i * 2.3) + 1) / 2
+        local s = rnd()
+        local l = s > 0.95 and 14 or (s > 0.75 and 8 or 4)
+        star(x, y, l * (0.85 + 0.15 * tw), math.floor(140 + 115 * tw))
       end
     end
   </canvas>
@@ -93,7 +88,7 @@ slot { padding:6 18 18 18; }
   <row id="sill" place="bottom">
     <applist apps="companion,notes,files,settings,terminal,about" labels="right"/>
     <button what="redesign" icon="sparkle">Rearrange</button>
-    <button what="power:off" icon="power" hotkey="meta">Goodnight</button>
+    <button class="quiet" what="power:off" icon="power" hotkey="meta">Goodnight</button>
   </row>
 </desktop>
 <template id="window">
