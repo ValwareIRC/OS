@@ -30,12 +30,14 @@
 #include "voice.h"
 #include "appapi.h"
 #include "emblem.h"
+#include "body.h"
 
 #define D (A.d)
 #define FIGURE "/usr/libexec/os-figure"
 #define PRESENCE_FILE STATE_DIR "/presence"
 #define LOOK_FILE STATE_DIR "/figure.xml"
 #define VRM_FILE STATE_DIR "/figure.vrm" /* her own model, if they brought one */
+#define MODEL_FILE STATE_DIR "/emblem-model.glb" /* a 3D model as her emblem (any object) */
 #define NSLOT 3
 #define MAX_SIDE 640 /* the largest picture asked for; bigger homes are scaled up */
 #define LIP_PATH "/run/os-lip"
@@ -155,6 +157,12 @@ bool presence_set_look(const char *markup) {
 
 /* ---- the process ---- */
 
+/* Shown as a light, but the light is a 3D model of theirs: the figure process
+ * draws it (a turning object), and the emblem shows its frames. */
+static bool model_mode(void) {
+    return P.mode == PRESENCE_LIGHT && emblem_kind() == EM_MODEL && access(MODEL_FILE, R_OK) == 0;
+}
+
 static void stop_figure(void) {
     if (P.pid > 0) {
         kill(P.pid, SIGTERM);
@@ -210,7 +218,7 @@ static bool start_figure(void) {
         dup2(to[0], 0);
         dup2(from[1], 1);
         dup2(mfd, 3);
-        int vrm = open(VRM_FILE, O_RDONLY);
+        int vrm = open(model_mode() ? MODEL_FILE : VRM_FILE, O_RDONLY); /* her own body, or the emblem's model */
         if (vrm >= 0 && vrm != 4) {
             dup2(vrm, 4);
             close(vrm);
@@ -261,7 +269,7 @@ static int read_mode(void) {
 void presence_init(void) {
     P.mode = read_mode();
     LOG("presence: %s\n", P.mode == PRESENCE_LIGHT ? "a light" : P.mode == PRESENCE_FACE ? "a face" : "a face that wanders");
-    if (P.mode != PRESENCE_LIGHT)
+    if (P.mode != PRESENCE_LIGHT || model_mode())
         P.restart_at = A.now; /* started by the first poll */
 }
 
@@ -278,8 +286,14 @@ void presence_set_mode(int mode) {
     }
     if (mode == PRESENCE_LIGHT)
         stop_figure();
-    else if (P.pid < 0)
+    if (P.pid < 0 && (mode != PRESENCE_LIGHT || model_mode()))
         P.fails = 0, P.restart_at = A.now;
+}
+
+void presence_model_changed(void) {
+    stop_figure(); /* it starts again with the new one (or not at all) */
+    P.fails = 0;
+    P.restart_at = model_mode() || P.mode != PRESENCE_LIGHT ? A.now : 0;
 }
 
 bool presence_set_body(const char *vrm) {
@@ -395,7 +409,7 @@ static void lip_update(void) {
 /* ---- every pass ---- */
 
 void presence_poll(void) {
-    if (P.mode == PRESENCE_LIGHT)
+    if (P.mode == PRESENCE_LIGHT && !model_mode())
         return;
     if (P.pid > 0) {
         int st;
@@ -487,7 +501,7 @@ static inline uint32_t sample(const uint32_t *px, int w, int h, float x, float y
 
 static uint64_t orb_home_at; /* when a design's orb last held her */
 
-enum { HOME_ROUND, HOME_RECT };
+enum { HOME_ROUND, HOME_RECT, HOME_FREE };
 enum { TINT_NONE, TINT_CODEC };
 
 static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const char *shot);
@@ -608,6 +622,25 @@ static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const
     const uint32_t *px = (const uint32_t *)(P.ring + (size_t)P.shown * P.slot_bytes);
     float cx = sq.x + sq.w * 0.5f, cy = sq.y + sq.h * 0.5f, rad = (sq.w < sq.h ? sq.w : sq.h) * 0.5f;
     float sx = (float)P.fw / sq.w, sy = (float)P.fh / sq.h;
+    if (shape == HOME_FREE) { /* an object on its own: only its pixels, over whatever is there */
+        for (int y = sq.y; y < sq.y + sq.h; y++) {
+            if (y < c->cy0 || y >= c->cy1)
+                continue;
+            for (int x = sq.x; x < sq.x + sq.w; x++) {
+                if (x < c->cx0 || x >= c->cx1)
+                    continue;
+                uint32_t f = sample(px, P.fw, P.fh, (x - sq.x + 0.5f) * sx, (y - sq.y + 0.5f) * sy);
+                uint32_t a = C_A(f);
+                if (!a)
+                    continue;
+                uint32_t *dst = &c->px[(size_t)y * c->w + x], d = *dst;
+                int rr = (int)(C_R(f) + C_R(d) * (255 - a) / 255), gg = (int)(C_G(f) + C_G(d) * (255 - a) / 255),
+                    bb = (int)(C_B(f) + C_B(d) * (255 - a) / 255);
+                *dst = RGBA(rr > 255 ? 255 : rr, gg > 255 ? 255 : gg, bb > 255 ? 255 : bb, 255);
+            }
+        }
+        return true;
+    }
     /* behind her: a deep glow in the design's colours (a codec screen's dark green) */
     color deep = color_mix(D.bg, RGBA(10, 8, 18, 255), 0.55f), glow = color_mix(D.accent, D.bg, 0.55f);
     if (tint == TINT_CODEC)
@@ -716,6 +749,15 @@ static void do_emblem(const char *a) {
         presence_set_body(NULL);
         return;
     }
+    /* a picture or model (a file or a link), or pictures to find online */
+    static const char *const how[] = {"picture", "model", "find"};
+    for (int i = 0; i < 3; i++) {
+        size_t l = strlen(how[i]);
+        if (!strncasecmp(a + strspn(a, " "), how[i], l) && a[strspn(a, " ") + l] == ' ') {
+            body_use(how[i], a + strspn(a, " ") + l + 1);
+            return;
+        }
+    }
     int k = emblem_from_name(w);
     if (k < 0) {
         LOG("presence: no emblem called %s\n", w);
@@ -731,6 +773,29 @@ static void do_figure(const char *a) {
 }
 
 void presence_tags(char *text, bool act) {
+    /* [[emblem:draw <canvas>...script...</canvas>]]: a drawing of itself. The
+     * script may hold "]]" of its own, so it runs to </canvas> first. */
+    char *dr;
+    while ((dr = strstr(text, "[[emblem:draw"))) {
+        char *open = strstr(dr, "<canvas"), *close = open ? strstr(open, "</canvas>") : NULL;
+        char *end = close ? strstr(close, "]]") : strstr(dr, "]]");
+        if (open && close && act) {
+            char *gt = strchr(open, '>');
+            if (gt && gt < close) {
+                size_t n = (size_t)(close - gt - 1);
+                char *script = malloc(n + 1);
+                if (script) {
+                    memcpy(script, gt + 1, n);
+                    script[n] = 0;
+                    if (emblem_set_drawing(script))
+                        presence_set_mode(PRESENCE_LIGHT);
+                    free(script);
+                }
+            }
+        }
+        char *after = end ? end + 2 : dr + strlen(dr);
+        memmove(dr, after, strlen(after) + 1);
+    }
     tags_live = P.mode != PRESENCE_LIGHT && P.pid > 0;
     /* apps following her face hear them even while she is a light */
     take_tag(text, "[[act:", act, do_act);
@@ -740,19 +805,40 @@ void presence_tags(char *text, bool act) {
 }
 
 const char *presence_prompt(void) {
-    if (P.mode == PRESENCE_LIGHT) {
-        static char buf[600];
-        snprintf(buf, sizeof buf,
-                 "\nThey see you on their desktop as %s%s, alive with what you do (it turns while you think, glints as "
-                 "you speak). They chose it; when they ask you to look different, end with [[emblem:gem]] (or orb, "
-                 "8-ball, earth, planet, heart, moon, or face for an anime figure). It changes at once.",
-                 emblem_kind() == EM_ORB ? "" : "a ", emblem_kind() == EM_ORB ? "a light" : emblem_name(emblem_kind()));
+    static char buf[2400];
+    snprintf(buf, sizeof buf,
+             "\nHow you look is theirs to choose. When they ask you to look different, end your reply with one of: "
+             "[[emblem:gem]] (or orb, 8-ball, earth, planet, heart, moon; face for an anime figure); "
+             "[[emblem:picture https://...]] or [[emblem:picture /root/Pictures/x.jpg]] for a picture they give you; "
+             "[[emblem:find steam train]] to search pictures online and let them pick one; "
+             "[[emblem:model https://.../thing.glb]] for a 3D model (a single .glb file); or, for anything they describe, "
+             "draw yourself: [[emblem:draw <canvas>function draw(w, h, t) ... end</canvas>]], a Lua script painting a "
+             "w by h square with g.circle(x,y,r,col), g.glow(x,y,r,col), g.rect(x,y,w,h,col,radius), "
+             "g.gradient(x,y,w,h,top,bottom), g.line(x0,y0,x1,y1,col,width), g.arc(x,y,r,a0,a1,col,width), "
+             "g.poly({x0,y0,x1,y1,...},col), g.text(x,y,str,col,size); colours as \"#rrggbb\" or \"#rrggbbaa\". The "
+             "globals state (\"idle\", \"thinking\", \"listening\", \"speaking\", \"working\", \"done\", \"error\"), "
+             "level (your voice, 0..1), accent and accent2 (the design's colours) let it come alive: make it move "
+             "while thinking and pulse with level while speaking. Keep it small, cute and clean. "
+             "Right now you are %s%s.",
+             P.mode != PRESENCE_LIGHT ? "" : emblem_kind() == EM_ORB ? "" : "a ",
+             P.mode != PRESENCE_LIGHT ? "an anime figure (a face)" : emblem_kind() == EM_ORB ? "a light"
+                                                                                           : emblem_name(emblem_kind()));
+    if (P.mode == PRESENCE_LIGHT)
         return buf;
-    }
-    return "\nYou have a body: an anime-style figure in a round frame on their desktop, who looks at the pointer, "
-           "breathes, blinks and moves her mouth as you speak. [[act:wave]] (or nod, shake, bow, clap, point, shrug, "
-           "laugh, cheer, yawn, stretch, tilt) makes a gesture; [[mood:happy]] (or calm, sad, excited, sleepy, curious, "
-           "proud, worried) sets your face until you change it. Where the design shows you in an <avatar>, its shot attribute is how close the camera is: [[ui:set #id shot=face]] (head and shoulders, closest), bust, waist or full. Use them now and then, when they fit what you say; never "
-           "describe your own movements in words. If they want you to look different, end with [[emblem:gem]] (or "
-           "orb, 8-ball, earth, planet, heart, moon).";
+    static char face[3600];
+    snprintf(face, sizeof face, "%s%s",
+             "\nYou have a body: an anime-style figure in a round frame on their desktop, who looks at the pointer, "
+             "breathes, blinks and moves her mouth as you speak. [[act:wave]] (or nod, shake, bow, clap, point, shrug, "
+             "laugh, cheer, yawn, stretch, tilt) makes a gesture; [[mood:happy]] (or calm, sad, excited, sleepy, curious, "
+             "proud, worried) sets your face until you change it. Where the design shows you in an <avatar>, its shot "
+             "attribute is how close the camera is: [[ui:set #id shot=face]] (head and shoulders, closest), bust, waist "
+             "or full. Use them now and then, when they fit what you say; never describe your own movements in words.",
+             buf);
+    return face;
+}
+
+bool presence_draw_model(canvas *c, rect r) {
+    if (!model_mode() || P.pid < 0 || !P.ready)
+        return false;
+    return draw_home(c, r, false, HOME_FREE, TINT_NONE, "full");
 }

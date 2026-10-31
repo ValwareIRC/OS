@@ -34,6 +34,7 @@ typedef struct {
     bool face_dirty;
     /* a VRM model someone brought instead of a generated body */
     bool vrm;
+    bool prop;             /* not a character: any 3D model (a train, a teapot), shown turning */
     int jaw, leye, reye;     /* bones (-1 none) */
     int morph_mesh[8], morph_blink[8], morph_angry[8], nmorph_mesh;
     char vrm_title[64], vrm_author[64], vrm_licence[300];
@@ -41,6 +42,8 @@ typedef struct {
 
 /* a VRM (0.x or 1.0) as her body, from the file's bytes; false with a reason */
 bool figure_load_vrm(figure *f, const unsigned char *data, size_t len, char *why, size_t whylen);
+/* any glTF binary (.glb) as a prop: its meshes placed as its nodes say, sized to fit, on one bone */
+bool figure_load_prop(figure *f, const unsigned char *data, size_t len, char *why, size_t whylen);
 /* her face's state on a VRM: blinking, the jaw, the eyes (adjusts the pose) */
 void figure_vrm_face(figure *f, const face_state *fs, fpose *pose);
 

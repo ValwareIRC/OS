@@ -28,6 +28,8 @@ replies = [
     "salt:paper:#f7f3ea,#c9a227,#4a6c6f,#2b2b2b:quiet, bright, nothing in the way]]",
     "Harbour dusk it is. [[learn:room|the harbour at dusk]] I'd like to be called Ember, if that's all right. "
     "[[name:Ember]] Now I'll make your space. [[done]]",
+    "Now I'll make your space. [[done]]",
+    "Now I'll make your space. [[done]]",
 ]
 script = os.path.join(out, "replies.json")
 json.dump(replies, open(script, "w"))

@@ -284,11 +284,88 @@ static const luaL_Reg api[] = {{"rect", l_rect}, {"gradient", l_gradient}, {"cir
                                {"clock", l_clock},
                                {NULL, NULL}};
 
+static void sandbox(lua_State *L);
+
 static bool start(fm_doc *d, fm_node *n, struct cv *c) {
     char *src = fm_text_of(n);
     const char *attr = fm_attr_get(n, "script");
     c->L = luaL_newstate();
     lua_State *L = c->L;
+    sandbox(L);
+    int r = luaL_loadbuffer(L, attr ? attr : src, strlen(attr ? attr : src), "canvas") || lua_pcall(L, 0, 0, 0);
+    free(src);
+    if (r) {
+        snprintf(c->error, sizeof c->error, "%s", lua_tostring(L, -1));
+        fm_report(d, n->line, false, "canvas script: %s", c->error);
+        fprintf(stderr, "fm: canvas (line %d) won't start: %s\n", n->line, c->error);
+        c->broken = true;
+        return false;
+    }
+    return true;
+}
+
+/* A script outside any design: the companion's emblem, drawn as the AI
+ * wrote it. draw(w, h, t) as in a design's canvas, with globals telling it
+ * what the companion is doing: state ("idle", "thinking", "listening",
+ * "speaking", "working", "done", "error"), level (its voice, 0..1), and the
+ * design's colours accent and accent2. One script at a time; a new one
+ * starts afresh. */
+bool fm_canvas_emblem(const char *src, canvas *cv, rect r, const char *state, float level, color a, color b,
+                      char *err, size_t errlen) {
+    static lua_State *L;
+    static uint64_t key;
+    static bool broken;
+    uint64_t k = 1469598103934665603ull;
+    for (const char *p = src; *p; p++)
+        k = (k ^ (uint8_t)*p) * 1099511628211ull;
+    if (k != key) {
+        if (L)
+            lua_close(L);
+        L = NULL, broken = false, key = k;
+    }
+    if (broken)
+        return false;
+    if (!L) {
+        L = luaL_newstate();
+        sandbox(L);
+        if (luaL_loadbuffer(L, src, strlen(src), "emblem") || lua_pcall(L, 0, 0, 0)) {
+            snprintf(err, errlen, "%s", lua_tostring(L, -1));
+            broken = true;
+            return false;
+        }
+    }
+    char hex[16];
+    lua_pushstring(L, state);
+    lua_setglobal(L, "state");
+    lua_pushnumber(L, level);
+    lua_setglobal(L, "level");
+    snprintf(hex, sizeof hex, "#%06x", a & 0xffffff);
+    lua_pushstring(L, hex);
+    lua_setglobal(L, "accent");
+    snprintf(hex, sizeof hex, "#%06x", b & 0xffffff);
+    lua_pushstring(L, hex);
+    lua_setglobal(L, "accent2");
+    lua_getglobal(L, "draw");
+    if (!lua_isfunction(L, -1)) {
+        lua_pop(L, 1);
+        snprintf(err, errlen, "the script has no draw(w, h, t)");
+        broken = true;
+        return false;
+    }
+    cur_c = cv, cur_r = r, cur_s = 1, cur_op = 1, cur_d = NULL;
+    lua_pushnumber(L, r.w);
+    lua_pushnumber(L, r.h);
+    lua_pushnumber(L, (double)fm_host_time_ms() / 1000.0);
+    lua_sethook(L, budget_hook, LUA_MASKCOUNT, BUDGET);
+    if (lua_pcall(L, 3, 0, 0)) {
+        snprintf(err, errlen, "%s", lua_tostring(L, -1));
+        broken = true;
+        return false;
+    }
+    return true;
+}
+
+static void sandbox(lua_State *L) {
     /* only safe libraries: no io, os, package, debug */
     luaL_requiref(L, "_G", luaopen_base, 1);
     luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1);
@@ -303,16 +380,6 @@ static bool start(fm_doc *d, fm_node *n, struct cv *c) {
     luaL_newlib(L, api);
     lua_setglobal(L, "g");
     lua_sethook(L, budget_hook, LUA_MASKCOUNT, BUDGET);
-    int r = luaL_loadbuffer(L, attr ? attr : src, strlen(attr ? attr : src), "canvas") || lua_pcall(L, 0, 0, 0);
-    free(src);
-    if (r) {
-        snprintf(c->error, sizeof c->error, "%s", lua_tostring(L, -1));
-        fm_report(d, n->line, false, "canvas script: %s", c->error);
-        fprintf(stderr, "fm: canvas (line %d) won't start: %s\n", n->line, c->error);
-        c->broken = true;
-        return false;
-    }
-    return true;
 }
 
 void fmi_canvas_draw(fm_doc *d, canvas *cv, fm_node *n, rect r, float op) {

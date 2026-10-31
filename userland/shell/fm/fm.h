@@ -314,3 +314,10 @@ const char *fm_reference(void);          /* element and property reference */
 const char *fm_examples(void);           /* a few very different documents */
 bool fm_parse_color(const char *s, color *out);
 uint64_t fm_host_time_ms(void);         /* for animations in <canvas> */
+
+/* A canvas script outside any design (the companion's emblem, canvas.c):
+ * draw(w, h, t) into r, with globals state, level, accent and accent2.
+ * False (err says why) when it won't run; it isn't tried again until the
+ * script changes. */
+bool fm_canvas_emblem(const char *src, canvas *cv, rect r, const char *state, float level, color a, color b,
+                      char *err, size_t errlen);

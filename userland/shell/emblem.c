@@ -13,6 +13,9 @@
 #include "emblem.h"
 #include "app.h"
 #include "voice.h"
+#include "image.h"
+#include "fm/fm.h"
+#include "presence.h"
 
 #include <fcntl.h>
 #include <math.h>
@@ -36,7 +39,15 @@ static struct {
     uint64_t done_at, changed_at;
 } E = {.kind = EM_GEM, .last_state = ES_IDLE};
 
-const char *emblem_name(int kind) { return kind >= 0 && kind < EM_COUNT ? names[kind] : "gem"; }
+const char *emblem_name(int kind) {
+    if (kind == EM_PICTURE)
+        return "picture";
+    if (kind == EM_DRAWN)
+        return "drawing";
+    if (kind == EM_MODEL)
+        return "model";
+    return kind >= 0 && kind < EM_COUNT ? names[kind] : "gem";
+}
 
 int emblem_from_name(const char *s) {
     for (int i = 0; i < EM_COUNT; i++)
@@ -50,6 +61,12 @@ int emblem_from_name(const char *s) {
         return EM_GEM;
     if (!strcasecmp(s, "world") || !strcasecmp(s, "globe"))
         return EM_EARTH;
+    if (!strcasecmp(s, "picture"))
+        return EM_PICTURE;
+    if (!strcasecmp(s, "drawing"))
+        return EM_DRAWN;
+    if (!strcasecmp(s, "model"))
+        return EM_MODEL;
     return -1;
 }
 
@@ -69,18 +86,91 @@ int emblem_kind(void) {
     return E.kind;
 }
 
-void emblem_set(int kind) {
-    if (kind < 0 || kind >= EM_COUNT)
-        return;
+static void remember(int kind) {
     E.loaded = true;
     E.kind = kind;
     E.changed_at = A.now;
     FILE *f = fopen(EMBLEM_FILE, "w");
     if (f) {
-        fprintf(f, "%s\n", names[kind]);
+        fprintf(f, "%s\n", emblem_name(kind));
         fclose(f);
     }
-    LOG("emblem: %s\n", names[kind]);
+    LOG("emblem: %s\n", emblem_name(kind));
+}
+
+void emblem_set(int kind) {
+    if (kind >= 0 && kind < EM_COUNT)
+        remember(kind);
+}
+
+/* ---- their own picture ---- */
+
+#define PICTURE_FILE STATE_DIR "/emblem-picture"
+static struct {
+    image *src;        /* the picture, at most 640 a side */
+    image *fit;        /* cut to a square and sized for the last diameter */
+    int fit_d;
+    bool tried;
+} PIC;
+
+static void picture_forget(void) {
+    image_free(PIC.src);
+    image_free(PIC.fit);
+    PIC.src = PIC.fit = NULL;
+    PIC.fit_d = 0;
+    PIC.tried = false;
+}
+
+bool emblem_set_picture(const char *path) {
+    image *im = image_load(path, 640);
+    if (!im) {
+        LOG("emblem: %s isn't a picture this can show\n", path);
+        return false;
+    }
+    image_free(im);
+    if (strcmp(path, PICTURE_FILE)) { /* kept: a copy of its own */
+        FILE *in = fopen(path, "rb"), *out = fopen(PICTURE_FILE ".new", "wb");
+        static char buf[65536];
+        size_t n;
+        bool ok = in && out;
+        while (ok && (n = fread(buf, 1, sizeof buf, in)) > 0)
+            ok = fwrite(buf, 1, n, out) == n;
+        if (in)
+            fclose(in);
+        if (out)
+            fclose(out);
+        if (!ok || rename(PICTURE_FILE ".new", PICTURE_FILE) < 0) {
+            unlink(PICTURE_FILE ".new");
+            return false;
+        }
+    }
+    picture_forget();
+    remember(EM_PICTURE);
+    return true;
+}
+
+/* The picture as a d x d square, cut from its middle. */
+static image *picture_fit(int d) {
+    if (!PIC.src && !PIC.tried) {
+        PIC.tried = true;
+        PIC.src = image_load(PICTURE_FILE, 640);
+    }
+    if (!PIC.src || d < 2)
+        return NULL;
+    if (PIC.fit && PIC.fit_d == d)
+        return PIC.fit;
+    int side = PIC.src->w < PIC.src->h ? PIC.src->w : PIC.src->h;
+    image sq = {side, side, malloc(sizeof(uint32_t) * (size_t)side * side), side, side};
+    if (!sq.px)
+        return NULL;
+    int ox = (PIC.src->w - side) / 2, oy = (PIC.src->h - side) / 2;
+    for (int y = 0; y < side; y++)
+        memcpy(sq.px + (size_t)y * side, PIC.src->px + (size_t)(y + oy) * PIC.src->w + ox, sizeof(uint32_t) * side);
+    image_free(PIC.fit);
+    PIC.fit = image_resized(&sq, d, d);
+    PIC.fit_d = d;
+    free(sq.px);
+    return PIC.fit;
 }
 
 /* ---- what it is doing ---- */
@@ -472,6 +562,137 @@ static void draw_heart(canvas *cv, float cx, float cy, float r, color a, color b
     glow_circle(cv, cx + r * 0.36f, cy - r * 0.38f, r * 0.22f, RGBA(255, 255, 255, 90));
 }
 
+/* ---- a drawing the AI wrote: a small canvas script ---- */
+
+#define DRAWING_FILE STATE_DIR "/emblem-drawing.lua"
+static struct {
+    char *src;
+    bool loaded, told;
+} DRW;
+
+bool emblem_set_drawing(const char *script) {
+    FILE *f = fopen(DRAWING_FILE, "w");
+    if (!f)
+        return false;
+    fputs(script, f);
+    fclose(f);
+    free(DRW.src);
+    DRW.src = strdup(script);
+    DRW.loaded = true;
+    DRW.told = false;
+    remember(EM_DRAWN);
+    return true;
+}
+
+bool emblem_draw_drawing(canvas *cv, float cx, float cy, float r, color a, color b, int state, float level, float t) {
+    (void)t;
+    if (!DRW.loaded) {
+        DRW.loaded = true;
+        FILE *f = fopen(DRAWING_FILE, "r");
+        if (f) {
+            static char buf[32768];
+            size_t n = fread(buf, 1, sizeof buf - 1, f);
+            buf[n] = 0;
+            fclose(f);
+            DRW.src = strdup(buf);
+        }
+    }
+    if (!DRW.src)
+        return false;
+    static const char *const sname[] = {"idle", "thinking", "listening", "speaking", "working", "done", "error"};
+    float side = r * 2.4f;
+    rect box = {(int)(cx - side / 2), (int)(cy - side / 2), (int)side, (int)side};
+    char err[200] = "";
+    if (fm_canvas_emblem(DRW.src, cv, box, sname[state >= 0 && state <= ES_ERROR ? state : 0], level, a, b, err,
+                         sizeof err))
+        return true;
+    if (!DRW.told && err[0]) { /* once: the companion hears why, and can write it again */
+        DRW.told = true;
+        LOG("emblem: the drawing won't run: %s\n", err);
+        char note[400];
+        snprintf(note, sizeof note,
+                 "(The drawing you made of yourself stopped with an error: %.200s. Until it's fixed you show as the "
+                 "gem. If they still want it, write it again with [[emblem:draw <canvas>...</canvas>]].)", err);
+        companion_note(note, false);
+    }
+    return false;
+}
+
+/* ---- a 3D model of theirs (the figure process draws it, turning) ---- */
+
+#define MODEL_FILE STATE_DIR "/emblem-model.glb"
+
+bool emblem_set_model(const char *path) {
+    FILE *in = fopen(path, "rb");
+    char magic[4] = {0};
+    if (!in || fread(magic, 1, 4, in) != 4 || memcmp(magic, "glTF", 4)) {
+        if (in)
+            fclose(in);
+        LOG("emblem: %s isn't a .glb model\n", path);
+        return false;
+    }
+    rewind(in);
+    FILE *out = fopen(MODEL_FILE ".new", "wb");
+    static char buf[65536];
+    size_t n;
+    bool ok = out != NULL;
+    while (ok && (n = fread(buf, 1, sizeof buf, in)) > 0)
+        ok = fwrite(buf, 1, n, out) == n;
+    fclose(in);
+    if (out)
+        fclose(out);
+    if (!ok || rename(MODEL_FILE ".new", MODEL_FILE) < 0) {
+        unlink(MODEL_FILE ".new");
+        return false;
+    }
+    remember(EM_MODEL);
+    presence_model_changed();
+    return true;
+}
+
+bool emblem_draw_model(canvas *cv, float cx, float cy, float r, int state, float level) {
+    (void)state, (void)level; /* the figure process hears these itself */
+    float side = r * 2.6f;
+    return presence_draw_model(cv, (rect){(int)(cx - side / 2), (int)(cy - side / 2), (int)side, (int)side});
+}
+
+/* ---- their own picture, in a round frame ---- */
+
+struct pic_shade {
+    const image *im;
+    int x0, y0;
+};
+
+static color shade_picture(void *ctx, int x, int y) {
+    struct pic_shade *s = ctx;
+    int u = x - s->x0, v = y - s->y0;
+    if (u < 0 || v < 0 || u >= s->im->w || v >= s->im->h)
+        return 0;
+    return s->im->px[(size_t)v * s->im->w + u] | 0xff000000u;
+}
+
+static bool draw_picture(canvas *cv, float cx, float cy, float r, color a, color b, int state, float level, float t) {
+    if (state == ES_SPEAKING)
+        r *= 1.0f + 0.05f * level;
+    int d = (int)(r * 2);
+    image *im = picture_fit(d);
+    if (!im)
+        return false;
+    int x0 = (int)(cx - r), y0 = (int)(cy - r);
+    struct pic_shade sh = {im, x0, y0};
+    fill_round_shaded(cv, (rect){x0, y0, d, d}, r, shade_picture, &sh);
+    /* a gloss across the top, and its rim in the design's colour */
+    glow_circle(cv, cx - r * 0.35f, cy - r * 0.45f, r * 0.5f, RGBA(255, 255, 255, 60));
+    float rimw = fmaxf(2, r * 0.07f);
+    color rim = color_mix(a, RGBA(255, 255, 255, 255), 0.25f);
+    if (state == ES_SPEAKING)
+        rim = color_mix(rim, RGBA(255, 255, 255, 255), 0.5f * level);
+    draw_arc(cv, cx, cy, r - rimw * 0.5f, 0, 2 * PI, rimw, rim);
+    if (state == ES_THINKING) /* a light running round the rim */
+        draw_arc(cv, cx, cy, r - rimw * 0.5f, t * 4, t * 4 + 1.3f, rimw * 1.4f, color_mix(b, RGBA(255, 255, 255, 255), 0.5f));
+    return true;
+}
+
 /* ---- the whole emblem, in its state ---- */
 
 void emblem_draw_kind(canvas *cv, int kind, float cx, float cy, float r, color a, color b, int state, float level) {
@@ -500,7 +721,24 @@ void emblem_draw_kind(canvas *cv, int kind, float cx, float cy, float r, color a
     switch (kind) {
     case EM_GEM: draw_gem(cv, cx, cy, r, a, b, state, level, t); break;
     case EM_HEART: draw_heart(cv, cx, cy, r, a, b, state, level, t); break;
-    default: draw_sphere(cv, kind, cx, cy, r, a, b, state, level, t); break;
+    case EM_PICTURE: /* theirs; the gem while it can't be shown */
+        if (!draw_picture(cv, cx, cy, r, a, b, state, level, t))
+            draw_gem(cv, cx, cy, r, a, b, state, level, t);
+        break;
+    case EM_DRAWN:
+        if (!emblem_draw_drawing(cv, cx, cy, r, a, b, state, level, t))
+            draw_gem(cv, cx, cy, r, a, b, state, level, t);
+        break;
+    case EM_MODEL:
+        if (!emblem_draw_model(cv, cx, cy, r, state, level))
+            draw_gem(cv, cx, cy, r, a, b, state, level, t);
+        break;
+    default:
+        if (kind >= 0 && kind < EM_COUNT)
+            draw_sphere(cv, kind, cx, cy, r, a, b, state, level, t);
+        else
+            draw_gem(cv, cx, cy, r, a, b, state, level, t);
+        break;
     }
     /* working on something: a light circling it */
     if (state == ES_WORKING && !still)

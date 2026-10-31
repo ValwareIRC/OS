@@ -101,7 +101,7 @@ static void look_steps(int y, const char *const *labels, const int *state, int n
         if (now)
             look_pill(r, LK_WHITE, 0);
         else
-            fill_round(A.frame, r, 16, RGBA(255, 255, 255, 150));
+            fill_round(A.frame, r, 16, RGBA(255, 255, 255, 228)); /* readable over any room */
         color dot = done ? LK_MINT : now ? LK_ACCENT : RGBA(232, 231, 248, 255);
         fill_circle(A.frame, r.x + 17.0f, r.y + 16.0f, 9, dot);
         if (done) { /* a tick */

@@ -242,3 +242,131 @@ char *web_lookup(const char *requests) {
     free(copy);
     return out.p ? out.p : strdup("Nothing came back.");
 }
+
+/* ---- pictures ---- */
+
+bool web_download(const char *url, const char *path, size_t max_bytes) {
+    struct http_response r;
+    get(url, &r);
+    bool ok = r.status == 200 && r.body && r.body_len > 0 && r.body_len <= max_bytes;
+    if (ok) {
+        FILE *f = fopen(path, "wb");
+        ok = f && fwrite(r.body, 1, r.body_len, f) == r.body_len;
+        if (f)
+            fclose(f);
+    }
+    http_response_free(&r);
+    return ok;
+}
+
+/* DuckDuckGo's image search: its page gives a token (vqd), and its JSON
+ * endpoint gives the results for that token. Unofficial: it may change. */
+static int images_ddg(const char *q, char urls[][512], char thumbs[][512], char titles[][160], int max) {
+    sbuf url;
+    sb_init(&url);
+    sb_add(&url, "https://duckduckgo.com/?iax=images&ia=images&q=");
+    urlencode(&url, q);
+    struct http_response r;
+    http_request("GET", url.p, NULL, NULL, 0, 20, &r); /* its own plain headers: what this page answers best */
+    char vqd[128] = "";
+    const char *v = r.body ? strstr(r.body, "vqd=") : NULL;
+    if (v) {
+        v += 4;
+        if (*v == '"' || *v == '\'')
+            v++;
+        size_t n = strspn(v, "0123456789-_abcdefABCDEF");
+        snprintf(vqd, sizeof vqd, "%.*s", (int)(n < sizeof vqd ? n : sizeof vqd - 1), v);
+    }
+    http_response_free(&r);
+    sb_free(&url);
+    if (!vqd[0])
+        return 0;
+    sb_init(&url);
+    sb_add(&url, "https://duckduckgo.com/i.js?l=us-en&o=json&f=,,,,,&p=1&q=");
+    urlencode(&url, q);
+    sb_printf(&url, "&vqd=%s", vqd);
+    const char *headers[] = {"User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                             "Referer: https://duckduckgo.com/", "Accept: application/json, text/javascript, */*; q=0.01", NULL};
+    http_request("GET", url.p, headers, NULL, 0, 20, &r);
+    sb_free(&url);
+    json *j = r.status == 200 && r.body ? json_parse(r.body, r.body_len) : NULL;
+    int n = 0;
+    json *list = json_get(j, "results");
+    for (json *e = list ? list->child : NULL; e && n < max; e = e->next) {
+        const char *img = json_str(json_get(e, "image"), ""), *th = json_str(json_get(e, "thumbnail"), "");
+        if (strncmp(img, "http", 4) || strncmp(th, "http", 4))
+            continue;
+        snprintf(urls[n], 512, "%s", img);
+        snprintf(thumbs[n], 512, "%s", th);
+        snprintf(titles[n], 160, "%s", json_str(json_get(e, "title"), ""));
+        n++;
+    }
+    json_free(j);
+    http_response_free(&r);
+    return n;
+}
+
+/* Openverse (open images, run by WordPress; anonymous use allowed). */
+static int images_openverse(const char *q, char urls[][512], char thumbs[][512], char titles[][160], int max) {
+    sbuf url;
+    sb_init(&url);
+    sb_add(&url, "https://api.openverse.org/v1/images/?page_size=12&mature=false&q=");
+    urlencode(&url, q);
+    struct http_response r;
+    get(url.p, &r);
+    sb_free(&url);
+    json *j = r.status == 200 && r.body ? json_parse(r.body, r.body_len) : NULL;
+    int n = 0;
+    json *list = json_get(j, "results");
+    for (json *e = list ? list->child : NULL; e && n < max; e = e->next) {
+        const char *img = json_str(json_get(e, "url"), ""), *th = json_str(json_get(e, "thumbnail"), img);
+        if (strncmp(img, "http", 4))
+            continue;
+        snprintf(urls[n], 512, "%s", img);
+        snprintf(thumbs[n], 512, "%s", th);
+        snprintf(titles[n], 160, "%s", json_str(json_get(e, "title"), ""));
+        n++;
+    }
+    json_free(j);
+    http_response_free(&r);
+    return n;
+}
+
+/* Wikimedia Commons (its own API): files whose names match, with a thumbnail. */
+static int images_commons(const char *q, char urls[][512], char thumbs[][512], char titles[][160], int max) {
+    sbuf url;
+    sb_init(&url);
+    sb_add(&url, "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6"
+                 "&gsrlimit=12&prop=imageinfo&iiprop=url|mime&iiurlwidth=360&gsrsearch=");
+    urlencode(&url, q);
+    struct http_response r;
+    get(url.p, &r);
+    sb_free(&url);
+    json *j = r.status == 200 && r.body ? json_parse(r.body, r.body_len) : NULL;
+    int n = 0;
+    json *pages = json_path(j, "query.pages");
+    for (json *p = pages ? pages->child : NULL; p && n < max; p = p->next) {
+        json *ii = json_at(json_get(p, "imageinfo"), 0);
+        const char *mime = json_str(json_get(ii, "mime"), "");
+        if (strncmp(mime, "image/jpeg", 10) && strncmp(mime, "image/png", 9))
+            continue;
+        const char *full = json_str(json_get(ii, "url"), ""), *th = json_str(json_get(ii, "thumburl"), full);
+        snprintf(urls[n], 512, "%s", th); /* the 360-wide picture is plenty for an emblem */
+        snprintf(thumbs[n], 512, "%s", th);
+        const char *t = json_str(json_get(p, "title"), "");
+        snprintf(titles[n], 160, "%s", strncmp(t, "File:", 5) ? t : t + 5);
+        n++;
+    }
+    json_free(j);
+    http_response_free(&r);
+    return n;
+}
+
+int web_images(const char *q, char urls[][512], char thumbs[][512], char titles[][160], int max) {
+    int n = images_openverse(q, urls, thumbs, titles, max);
+    if (!n)
+        n = images_commons(q, urls, thumbs, titles, max);
+    if (!n)
+        n = images_ddg(q, urls, thumbs, titles, max);
+    return n;
+}

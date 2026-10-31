@@ -73,6 +73,30 @@ static void build(figure *f, int style) {
         fig_pose_update(&f->m, &rest);
         fig_bake_sun(&f->m, &rest, key_light(), 8);
         printf("VRM %s by %s (%s): %d bones, %d meshes\n", f->vrm_title, f->vrm_author, f->vrm_licence, f->m.nbones, f->m.nmeshes);
+    } else if (getenv("FIG_PROP")) { /* any other 3D model, as the emblem shows one */
+        FILE *vf = fopen(getenv("FIG_PROP"), "rb");
+        if (!vf) {
+            printf("no file %s\n", getenv("FIG_PROP"));
+            exit(1);
+        }
+        fseek(vf, 0, SEEK_END);
+        long n = ftell(vf);
+        fseek(vf, 0, SEEK_SET);
+        unsigned char *d = malloc((size_t)n);
+        if (fread(d, 1, (size_t)n, vf) != (size_t)n)
+            exit(1);
+        fclose(vf);
+        char why[200];
+        if (!figure_load_prop(f, d, (size_t)n, why, sizeof why)) {
+            printf("model refused: %s\n", why);
+            exit(1);
+        }
+        free(d);
+        fpose rest;
+        fig_pose_rest(&f->m, &rest);
+        fig_pose_update(&f->m, &rest);
+        fig_bake_sun(&f->m, &rest, key_light(), 8);
+        printf("model: %d meshes, %d textures, height %.2f\n", f->m.nmeshes, f->m.ntex, f->body.H);
     } else
         figure_build(f, &lk, getenv("FIG_CELL") ? (float)atof(getenv("FIG_CELL")) : 0);
     printf("figure built in %.0f ms\n", now_ms() - t0);
@@ -177,7 +201,18 @@ int main(int argc, char **argv) {
     printf("built in %.1f ms: %d bones, %d meshes, %d triangles, %d hair locks\n", te - tb, f.m.nbones, f.m.nmeshes, tris,
            f.hair.nlocks);
     float fov = 0.36f, d = 1.05f;
-    if (!strcmp(mode, "body")) {
+    if (!strcmp(mode, "prop")) { /* a model, turning: four moments of it, framed whole */
+        static fpose poses[4];
+        view views[4];
+        for (int i = 0; i < 4; i++) {
+            fig_pose_rest(&f.m, &poses[i]);
+            poses[i].local[0] = qaxis(V3(0, 1, 0), 0.4f + i * 1.3f);
+            fig_pose_update(&f.m, &poses[i]);
+            views[i] = (view){0, 0.12f, f.body.H * 1.12f * 0.5f / tanf(0.18f) * 1.25f + 0.6f, fov, 0,
+                              {FE_OPEN, FB_NEUTRAL, FM_SMILE, 0, 0, 0, 0}, 1, &poses[i]};
+        }
+        sheet(&f, views, 4, 4, 320, 320, outp);
+    } else if (!strcmp(mode, "body")) {
         float bf = 0.5f, bd = 4.2f;
         view views[] = {
             {0, 0.05f, bd, bf, 0, {FE_OPEN, FB_NEUTRAL, FM_SMILE, 0, 0, 0, 0}, 1},

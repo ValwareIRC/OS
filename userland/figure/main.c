@@ -193,17 +193,33 @@ static void draw(double now) {
     }
     fpose pose;
     face_state fs;
-    life_frame(&G.L, &G.fig, now, &pose, &fs);
-    figure_face(&G.fig, &fs);
-    if (G.fig.vrm)
-        figure_vrm_face(&G.fig, &fs, &pose);
-    /* gesturing: the camera eases back so her hands show, then in again */
     static double last;
     float dt = last > 0 ? (float)(now - last) : 0;
     last = now;
-    G.sc.pull = easef(G.sc.pull, G.L.act >= 0 ? 1.0f : 0.0f, G.L.act >= 0 ? 4.0f : 1.5f, dt);
+    int shot = G.sc.shot;
+    if (G.fig.prop) {
+        /* an object, not a character: it turns (faster while thinking), bobs a
+         * little, and swells with the voice; framed whole */
+        static float angle;
+        angle += dt * (G.L.thinking ? 1.6f : G.L.listening ? 0.8f : 0.45f);
+        fig_pose_rest(&G.fig.m, &pose);
+        pose.local[0] = qaxis(V3(0, 1, 0), angle);
+        float bob = 0.02f * sinf((float)now * (G.L.thinking ? 3.0f : 1.3f)) + (G.L.speaking ? 0.03f * G.L.speak : 0);
+        pose.root = V3(0, bob, 0);
+        fig_pose_update(&G.fig.m, &pose);
+        G.sc.shot = SHOT_FULL;
+        G.sc.pull = 0;
+    } else {
+        life_frame(&G.L, &G.fig, now, &pose, &fs);
+        figure_face(&G.fig, &fs);
+        if (G.fig.vrm)
+            figure_vrm_face(&G.fig, &fs, &pose);
+        /* gesturing: the camera eases back so her hands show, then in again */
+        G.sc.pull = easef(G.sc.pull, G.L.act >= 0 ? 1.0f : 0.0f, G.L.act >= 0 ? 4.0f : 1.5f, dt);
+    }
     fcam cam;
     scene_camera(&G.fig, &G.sc, &cam);
+    G.sc.shot = shot;
     uint32_t *out = (uint32_t *)(G.ring + (size_t)s * G.slot_bytes);
     scene_draw(&G.fig, &G.sc, &cam, &pose, &G.buf, out);
     float hx = 0, hy = 0, hr = 0;
@@ -399,8 +415,20 @@ int main(int argc, char **argv) {
                 have_vrm = true;
                 say("vrm %s by %s; licence: %s", G.fig.vrm_title, G.fig.vrm_author, G.fig.vrm_licence);
             } else {
+                /* not a character: any other 3D model, shown as a turning object */
+                char why2[200];
                 figure_free(&G.fig);
-                say("err the VRM model can't be used: %s", why);
+                if (figure_load_prop(&G.fig, d, n, why2, sizeof why2)) {
+                    fpose rest;
+                    fig_pose_rest(&G.fig.m, &rest);
+                    fig_pose_update(&G.fig.m, &rest);
+                    fig_bake_sun(&G.fig.m, &rest, vnorm(V3(-0.5f, 0.65f, 0.75f)), 8);
+                    have_vrm = true;
+                    say("model %d meshes", G.fig.m.nmeshes);
+                } else {
+                    figure_free(&G.fig);
+                    say("err the model can't be used: %s (as a VRM: %s)", why2, why);
+                }
             }
         }
         free(d);

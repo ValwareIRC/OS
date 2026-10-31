@@ -15,3 +15,7 @@ int body_find_vrms(char out[][300], int max);
  * chosen. Returns its height. */
 #include "gfx.h"
 int body_gallery(rect r, int cols, bool desk, bool *picked);
+/* The companion's own look from somewhere: how is "picture" (a file or a
+ * link), "model" (a .glb/.gltf file or link) or "find" (words: it searches
+ * pictures online and shows them to choose from). */
+void body_use(const char *how, const char *what);

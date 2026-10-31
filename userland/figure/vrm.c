@@ -541,3 +541,229 @@ void figure_vrm_face(figure *f, const face_state *fs, fpose *pose) {
     if (changed)
         fig_pose_update(&f->m, pose);
 }
+
+/* ---- any glTF model, as a prop ----
+ * Not a character: a train, a teapot, a little house. Its meshes are placed
+ * as its nodes say (translation, rotation, scale or a matrix), lit and
+ * outlined like everything else, on a single bone that turns it; sized so
+ * its tallest or widest side is one unit, standing on the ground. */
+
+static m4 node_local(json *n) {
+    json *mx = json_get(n, "matrix");
+    if (mx && json_len(mx) == 16) {
+        m4 r;
+        for (int i = 0; i < 16; i++)
+            r.m[i] = (float)json_num(json_at(mx, i), i % 5 == 0 ? 1 : 0);
+        return r;
+    }
+    json *t = json_get(n, "translation"), *q = json_get(n, "rotation"), *s = json_get(n, "scale");
+    v3 tv = V3((float)json_num(json_at(t, 0), 0), (float)json_num(json_at(t, 1), 0), (float)json_num(json_at(t, 2), 0));
+    quat qv = {(float)json_num(json_at(q, 0), 0), (float)json_num(json_at(q, 1), 0), (float)json_num(json_at(q, 2), 0),
+               (float)json_num(json_at(q, 3), 1)};
+    m4 r = m4trs(tv, qnorm(qv), 1);
+    float sx = (float)json_num(json_at(s, 0), 1), sy = (float)json_num(json_at(s, 1), 1), sz = (float)json_num(json_at(s, 2), 1);
+    for (int i = 0; i < 4; i++)
+        r.m[i] *= sx, r.m[4 + i] *= sy, r.m[8 + i] *= sz;
+    return r;
+}
+
+bool figure_load_prop(figure *f, const unsigned char *data, size_t len, char *why, size_t whylen) {
+    memset(f, 0, sizeof *f);
+    f->jaw = f->leye = f->reye = -1;
+    look_default(&f->lk);
+    glb g = {.why = why, .whylen = whylen};
+    if (len < 20 || memcmp(data, "glTF", 4))
+        return fail(&g, "not a glTF binary (.glb) file");
+    unsigned jlen, jtype;
+    memcpy(&jlen, data + 12, 4), memcpy(&jtype, data + 16, 4);
+    if (jtype != 0x4E4F534A || 20 + (size_t)jlen > len)
+        return fail(&g, "its contents are damaged");
+    if (28 + (size_t)jlen <= len) {
+        unsigned blen, btype;
+        memcpy(&blen, data + 20 + jlen, 4), memcpy(&btype, data + 24 + jlen, 4);
+        if (btype == 0x004E4942 && 28 + (size_t)jlen + blen <= len)
+            g.bin = data + 28 + jlen, g.binlen = blen;
+    }
+    if (!g.bin)
+        return fail(&g, "it keeps its data in other files; only a single .glb can be shown");
+    g.root = json_parse((const char *)data + 20, jlen);
+    if (!g.root)
+        return fail(&g, "its description can't be read");
+    json *nodes = json_get(g.root, "nodes"), *meshes = json_get(g.root, "meshes");
+    int nn = json_len(nodes);
+    if (nn <= 0 || nn > 8192 || json_len(meshes) <= 0) {
+        json_free(g.root);
+        return fail(&g, "there is nothing in it to show");
+    }
+    /* every node's place in the world: its parents' matrices times its own */
+    int *parent = malloc(sizeof(int) * nn);
+    m4 *world = malloc(sizeof(m4) * nn);
+    bool *done = calloc((size_t)nn, 1);
+    for (int i = 0; i < nn; i++)
+        parent[i] = -1;
+    for (int i = 0; i < nn; i++) {
+        json *ch = json_get(json_at(nodes, i), "children");
+        for (int c = 0; c < json_len(ch); c++) {
+            int k = (int)json_num(json_at(ch, c), -1);
+            if (k >= 0 && k < nn)
+                parent[k] = i;
+        }
+    }
+    for (int pass = 0; pass < nn; pass++) {
+        bool more = false;
+        for (int i = 0; i < nn; i++) {
+            if (done[i])
+                continue;
+            if (parent[i] >= 0 && !done[parent[i]]) {
+                more = true;
+                continue;
+            }
+            m4 l = node_local(json_at(nodes, i));
+            world[i] = parent[i] >= 0 ? m4mul(world[parent[i]], l) : l;
+            done[i] = true;
+        }
+        if (!more)
+            break;
+    }
+    fmodel *m = &f->m;
+    fig_model_init(m);
+    fig_add_bone(m, "root", -1, V3(0, 0, 0), V3(0, 0.05f, 0));
+    /* pictures and materials, as for a VRM */
+    json *images = json_get(g.root, "images"), *textures = json_get(g.root, "textures"), *mats = json_get(g.root, "materials");
+    int tex_of_image[FIG_MAX_TEX * 4];
+    for (int i = 0; i < FIG_MAX_TEX * 4; i++)
+        tex_of_image[i] = -1;
+    for (int i = 0; i < json_len(images) && i < FIG_MAX_TEX * 4 && m->ntex < FIG_MAX_TEX; i++) {
+        json *im = json_at(images, i), *bv = json_at(json_get(g.root, "bufferViews"), (int)json_num(json_get(im, "bufferView"), -1));
+        if (!bv)
+            continue;
+        size_t off = (size_t)json_num(json_get(bv, "byteOffset"), 0), bl = (size_t)json_num(json_get(bv, "byteLength"), 0);
+        if (off + bl > g.binlen || bl > (64u << 20))
+            continue;
+        int w, h, c;
+        unsigned char *px = stbi_load_from_memory(g.bin + off, (int)bl, &w, &h, &c, 4);
+        if (!px)
+            continue;
+        if (w > 0 && h > 0 && w <= 8192 && h <= 8192) {
+            ftex *t = &m->tex[m->ntex];
+            downscale(px, w, h, 1024, t);
+            if (t->px)
+                tex_of_image[i] = m->ntex++;
+        }
+        stbi_image_free(px);
+    }
+    int mat_of[64];
+    for (int i = 0; i < 64; i++)
+        mat_of[i] = -1;
+    for (int i = 0; i < json_len(mats) && i < 64; i++) {
+        json *mt = json_at(mats, i), *pbr = json_get(mt, "pbrMetallicRoughness");
+        json *bt = pbr ? json_get(pbr, "baseColorTexture") : NULL;
+        int tex = -1;
+        if (bt) {
+            json *tx = json_at(textures, (int)json_num(json_get(bt, "index"), -1));
+            int img = tx ? (int)json_num(json_get(tx, "source"), -1) : -1;
+            if (img >= 0 && img < FIG_MAX_TEX * 4)
+                tex = tex_of_image[img];
+        }
+        json *bc = pbr ? json_get(pbr, "baseColorFactor") : NULL;
+        rgb base = bc ? (rgb)((int)(json_num(json_at(bc, 0), 1) * 255) << 16 | (int)(json_num(json_at(bc, 1), 1) * 255) << 8 |
+                              (int)(json_num(json_at(bc, 2), 1) * 255))
+                      : 0xd8d8e0;
+        fmat fm = fig_mat(MAT_CLOTH, base);
+        fm.tex = tex;
+        fm.shift = -0.25f, fm.toony = 0.25f, fm.rim = 0.1f;
+        fm.shade = rgb_mix(rgb_scale(base, 0.78f), 0x5a5a8a, 0.18f);
+        const char *am = json_str(json_get(mt, "alphaMode"), "OPAQUE");
+        fm.cutout = strcmp(am, "OPAQUE") != 0 && tex >= 0;
+        fm.two_sided = json_bool(json_get(mt, "doubleSided"), false) || fm.cutout;
+        fm.line_col = 0x2a2a3a;
+        fm.line_outer = true;
+        mat_of[i] = fig_add_mat(m, fm);
+    }
+    int plain = fig_add_mat(m, fig_mat(MAT_CLOTH, 0xd8d8e0)); /* for parts with no material */
+    /* the meshes, placed in the world */
+    for (int i = 0; i < nn && m->nmeshes < FIG_MAX_MESHES; i++) {
+        json *node = json_at(nodes, i);
+        if (!json_get(node, "mesh"))
+            continue;
+        json *mesh = json_at(meshes, (int)json_num(json_get(node, "mesh"), -1));
+        json *prims = json_get(mesh, "primitives");
+        for (int p = 0; p < json_len(prims) && m->nmeshes < FIG_MAX_MESHES; p++) {
+            json *pr = json_at(prims, p), *at = json_get(pr, "attributes");
+            if ((int)json_num(json_get(pr, "mode"), 4) != 4)
+                continue; /* triangles only */
+            int nv = 0, nn2 = 0, nuv = 0, ni = 0;
+            float *P = read_floats(&g, (int)json_num(json_get(at, "POSITION"), -1), 3, &nv);
+            float *N = read_floats(&g, (int)json_num(json_get(at, "NORMAL"), -1), 3, &nn2);
+            float *UV = read_floats(&g, (int)json_num(json_get(at, "TEXCOORD_0"), -1), 2, &nuv);
+            float *I = json_get(pr, "indices") ? read_floats(&g, (int)json_num(json_get(pr, "indices"), -1), 1, &ni) : NULL;
+            if (!P || nv <= 0) {
+                free(P), free(N), free(UV), free(I);
+                continue;
+            }
+            if (!I) { /* not indexed: every three corners a triangle */
+                ni = nv - nv % 3;
+                I = malloc(sizeof(float) * (size_t)(ni > 0 ? ni : 1));
+                for (int k = 0; I && k < ni; k++)
+                    I[k] = (float)k;
+            }
+            if (!I || ni % 3 || ni == 0) {
+                free(P), free(N), free(UV), free(I);
+                continue;
+            }
+            int mi = (int)json_num(json_get(pr, "material"), -1);
+            int mat = mi >= 0 && mi < 64 && mat_of[mi] >= 0 ? mat_of[mi] : plain;
+            fmesh *me = fig_add_mesh(m, nv, ni / 3, mat, UV != NULL && nuv == nv, false);
+            if (!me) {
+                free(P), free(N), free(UV), free(I);
+                break;
+            }
+            for (int v = 0; v < nv; v++) {
+                me->pos[v] = m4point(&world[i], V3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+                me->nrm[v] = N && nn2 == nv ? vnorm(m4dir(&world[i], V3(N[v * 3], N[v * 3 + 1], N[v * 3 + 2]))) : V3(0, 0, 1);
+                if (UV && nuv == nv)
+                    me->uv[v * 2] = UV[v * 2], me->uv[v * 2 + 1] = UV[v * 2 + 1];
+                me->bi[v][0] = 0, me->bw[v][0] = 1;
+                for (int c = 1; c < 4; c++)
+                    me->bi[v][c] = 0, me->bw[v][c] = 0;
+            }
+            for (int t = 0; t < ni; t++) {
+                int ix = (int)I[t];
+                me->tri[t] = ix < 0 || ix >= nv ? 0 : ix;
+            }
+            free(P), free(N), free(UV), free(I);
+        }
+    }
+    free(parent), free(world), free(done);
+    json_free(g.root);
+    if (m->nmeshes == 0)
+        return fail(&g, "no meshes could be read");
+    /* sized to one unit, standing on the ground, centred */
+    v3 lo = V3(1e30f, 1e30f, 1e30f), hi = V3(-1e30f, -1e30f, -1e30f);
+    for (int i = 0; i < m->nmeshes; i++)
+        for (int v = 0; v < m->mesh[i].nv; v++) {
+            v3 p = m->mesh[i].pos[v];
+            lo = V3(fminf(lo.x, p.x), fminf(lo.y, p.y), fminf(lo.z, p.z));
+            hi = V3(fmaxf(hi.x, p.x), fmaxf(hi.y, p.y), fmaxf(hi.z, p.z));
+        }
+    float ext = fmaxf(hi.x - lo.x, fmaxf(hi.y - lo.y, hi.z - lo.z));
+    float k = ext > 1e-6f ? 1.0f / ext : 1;
+    v3 c = V3((lo.x + hi.x) / 2, lo.y, (lo.z + hi.z) / 2);
+    for (int i = 0; i < m->nmeshes; i++)
+        for (int v = 0; v < m->mesh[i].nv; v++) {
+            v3 p = m->mesh[i].pos[v];
+            m->mesh[i].pos[v] = V3((p.x - c.x) * k, (p.y - c.y) * k, (p.z - c.z) * k);
+        }
+    float H = (hi.y - lo.y) * k;
+    body_info *bi = &f->body;
+    bi->H = H > 0.3f ? H : 0.3f;
+    bi->s = bi->H / 1.52f;
+    bi->hips_y = bi->chest_y = bi->neck_y = bi->chin_y = bi->shoulder_y = H * 0.5f;
+    for (int b = 0; b < BN_COUNT; b++)
+        bi->bone[b] = 0;
+    f->head.center = V3(0, H * 0.75f, 0);
+    f->prop = true;
+    f->face_tex = -1;
+    snprintf(f->lk.name, sizeof f->lk.name, "a model");
+    return true;
+}

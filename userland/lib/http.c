@@ -316,9 +316,15 @@ static int do_request(const char *method, const char *url, const char *const *he
     }
 
     bool default_port = (c.use_tls && !strcmp(port, "443")) || (!c.use_tls && !strcmp(port, "80"));
-    sb_printf(&req, "%s %s HTTP/1.1\r\nHost: %s%s%s\r\nUser-Agent: OperatingSystem/0.4\r\nAccept: */*\r\n"
-                    "Connection: close\r\n",
-              method, path, host, default_port ? "" : ":", default_port ? "" : port);
+    /* our own User-Agent and Accept unless the caller gave theirs (some servers refuse a header twice) */
+    bool own_ua = false, own_accept = false;
+    for (const char *const *h = headers; h && *h; h++) {
+        own_ua = own_ua || !strncasecmp(*h, "User-Agent:", 11);
+        own_accept = own_accept || !strncasecmp(*h, "Accept:", 7);
+    }
+    sb_printf(&req, "%s %s HTTP/1.1\r\nHost: %s%s%s\r\n%s%sConnection: close\r\n", method, path, host,
+              default_port ? "" : ":", default_port ? "" : port, own_ua ? "" : "User-Agent: OperatingSystem/0.4\r\n",
+              own_accept ? "" : "Accept: */*\r\n");
     if (body)
         sb_printf(&req, "Content-Length: %zu\r\n", body_len);
     for (const char *const *h = headers; h && *h; h++)

@@ -28,6 +28,10 @@ bool presence_avatar(const char *kind, const char *name);
 /* her body: a VRM file of theirs (copied in), or NULL for the face the OS
  * makes; she shows as a face from then on. False if the file couldn't be read. */
 bool presence_set_body(const char *vrm);
+/* the emblem is a 3D model: its frames in r, over what is there (false while there are none) */
+bool presence_draw_model(canvas *c, rect r);
+/* the emblem's model was chosen or changed: the figure process starts again with it */
+void presence_model_changed(void);
 /* lines for the companion's prompt about her body ("" when she has none) */
 const char *presence_prompt(void);
 /* her look's markup (the saved one, or the default) */

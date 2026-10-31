@@ -822,6 +822,9 @@ static void draw_pick(int y, color accent) {
     int cw = room ? 280 : pal ? 220 : type ? 300 : tempo ? 220 : 250;
     int ch = room ? 220 : pal ? 150 : type ? 130 : tempo ? 170 : 84;
     cw = (int)(cw * (s > 1 ? 1.1f : 1)), ch = (int)(ch * (s > 1 ? 1.15f : 1));
+    int room_left = A.H - 152 - y; /* never into the reply bar: shorter cards instead */
+    if (ch > room_left)
+        ch = room_left > 84 ? room_left : 84;
     int gap = 18, n = pk->n;
     if (n * cw + (n - 1) * gap > A.W - 80)
         cw = (A.W - 80 - (n - 1) * gap) / n;
@@ -1094,6 +1097,13 @@ void onboard_draw(void) {
     draw_line(A.frame, sx + 2, my - 6, sx + 8, my, 2.6f, LK_WHITE);
     draw_line(A.frame, sx + 2, my + 6, sx + 8, my, 2.6f, LK_WHITE);
     bool over_send = (A.in.mx - sx) * (A.in.mx - sx) + (A.in.my - my) * (A.in.my - my) < 24 * 24;
+    if (A.pick.active && A.reply.len == 0) { /* number keys pick a card; they never start a reply */
+        int k = 0;
+        for (int q = 0; q < A.in.nkeys; q++)
+            if (A.in.keys[q] < '0' || A.in.keys[q] > '9')
+                A.in.keys[k++] = A.in.keys[q];
+        A.in.nkeys = k;
+    }
     bool entered = can_type && ui_type(&A.reply);
     if (can_type && A.reply.len && (entered || (over_send && A.in.clicked))) {
         free_pick(&A.pick);
