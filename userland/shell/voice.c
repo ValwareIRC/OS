@@ -25,6 +25,8 @@
 static int speaker_pid, rec_pid;
 static job *hearing;
 static bool enabled = true;
+static unsigned said, cut; /* the last line started, and the last one cut off */
+static char lent[128];      /* the app holding the microphone */
 
 bool voice_can_speak(void) { return access("/dev/dsp", W_OK) == 0 && access(PIPER, X_OK) == 0 && access(SPEAK_MODEL, R_OK) == 0; }
 bool voice_can_hear(void) { return access("/dev/dsp", R_OK) == 0 && access("/usr/bin/whisper-cli", X_OK) == 0 && access(HEAR_MODEL, R_OK) == 0; }
@@ -37,6 +39,7 @@ bool voice_enabled(void) { return enabled; }
 
 void voice_hush(void) {
     if (speaker_pid > 0) {
+        cut = said;
         kill(-speaker_pid, SIGTERM);
         waitpid(speaker_pid, NULL, WNOHANG);
         speaker_pid = 0;
@@ -53,6 +56,7 @@ void voice_say(const char *text) {
     if (!enabled || !text || !*text || !voice_can_speak())
         return;
     voice_hush(); /* the newest words win */
+    said++;
     int p[2];
     if (pipe(p) < 0)
         return;
@@ -85,13 +89,30 @@ void voice_say(const char *text) {
     close(p[1]);
 }
 
+unsigned voice_said(void) { return said; }
+bool voice_cut(unsigned line) { return cut == line; }
+
 /* ---- listening ---- */
+
+void voice_lend_mic(const char *to) {
+    snprintf(lent, sizeof lent, "%s", to ? to : "");
+    if (to && rec_pid > 0) { /* it was listening: that recording is dropped */
+        kill(rec_pid, SIGTERM);
+        waitpid(rec_pid, NULL, 0);
+        rec_pid = 0;
+    }
+}
+const char *voice_mic_lent(void) { return lent[0] ? lent : NULL; }
 
 bool voice_listening(void) { return rec_pid > 0; }
 
 void voice_listen_start(void) {
     if (rec_pid > 0 || hearing || !voice_can_hear())
         return;
+    if (lent[0]) {
+        toast("Your microphone is with %s right now.", lent);
+        return;
+    }
     voice_hush(); /* never talk over them */
     unlink(MIC_WAV);
     int pid = fork();

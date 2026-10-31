@@ -29,7 +29,8 @@ class H(BaseHTTPRequestHandler):
             reply = replies.pop(0) if replies else "Okay."
             with open(log, "a") as f:
                 tail = [m for m in msgs[-4:] if m.get("role") != "system"]
-                f.write(json.dumps({"tail": tail, "reply": reply[:200]}) + "\n")
+                f.write(json.dumps({"tail": tail, "reply": reply[:200], "model": req.get("model"),
+                                    "tools": [t.get("function", {}).get("name") for t in req.get("tools", [])]}) + "\n")
         if req.get("stream"):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

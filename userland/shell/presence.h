@@ -23,6 +23,8 @@ void presence_draw_corner(canvas *c);
 bool presence_draw_avatar(canvas *c, rect r, bool active, const char *shape, const char *tint, const char *shot);
 /* runs and removes her body's tags in a reply: [[act:...]] [[mood:...]] [[figure:...]] */
 void presence_tags(char *text, bool act);
+/* an app asked for a gesture or mood (the companion API): false when there is no face to show it */
+bool presence_avatar(const char *kind, const char *name);
 /* lines for the companion's prompt about her body ("" when she has none) */
 const char *presence_prompt(void);
 /* her look's markup (the saved one, or the default) */

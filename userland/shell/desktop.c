@@ -22,6 +22,7 @@
 #include "iconart.h"
 #include "preview.h"
 #include "portal.h"
+#include "appapi.h"
 #include "capture.h"
 
 #include <ctype.h>
@@ -1775,6 +1776,7 @@ void desktop_draw(void) {
     waking_note();
     preview_frame();     /* a design being written, or one they applied or dropped */
     portal_take_input(); /* a file chooser an app asked for has the pointer and keys */
+    appapi_take_input(); /* ...or an app asking to use the AI */
     capture_input();     /* Print Screen: the capture bar has the pointer and keys while it is up */
     theme_frame_begin(); /* light/dark: the hotkey, redesigns, a pending switch */
     caption_input();     /* a click on the companion's caption is for it alone */
@@ -1940,6 +1942,7 @@ void desktop_draw(void) {
             launcher_open(NULL);
     wm_draw_overlay(); /* the Alt+Tab switcher */
     portal_draw();      /* over everything: the file chooser */
+    appapi_draw();      /* and an app asking to use the AI */
     theme_frame_end(); /* the old look fades out over the new */
     capture_draw();    /* the capture bar, over everything; the recording pill; what was made */
 }

@@ -32,6 +32,12 @@ it can change anything inside itself.
   whichever mind she chose (built-in, local or cloud) and adds nothing to the prompt.
 - `/v1/models` lists one model, `"os"`, with a `label` (e.g. "Claude Sonnet (yours)").
 - `503 {"error":"no_mind"}` when no mind is set up.
+- Function calling: `tools`, `tool_choice`, `tool_calls`, `role:"tool"` messages with `tool_call_id`,
+  `image_url` data URLs and `stream_options` pass through untouched to minds that speak OpenAI (the
+  built-in model runs with `--jinja` so it takes tools), and are translated for Anthropic and Gemini
+  minds. Usage numbers come in the final stream chunk when the mind gives them.
+- The "os" entry in `/v1/models` says `"tools":false` when the mind can't call tools (Claude on this
+  PC through its bridge, which turns them off); the app then keeps it for chat.
 
 ## Identity
 
@@ -58,7 +64,12 @@ it can change anything inside itself.
 ## Voice
 
 - `POST /voice/speak {"text","voice"?}` joins one queue with the companion's own speech, so they never
-  talk over each other. `speaking` events drive every face.
+  talk over each other. `speaking` events drive every face. The reply waits until the line has been
+  spoken: `{"done":true}`, or `{"done":false,"why":"stopped"}` when it was cut off.
+- `POST /voice/stop` stops everything this app queued, at once.
+- Inside a Flatpak, ordinary sound (Web Audio, PulseAudio at `$XDG_RUNTIME_DIR/pulse/native`) plays,
+  but there is no recording through PulseAudio: the microphone is only reached through `/voice/*`.
+  Speech should go through `/voice/speak` too, so faces move and voices don't overlap.
 - `POST /voice/listen/claim` → `{"granted":true,"token":"…"}`. While an app holds the microphone, the
   companion stops listening and shows that it's in a call.
 - With the claim:
@@ -79,7 +90,8 @@ it can change anything inside itself.
     the app id.
 - `GET /memory` returns `{"version":n,"entries":[…]}`.
 - `GET /memory?since=n` returns only the changes. A forgotten entry comes back as `{"id","deleted":true}`.
-- `POST /memory {"text","kind"}` adds an entry; `POST /memory {"id","text"}` corrects one. The OS stores
+- `POST /memory {"text","kind"}` adds an entry; `POST /memory {"id","text"}` corrects one. Either way
+  the reply is the stored entry, with its id. The OS stores
   it as if the companion had learned it (it shows in Settings as "from Prism").
 - `DELETE /memory/<id>` forgets it.
 - Every change, from either side, bumps the version and sends `memory {"version":n}` on `/events`.

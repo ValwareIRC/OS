@@ -28,6 +28,7 @@
 #include "fm/fm.h"
 #include "presence.h"
 #include "voice.h"
+#include "appapi.h"
 
 #define D (A.d)
 #define FIGURE "/usr/libexec/os-figure"
@@ -410,6 +411,7 @@ void presence_poll(void) {
         y = y < -1.2f ? -1.2f : y > 1.2f ? 1.2f : y;
         if (!P.pointer_on || fabsf(x - P.px) > 0.02f || fabsf(y - P.py) > 0.02f) {
             tell("pointer %.2f %.2f", x, y);
+            appapi_gaze(x, y);
             P.px = x, P.py = y, P.pointer_on = true, P.pointer_sent = A.now;
         }
     } else if (!follow && P.pointer_on) {
@@ -641,20 +643,36 @@ static void take_tag(char *text, const char *open, bool act, void (*fn)(const ch
     }
 }
 
+static bool tags_live; /* her face is up to show what the tags say */
+
 static void do_act(const char *a) {
     char w[24] = "";
     sscanf(a, "%23s", w);
     if (w[0]) {
-        tell("act %s", w);
+        if (tags_live)
+            tell("act %s", w);
         LOG("presence: act %s\n", w);
+        appapi_avatar_event("act", w);
     }
 }
 
 static void do_mood(const char *a) {
     char w[24] = "";
     sscanf(a, "%23s", w);
-    if (w[0])
-        tell("mood %s", w);
+    if (w[0]) {
+        if (tags_live)
+            tell("mood %s", w);
+        appapi_avatar_event("mood", w);
+    }
+}
+
+bool presence_avatar(const char *kind, const char *name) {
+    char w[24] = "";
+    sscanf(name, "%23[a-z_-]", w);
+    if (!w[0] || P.mode == PRESENCE_LIGHT || P.pid <= 0)
+        return false;
+    tell("%s %s", !strcmp(kind, "act") ? "act" : "mood", w);
+    return true;
 }
 
 static void do_figure(const char *a) {
@@ -663,9 +681,10 @@ static void do_figure(const char *a) {
 }
 
 void presence_tags(char *text, bool act) {
-    bool live = act && P.mode != PRESENCE_LIGHT && P.pid > 0;
-    take_tag(text, "[[act:", live, do_act);
-    take_tag(text, "[[mood:", live, do_mood);
+    tags_live = P.mode != PRESENCE_LIGHT && P.pid > 0;
+    /* apps following her face hear them even while she is a light */
+    take_tag(text, "[[act:", act, do_act);
+    take_tag(text, "[[mood:", act, do_mood);
     take_tag(text, "[[figure:", act && P.mode != PRESENCE_LIGHT, do_figure);
 }
 

@@ -7,6 +7,7 @@
 #include "models.h"
 #include "tray.h"
 #include "wallpaper.h"
+#include "appapi.h"
 #include "wl/wl.h"
 #include "../lib/json.h"
 
@@ -1191,6 +1192,25 @@ static int page_privacy(rect c, int y) {
     snprintf(line, sizeof line, "How present I am: %s. Reshaping the space: %s.",
              A.prof.autonomy[0] ? A.prof.autonomy : "I ask first", A.prof.redesign[0] ? A.prof.redesign : "only when you ask");
     y += note_text(c, y, line) + 24;
+    /* apps that asked to use the companion (the companion API), and what each may */
+    if (appapi_app_count()) {
+        y = settings_section(c, y, "Apps that use me");
+        for (int i = 0; i < appapi_app_count(); i++) {
+            draw_text(A.frame, f, c.x, y + 8, appapi_app_label(i), P.ink);
+            static const char *const what[2] = {"Your AI", "What I know about you"};
+            int x = c.x + 180;
+            for (int k = 0; k < 2; k++) {
+                bool on = appapi_app_allows(i, k == 1) == 1;
+                draw_text(A.frame, small, x, y + 10, what[k], P.muted);
+                rect sw = {x + text_width(small, what[k]) + 10, y + 4, 46, 28};
+                if (ctl_switch(sw, on, &P))
+                    appapi_app_set(i, k == 1, !on);
+                x = sw.x + sw.w + 28;
+            }
+            y += 44;
+        }
+        y += note_text(c, y, "Apps reach me through this computer, never with your keys.") + 24;
+    }
     y = settings_section(c, y, "Start again");
     static uint64_t confirm_at;
     bool confirming = confirm_at && A.now - confirm_at < 5000;

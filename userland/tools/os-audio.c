@@ -6,7 +6,8 @@
  *                                   two vowel bands, stamped with when it's
  *                                   heard) so the companion's mouth can follow
  *   os-rec RATE FILE.wav         records 16-bit mono until SIGTERM/SIGINT, then
- *                                   finishes the WAV header (for speech recognition)
+ *                                   finishes the WAV header (for speech recognition);
+ *                                   FILE "-" writes the raw samples to stdout instead
  *
  * One binary; it looks at the name it was started as. */
 #include <errno.h>
@@ -216,6 +217,29 @@ static int rec(int rate, const char *path) {
     int fd = open_dsp(O_RDONLY, rate, 1);
     if (fd < 0)
         return 1;
+    if (!strcmp(path, "-")) { /* raw, to stdout, as it comes (the companion API listens this way) */
+        signal(SIGTERM, on_stop);
+        signal(SIGINT, on_stop);
+        signal(SIGPIPE, on_stop);
+        static char raw[4096];
+        while (!stop) {
+            ssize_t n = read(fd, raw, sizeof raw);
+            if (n < 0 && errno == EINTR)
+                continue;
+            if (n <= 0)
+                break;
+            for (ssize_t off = 0; off < n && !stop;) {
+                ssize_t w = write(1, raw + off, (size_t)(n - off));
+                if (w <= 0) {
+                    stop = 1;
+                    break;
+                }
+                off += w;
+            }
+        }
+        close(fd);
+        return 0;
+    }
     FILE *f = fopen(path, "wb");
     if (!f)
         return 1;
