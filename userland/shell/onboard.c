@@ -8,6 +8,7 @@
 #include "stylist.h"
 #include "preview.h"
 #include "../lib/json.h"
+#include "body.h"
 #include "browsers.h"
 
 #include <ctype.h>
@@ -792,7 +793,8 @@ void designing_draw(void) {
     preview_frame();     /* the design as it is written; made theirs when they say */
     if (A.screen != SCR_DESIGNING)
         return;
-    browsers_take_input(); /* their browser, asked while this is made */
+    body_take_input();     /* how she looks, and their browser: asked while this is made */
+    browsers_take_input();
     companion_tick(); /* once the draft is in, they can talk it over */
 
     font *big = font_get(A.prof.type_font[0] ? A.prof.type_font : "Fraunces", 30 * tscale()),
@@ -827,6 +829,7 @@ void designing_draw(void) {
     fill_round(A.frame, rect_inset(card, -16), 22, wash(22));
     preview_body(card, true);
     browsers_draw();
+    body_draw();
 }
 
 /* Takes in the design job's answer, if it has one: on the desktop and on the

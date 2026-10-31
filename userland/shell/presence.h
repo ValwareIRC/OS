@@ -25,6 +25,9 @@ bool presence_draw_avatar(canvas *c, rect r, bool active, const char *shape, con
 void presence_tags(char *text, bool act);
 /* an app asked for a gesture or mood (the companion API): false when there is no face to show it */
 bool presence_avatar(const char *kind, const char *name);
+/* her body: a VRM file of theirs (copied in), or NULL for the face the OS
+ * makes; she shows as a face from then on. False if the file couldn't be read. */
+bool presence_set_body(const char *vrm);
 /* lines for the companion's prompt about her body ("" when she has none) */
 const char *presence_prompt(void);
 /* her look's markup (the saved one, or the default) */

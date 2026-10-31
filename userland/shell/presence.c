@@ -281,6 +281,36 @@ void presence_set_mode(int mode) {
         P.fails = 0, P.restart_at = A.now;
 }
 
+bool presence_set_body(const char *vrm) {
+    if (vrm) { /* their own model: copied in whole, then swapped in */
+        int in = open(vrm, O_RDONLY | O_CLOEXEC), out = open(VRM_FILE ".new", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        static char buf[1 << 16];
+        ssize_t n = 0;
+        bool ok = in >= 0 && out >= 0;
+        while (ok && (n = read(in, buf, sizeof buf)) > 0)
+            ok = write(out, buf, (size_t)n) == n;
+        ok = ok && n == 0;
+        if (in >= 0)
+            close(in);
+        if (out >= 0)
+            close(out);
+        if (!ok || rename(VRM_FILE ".new", VRM_FILE) < 0) {
+            unlink(VRM_FILE ".new");
+            LOG("presence: couldn't take %s\n", vrm);
+            return false;
+        }
+        LOG("presence: her body is now %s\n", vrm);
+    } else {
+        unlink(VRM_FILE); /* the face the OS makes for her */
+        LOG("presence: her body is the one the OS makes\n");
+    }
+    if (P.pid > 0) /* she comes back in her new body */
+        stop_figure();
+    P.fails = 0, P.restart_at = A.now;
+    presence_set_mode(PRESENCE_FACE);
+    return true;
+}
+
 /* ---- what she says back ---- */
 
 static void heard(char *line) {

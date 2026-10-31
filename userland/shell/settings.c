@@ -8,6 +8,8 @@
 #include "tray.h"
 #include "wallpaper.h"
 #include "appapi.h"
+#include "body.h"
+#include "presence.h"
 #include "wl/wl.h"
 #include "../lib/json.h"
 
@@ -966,6 +968,40 @@ static int page_mind(rect c, int y) {
     font *f = BODY();
     if (mind.step == MIND_SHOW)
         name_row(c, &y, f);
+    if (mind.step == MIND_SHOW) { /* how I look: a light, the face the OS makes, or a model of theirs */
+        y = settings_section(c, y, "How I look");
+        bool own = access(STATE_DIR "/figure.vrm", R_OK) == 0, face = presence_mode() != PRESENCE_LIGHT;
+        static const char *const kinds[] = {"A light", "A face", "My own model"};
+        int sel = !face ? 0 : own ? 2 : 1;
+        int pick = ctl_segmented((rect){c.x, y, 420, 40}, kinds, own ? 3 : 2, sel, f, &P);
+        if (pick != sel) {
+            if (pick == 0)
+                presence_set_mode(PRESENCE_LIGHT);
+            else if (pick == 1)
+                presence_set_body(NULL);
+            else
+                presence_set_mode(PRESENCE_FACE);
+        }
+        y += 52;
+        static char vrms[6][300];
+        static int nvrms;
+        static uint64_t looked;
+        if (!looked || A.now - looked > 3000) {
+            looked = A.now;
+            nvrms = body_find_vrms(vrms, 6);
+        }
+        for (int i = 0; i < nvrms; i++) {
+            const char *name = strrchr(vrms[i], '/');
+            draw_text(A.frame, f, c.x, y + 9, name ? name + 1 : vrms[i], P.ink);
+            if (ctl_button((rect){c.x + c.w - 150, y, 150, 36}, "Use this model", SMALL(), false, true, &P) &&
+                !presence_set_body(vrms[i]))
+                toast("That model couldn't be read.");
+            y += 44;
+        }
+        y += note_text(c, y, nvrms ? "VRM models in your home folders. Each is shown just as it was made."
+                                   : "To use a VRM model of your own (from VRoid Studio, say), put the .vrm file in "
+                                     "your Downloads folder: it shows here.") + 24;
+    }
     if (mind.step == MIND_SHOW) {
         rect card = {c.x, y, c.w, 112};
         fill_round(A.frame, card, 18, color_alpha(P.ink, 0.05f));

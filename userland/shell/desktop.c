@@ -23,6 +23,7 @@
 #include "preview.h"
 #include "portal.h"
 #include "appapi.h"
+#include "body.h"
 #include "browsers.h"
 #include "capture.h"
 
@@ -268,8 +269,8 @@ static const char *companion_system(void) {
              "instead; you redesign everything from scratch then, which takes minutes, so tell them it will take a "
              "few minutes and that they'll see it being drawn. New colours alone (a theme, warmer, darker, an accent) "
              "are not a redesign: restyle the parts with ui:style tags, done in seconds. A change only happens through a tag, so never "
-             "claim one without it, and only use tags when their last message asks for something. You can't browse "
-             "the web for them yet; say so honestly if asked. They can get a web browser (Chromium, for one) "
+             "claim one without it, and only use tags when their last message asks for something. You can look things "
+             "up on the web for them ([[search:...]], below). They can get a web browser (Firefox or Chromium, say) "
              "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s",
              D.ai_name, D.user_name[0] ? D.user_name : "the person", A.prof.autonomy[0] ? A.prof.autonomy : "ask first",
              A.prof.redesign[0] ? A.prof.redesign : "only when asked", portrait[0] ? portrait : "(nothing yet)\n",
@@ -1779,7 +1780,8 @@ void desktop_draw(void) {
     preview_frame();     /* a design being written, or one they applied or dropped */
     portal_take_input(); /* a file chooser an app asked for has the pointer and keys */
     appapi_take_input(); /* ...or an app asking to use the AI */
-    browsers_take_input(); /* ...or onboarding's browser question, if it came late */
+    body_take_input(); /* ...or onboarding's questions, if they came late */
+    browsers_take_input();
     capture_input();     /* Print Screen: the capture bar has the pointer and keys while it is up */
     theme_frame_begin(); /* light/dark: the hotkey, redesigns, a pending switch */
     caption_input();     /* a click on the companion's caption is for it alone */
@@ -1946,6 +1948,7 @@ void desktop_draw(void) {
     wm_draw_overlay(); /* the Alt+Tab switcher */
     portal_draw();      /* over everything: the file chooser */
     browsers_draw();
+    body_draw();
     appapi_draw();      /* and an app asking to use the AI */
     theme_frame_end(); /* the old look fades out over the new */
     capture_draw();    /* the capture bar, over everything; the recording pill; what was made */

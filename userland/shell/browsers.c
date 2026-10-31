@@ -9,6 +9,7 @@
  * checked it), or packaged by volunteers. */
 #include "browsers.h"
 #include "app.h"
+#include "body.h"
 #include "launcher.h"
 #include "settings.h"
 
@@ -54,8 +55,8 @@ static bool showing(void) {
         return false;
     if (A.screen == SCR_DESIGNING)
         B.onboarding = true;
-    if (!B.onboarding || (A.screen != SCR_DESIGNING && A.screen != SCR_DESKTOP))
-        return false;
+    if (!B.onboarding || (A.screen != SCR_DESIGNING && A.screen != SCR_DESKTOP) || body_asking())
+        return false; /* one question at a time: how she looks comes first */
     if (asked_before()) {
         B.done = true;
         return false;
