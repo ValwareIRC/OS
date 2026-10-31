@@ -19,7 +19,7 @@
 # the system, the bundled apps such as Prism, and what they use).
 # -Fullscreen is as close to it running on this PC as a VM gets: the whole
 # screen at its own resolution (no scaling) and
-# QEMU ahead of other programs for the processor. Ctrl+Alt+F leaves and
+# Ctrl+Alt+F leaves and
 # re-enters full screen; Ctrl+Alt+G lets go of the mouse.
 param([string]$Iso = "", [string]$Disk = "", [string]$Facet = "", [switch]$Claude, [string]$Model = "sonnet", [string]$Display = "gtk",
       [string]$Memory = "", [switch]$Fullscreen, [string]$Vrm = "", [switch]$Fresh)
@@ -118,9 +118,10 @@ if ($Facet) {
 # picture. Without it QEMU sizes its window (in full screen, its drawing area)
 # from the picture, so a resolution change made the window taller than the
 # screen: off the bottom in a window, stretched and cut off in full screen.
-# Processors: all of this computer's but two (one for Windows, one for QEMU's own display and disk work).
-$cpus = [Math]::Max(2, [Environment]::ProcessorCount - 2)
-$gtk = "gtk,show-menubar=off,zoom-to-fit=on"
+# Processors: half of this computer's. More starved Windows itself (with 14 of 16 the whole PC froze in
+# full screen, and a screen recorder had nothing left).
+$cpus = [Math]::Max(2, [Math]::Floor([Environment]::ProcessorCount / 2))
+$gtk = "gtk,show-menubar=off,zoom-to-fit=on,grab-on-hover=on"
 # How much room the system has, in this screen's real pixels: the screen
 # itself in full screen, else what a window fits in (the work area less the
 # title bar and borders); it draws at that size or the largest of its own that fits.
@@ -218,17 +219,6 @@ if ($senseNode -and -not (Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPor
 # QEMU's own errors and how it ended, for when the window goes away by itself.
 $qlog = Join-Path $root "build\os-vm-qemu.log"
 "$(Get-Date -Format s) starting $Iso (display $Display)" | Out-File -Encoding utf8 $qlog
-if ($Fullscreen) {
-    # ahead of other programs once it is up (above normal, not high: the PC's
-    # own sound and input keep their place)
-    Start-Job -ScriptBlock {
-        for ($i = 0; $i -lt 30; $i++) {
-            Start-Sleep -Seconds 1
-            $q = Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue
-            if ($q) { $q | ForEach-Object { $_.PriorityClass = "AboveNormal" }; break }
-        }
-    } | Out-Null
-}
 & $qemu @args @facetArgs 2>&1 | ForEach-Object { "$_" } | Out-File -Encoding utf8 -Append $qlog
 "$(Get-Date -Format s) QEMU ended, exit code $LASTEXITCODE" | Out-File -Encoding utf8 -Append $qlog
 
