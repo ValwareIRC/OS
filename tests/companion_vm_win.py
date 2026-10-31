@@ -37,8 +37,32 @@ if os.environ.get("REAL_CJS"):  # Prism's own checks (its run.mjs --real), from 
         "echo 'APPCHECK done'\n"
         "flatpak run com.valware.prism >/tmp/prism.log 2>&1 &\n"
         "sleep 90\necho \"PRISMLOG $(tail -c 1500 /tmp/prism.log | tr '\\n' '|')\"\n")
+elif os.environ.get("AGENT"):  # Prism's agent takes one turn on the OS's AI, driven over its test-only debug port
+    import base64
+    cdp = base64.b64encode(open(os.environ.get("CDP_MJS", os.path.join(ROOT, "..", "prism-work", "scripts", "room-test",
+                                                                       "cdp.mjs")), "rb").read()).decode()
+    start = ("(async () => { await prism.workspace.set('/root/Projects/ostest'); await new Promise(r => setTimeout(r, 2500));"
+             " const s = await prism.sessions.create('OS test');"
+             " await prism.agent.send(s.id, 'Read README.md and tell me its first line.',"
+             " { model: { endpointId: 'os-companion', modelId: 'os' }, mode: 'auto-edit' }); return s.id })()")
+    open(check, "w", newline="\n").write(
+        "#!/bin/sh\nsleep 20\nmkdir -p /root/Projects/ostest\n"
+        "printf 'Lighthouse keeper notes\\nsecond line\\n' > /root/Projects/ostest/README.md\n"
+        "base64 -d > /root/cdp.mjs <<'B64'\n" + cdp + "\nB64\n"
+        "cat > /root/turn-start.js <<'JS'\n" + start + "\nJS\n"
+        "flatpak run --env=PRISM_DEBUG_PORT=9223 com.valware.prism >/tmp/prism.log 2>&1 &\n"
+        "sleep 70\n"
+        "CDP='ELECTRON_RUN_AS_NODE=1 /app/prism/prism /root/cdp.mjs eval'\n"
+        "ID=$(flatpak run --command=sh com.valware.prism -c \"$CDP \\\"\\$(cat /root/turn-start.js)\\\"\" 2>/dev/null | tr -d '\"\\n ')\n"
+        "echo \"AGENTCHECK session $ID\"\n"
+        "sleep 45\n"
+        "echo \"prism.sessions.items('$ID').then(i => JSON.stringify(i).slice(-3500))\" > /root/turn-items.js\n"
+        "flatpak run --command=sh com.valware.prism -c \"$CDP \\\"\\$(cat /root/turn-items.js)\\\"\" 2>&1 | tr '\\n' ' ' | sed 's/^/AGENTCHECK items /'\n"
+        "echo\necho 'APPCHECK done'\n")
 else:
     open(check, "w", newline="\n").write(open(os.path.join(ROOT, "tests", "companion_check.sh"), encoding="utf-8").read())
+presence = os.path.join(out, "presence")
+open(presence, "w", newline="\n").write("face\n")
 
 
 def fw(name, path):
@@ -50,6 +74,7 @@ qargs = [QEMU, "-M", "q35,vmport=on", "-m", "6G", "-smp", "4", "-accel", "whpx,k
          "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
          "-audiodev", "none,id=a0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0",
          *fw("mind.json", mind), *fw("facet.xml", desk), *fw("autorun.sh", check),
+         *(fw("figure.vrm", os.environ["VRM"]) + fw("presence", presence) if os.environ.get("VRM") else []),
          "-qmp", f"tcp:127.0.0.1:{QPORT},server,nowait", "-serial", "file:" + log.replace(os.sep, "/"),
          "-cdrom", os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso")).replace(os.sep, "/")]
 qemu = subprocess.Popen(qargs, stdout=subprocess.DEVNULL, stderr=open(os.path.join(out, "qemu.err"), "w"))
@@ -119,9 +144,11 @@ try:
     if os.environ.get("REAL_CJS"):  # Prism itself, opened on the desktop
         wait_for(r"PRISMLOG", 150)
         q.shot("prism.png")
+    if os.environ.get("AGENT"):
+        q.shot("agent.png")
 finally:
     text = log_text()
-    for line in re.findall(r"APPCHECK [^\n]*|REALCHECK [^\n]*|PRISMLOG [^\n]*|shell: appapi: [^\n]*", text):
+    for line in re.findall(r"APPCHECK [^\n]*|REALCHECK [^\n]*|AGENTCHECK [^\n]*|PRISMLOG [^\n]*|shell: appapi: [^\n]*", text):
         print(line)
     print("--- the mind saw:")
     for line in open(ailog, encoding="utf-8").read().splitlines():
