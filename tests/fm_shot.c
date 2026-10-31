@@ -57,10 +57,8 @@ bool fm_host_bind(const char *key, char *out, size_t n) {
     return true;
 }
 void fm_host_draw_view(const char *app, rect r) { stylist_placeholder_view(app, r); }
-void fm_host_draw_orb(rect r, bool active) {
-    float s = (float)(r.w < r.h ? r.w : r.h);
-    ui_orb(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, s * 0.36f, A.d.accent, A.d.accent2, active);
-}
+/* her spot: empty, as on a desktop where she has no look yet (there are no stock ones) */
+void fm_host_draw_orb(rect r, bool active) { (void)r, (void)active; }
 /* her portrait: a stand-in panel here (the figure draws only in the OS) */
 void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active) {
     (void)frame, (void)tint, (void)shot, (void)active;
