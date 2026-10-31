@@ -801,7 +801,7 @@ static void app_result(int a, int score, int group) {
 #define OWN_RUNTIME "org.freedesktop.Platform/x86_64/26.08"
 
 struct offer {
-    char *id, *name, *summary, *runtime, *size;
+    char *id, *name, *summary, *runtime, *size, *dev, *verified;
 };
 
 static struct {
@@ -812,6 +812,7 @@ static struct {
     uint64_t at; /* last refresh started */
     job *install;
     char inst_id[160], inst_name[96];
+    bool inst_quiet; /* installed for later (onboarding): not opened when done */
 } fh;
 
 static void catalog_load(void) {
@@ -839,9 +840,9 @@ static void catalog_load(void) {
         nl = strchr(line, '\n');
         if (nl)
             *nl = 0;
-        char *field[5] = {0};
+        char *field[7] = {0};
         char *p = line;
-        for (int k = 0; k < 5 && p; k++) {
+        for (int k = 0; k < 7 && p; k++) {
             field[k] = p;
             p = strchr(p, '\t');
             if (p)
@@ -853,7 +854,7 @@ static void catalog_load(void) {
                 fh.o = realloc(fh.o, sizeof *fh.o * (size_t)cap);
             }
             fh.o[fh.n++] = (struct offer){field[0], field[1], field[2] ? field[2] : "", field[3] ? field[3] : "",
-                                          field[4] ? field[4] : ""};
+                                          field[4] ? field[4] : "", field[5] ? field[5] : "", field[6] ? field[6] : "0"};
         }
         if (!nl)
             break;
@@ -959,7 +960,8 @@ static void flathub_poll(void) {
             char p[300];
             installed_entry(fh.inst_id, p, sizeof p);
             toast("%s is installed.", fh.inst_name);
-            launcher_run_desktop_file(p);
+            if (!fh.inst_quiet)
+                launcher_run_desktop_file(p);
         } else {
             char why[256];
             install_error(why, sizeof why);
@@ -967,6 +969,7 @@ static void flathub_poll(void) {
             toast("%s couldn't be installed%s%s", fh.inst_name, why[0] ? ": " : ".", why);
         }
         fh.inst_id[0] = 0;
+        fh.inst_quiet = false;
         free(res);
     }
 }
@@ -976,6 +979,7 @@ static void flathub_install(const char *id, const char *name) {
         toast("Still installing %s. One app at a time.", fh.inst_name);
         return;
     }
+    fh.inst_quiet = false;
     snprintf(fh.inst_id, sizeof fh.inst_id, "%s", id);
     snprintf(fh.inst_name, sizeof fh.inst_name, "%s", name);
     fh.install = job_start(install_child, fh.inst_id);
@@ -1761,4 +1765,30 @@ void launcher_draw(void) {
     else
         L.panel = (rect){0, 0, 0, 0};
     restore_pointer();
+}
+
+/* ---- for onboarding's browser question (browsers.c) ---- */
+
+void launcher_flathub_poll(void) { flathub_poll(); }
+
+bool launcher_flathub_offer(const char *id, const char **name, const char **dev, bool *verified) {
+    for (int i = 0; i < fh.n; i++)
+        if (!strcmp(fh.o[i].id, id)) {
+            *name = fh.o[i].name;
+            *dev = fh.o[i].dev;
+            *verified = fh.o[i].verified[0] == '1';
+            return true;
+        }
+    return false;
+}
+
+bool launcher_flathub_ready(void) { return fh.n > 0; }
+
+bool launcher_installed(const char *id) { return offer_installed(id); }
+
+void launcher_install_quietly(const char *id, const char *name) {
+    if (fh.install)
+        return;
+    flathub_install(id, name);
+    fh.inst_quiet = true;
 }

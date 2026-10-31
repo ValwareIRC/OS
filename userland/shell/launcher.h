@@ -42,3 +42,12 @@ void recent_forget(const char *target);
 
 /* A panel in the design's material (glass, frost, solid or neon). */
 void material_panel(rect r, float radius);
+
+/* Flathub, for onboarding's browser question: the catalog fetched and kept
+ * fresh (also before the desktop exists), what it says about an app (false
+ * if Flathub doesn't offer it), and installing one without opening it. */
+void launcher_flathub_poll(void);
+bool launcher_flathub_ready(void);
+bool launcher_flathub_offer(const char *id, const char **name, const char **dev, bool *verified);
+bool launcher_installed(const char *id);
+void launcher_install_quietly(const char *id, const char *name);
