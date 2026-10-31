@@ -1609,17 +1609,21 @@ static void mic_frame(const short *s, int n) {
     float rms = (float)sqrt(e / n);
     if (M.floor <= 0)
         M.floor = rms;
-    if (!M.talking)
+    /* There is no echo cancelling: while her own voice plays, the speakers
+     * reach the microphone too. Then only someone clearly louder than her
+     * counts (over_voice says so), and the room's noise isn't relearned. */
+    bool over_voice = voice_speaking();
+    if (!M.talking && !over_voice)
         M.floor = M.floor * 0.98f + rms * 0.02f; /* the room's own noise */
-    bool loud = rms > fmaxf(M.floor * 3.0f, 400.0f);
+    bool loud = over_voice ? rms > fmaxf(M.floor * 8.0f, 2500.0f) : rms > fmaxf(M.floor * 3.0f, 400.0f);
     if (!M.talking) {
         M.loud_frames = loud ? M.loud_frames + 1 : 0;
-        if (M.loud_frames >= 3) {
+        if (M.loud_frames >= (over_voice ? 5 : 3)) {
             M.talking = true;
             M.quiet_ms = 0;
             for (int i = 0; i < nconns; i++)
                 if (conns[i].state == C_LISTEN)
-                    sse(&conns[i], "speech", "{\"state\":\"start\"}");
+                    sse(&conns[i], "speech", over_voice ? "{\"state\":\"start\",\"over_voice\":true}" : "{\"state\":\"start\"}");
         }
     }
     if (M.talking || M.loud_frames) { /* keep the start of the first word too */

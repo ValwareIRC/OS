@@ -75,6 +75,9 @@ it can change anything inside itself.
 - With the claim:
   - `GET /voice/listen?token=…` is an SSE stream of `partial` and `final` transcripts (the OS's whisper);
   - `GET /voice/mic?token=…` is raw 16 kHz mono 16-bit PCM, for apps doing their own recognition.
+- `/voice/listen` events: `ready`, `speech {"state":"start"|"end"}`, `final {"text"}`, `end`. There is no
+  echo cancelling: while the OS is speaking, only speech clearly louder than its voice starts a
+  `speech`, and that start says `"over_voice":true`.
 - `POST /voice/listen/release` gives the microphone back. Closing the socket releases it too.
 
 ## Memory (both ways)

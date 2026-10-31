@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the on-device voice pieces for the OS (glibc, from this Ubuntu):
 # whisper.cpp (MIT) for speech recognition, with a small English model.
-# Output goes to build/voice; scripts/build-sysroot.sh packs it.
+# Output goes to build/voice; scripts/build-base.sh voice packs it.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PORTS_DIR=${PORTS_DIR:-$HOME/os-ports}

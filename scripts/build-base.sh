@@ -175,6 +175,30 @@ llama_server() { # llama.cpp's server (MIT): runs the built-in model and any the
     echo "build-base: llama.cpp $(git -C "$src" log -1 --format=%h)"
 }
 
+voice() { # the companion's ears and voice: whisper.cpp (MIT), built here; Piper and the models from ports/build-voice.sh
+    local src=$SRC/whisper.cpp b=$BLD/whisper.cpp v=$ROOT/build/voice
+    [ -d "$src/.git" ] || git clone --depth 1 https://github.com/ggml-org/whisper.cpp "$src"
+    in_sdk "cmake -S '$src' -B '$b' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+        -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF \
+        -DWHISPER_BUILD_EXAMPLES=ON >/dev/null && \
+        cmake --build '$b' -j\$(nproc) --target whisper-cli >/dev/null && \
+        install -Dm755 '$b/bin/whisper-cli' '$OUT/usr/bin/whisper-cli'"
+    echo "build-base: whisper.cpp $(git -C "$src" log -1 --format=%h)"
+    if ! ls "$v"/ggml-*.bin "$v"/*.onnx >/dev/null 2>&1 || [ ! -d "$v/piper" ]; then
+        echo "build-base: no voice models or Piper in $v (run ports/build-voice.sh)"
+        return
+    fi
+    mkdir -p "$OUT/usr/share/os/voice" "$OUT/opt"
+    cp "$v"/ggml-*.bin "$v"/*.onnx "$v"/*.onnx.json "$OUT/usr/share/os/voice/"
+    # Piper's own release, with its libraries beside it (MIT; espeak-ng is GPL-3: revisit before release)
+    rm -rf "$OUT/opt/piper" && cp -a "$v/piper" "$OUT/opt/piper" && rm -rf "$OUT/opt/piper/pkgconfig"
+    cat > "$OUT/usr/bin/piper" <<'WRAP'
+#!/bin/sh
+LD_LIBRARY_PATH=/opt/piper exec /opt/piper/piper --espeak_data /opt/piper/espeak-ng-data "$@"
+WRAP
+    chmod +x "$OUT/usr/bin/piper"
+}
+
 prism_app() { # Prism, preinstalled as a Flatpak (scripts/build-prism-flatpak.sh makes the bundle)
     local bundle=$HOME/osbuild/com.valware.prism.flatpak
     [ -s "$bundle" ] || { echo "build-base: no $bundle (run scripts/build-prism-flatpak.sh)"; return; }
@@ -224,6 +248,7 @@ build_one() {
     os-portal) meson_build os-portal ;;
     os-record) meson_build os-record ;;
     llama-server) llama_server ;;
+    voice) voice ;;
     pulseaudio) # the sound server Flatpak apps talk to; it plays through the kernel's /dev/dsp (OSS)
         meson_build pulseaudio -Ddaemon=true -Dclient=true -Ddoxygen=false -Dman=false -Dtests=false \
             -Ddatabase=simple -Doss-output=enabled -Dalsa=disabled -Dbluez5=disabled -Dgsettings=disabled -Dgtk=disabled \
@@ -240,7 +265,7 @@ build_one() {
     echo "build-base: $1 done"
 }
 
-ALL="platform host-etc bubblewrap dbus xdg-dbus-proxy libxmlb libfyaml appstream ostree fuse flatpak xdg-desktop-portal os-portal os-record llama-server pulseaudio e2fsprogs flatpak-system prism-app"
+ALL="platform host-etc bubblewrap dbus xdg-dbus-proxy libxmlb libfyaml appstream ostree fuse flatpak xdg-desktop-portal os-portal os-record llama-server voice pulseaudio e2fsprogs flatpak-system prism-app"
 for c in ${*:-$ALL}; do
     build_one "$c"
 done
