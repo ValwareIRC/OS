@@ -1,0 +1,181 @@
+# Facet 2
+
+Facet is the language the OS's AI writes desktops and whole apps in. Facet 2 grows it from desktop markup
+into an app language: components, state, live data from the system, logic in its own small language, and
+patches to running apps. Looks always come from the person's own design.
+
+This spec was designed and agreed by a council of six models, chosen so that small local models as well as
+large ones can write it: GLM-5.3, GLM-4.5-Air, Mistral-Nemo 12B, Qwen3 14B, Claude Haiku and Claude Opus
+(chair). Each proposed a language, then they voted on 18 contested choices. Each then wrote a real app in
+the draft (Files, Notes, Todo, App Launcher, Stopwatch) and named everything it had to guess. The final
+version folds in every condition they raised, and all six agreed to it.
+
+It is a spec. The interpreter that runs it in the OS is not built yet.
+
+```
+Facet is the language the OS's AI writes whole apps in. One file is one app. Code lives in keyword sections closed by `end`; markup lives only inside `view` and always closes with `</tag>` or `/>`. There is exactly one way to write each thing.
+
+CLOSERS, ONE RULE: `end` closes code blocks (app, state, derived, fn, if, for, view, style, component). `</tag>` closes markup. Every markup tag starts with `<`. Never mix them.
+
+FILE SHAPE (sections in this order; every section is optional except view; fn and component may repeat)
+  app Name
+    data ...            one line each
+    state ... end
+    derived ... end
+    fn name(args) ... end
+    view <markup> end
+    style <rules> end
+    component Name(params) ... end
+  end
+
+DATA: one line each, live from the system, read-only. It may use state names: it is read again when they change, and after this app's own fs.* changes.
+  data items = files(folder)                 every entry; files(folder, ".txt") only that ending. Records: name, path, size, modified, dir
+  data note = file(path)                     record: name, path, text ("" if the file doesn't exist)
+  data accent = setting("design.accent")     a value
+  data apps = apps()                         records: id, name
+  data now = clock(1000)                     ticks every 1000 ms: hour, minute, second, ms, day, weekday
+STATE: names with starting values; only `set` changes them.
+DERIVED: names computed from data, state and other derived; recomputed when what they read changes. May call pure fns (fns with no set and no effects; `facet check` verifies).
+
+STATEMENTS (only inside fn; fns may read every data, state and derived name)
+  set name = expr                 (writing `name = expr` without set is an error naming the fix)
+  if expr then ... elseif expr then ... else ... end
+  for x in expr do ... end
+  return expr
+  name(args)                      call another fn
+  emit "event" value              component -> parent: <Row on:event="fn(value)"/>
+  EFFECTS (fn only): fs.read(path) -> text, fs.write(path, text), fs.remove(path),
+    fs.rename(path, newpath), fs.mkdir(path), app.open(appid), app.open(appid, path), app.close(),
+    app.notify(text), ask(question) -> true/false, prompt(question, default) -> text or none
+    (ask and prompt draw a dialog in the person's design; the fn waits for the answer)
+  TIMERS: after("name", ms, fnname)  every("name", ms, fnname)  cancel("name")
+    the third argument is the fn's NAME, not a call: after("save", 1000, save)
+    scheduling the same name again restarts it
+
+EXPRESSIONS
+  literals: "text" (may contain {expr}; numbers inside render as text), 12, 1.5, true, false, none,
+            lists [a, b], records {name: "x", n: 2}
+  names, a.b, list[i] (from 0), calls f(x), lambdas only as arguments: n -> expr
+  conditional: if c then a else b   (an expression: no end, both branches required)
+  + on numbers adds; + on texts joins; + on lists joins them: laps + [x]; text + number is an error ("use text(n)")
+  PRECEDENCE: the usual arithmetic (* / % before + -), then comparisons (== != < > <= >=),
+  then `not`, then `and`/`or`. `not` applies to one comparison or name: `not a.done`, `not (a == b)`.
+  Mixing `and` with `or` needs parentheses; the error prints the corrected line.
+STDLIB (pure; slices count from 0, end-exclusive)
+  len lower upper trim split(text, sep) join(list, sep) text(x) number(text) pad(text, width, char)
+  round(x) (halves away from zero) floor(x) ceil(x) min(a, b) max(a, b)
+  slice(list|text, start, end) (end optional) first(list) last(list) (none when empty)
+  sort(list, x -> key) filter(list, x -> test) map(list, x -> value) find(list, x -> test) (none if no match)
+  contains(text|list, x) starts(text, prefix) ends(text, suffix) date(time, "%H:%M") base(path) dirname(path)
+
+VIEW (one root element)
+  elements: row column grid stack panel text button input field checkbox icon image spacer divider scroll
+            canvas popover sheet, and components by name <NoteRow note={n}/>
+  text content: <text>Lap {l.n}</text>, <button>Delete</button>: words and {expr} as the element's content
+  attributes: a literal "x", a number 12, or an expression {expr}; "Delete {n.name}?" mixes them
+  id="search": author-written; unique among the elements of one item or one view; addressing it in a patch
+    inside <each> changes it in every item. Needed only where a patch or style must find it.
+  events: always a call: on:click="pick(n)"  on:input="typed(value)"  on:change="changed(value)"
+    on:key="pressed(value)": value is up down left right enter esc tab backspace delete space home end, or the
+    typed character
+  bind="draft": two-way with a state name (input, field, checkbox); runs before that element's on:input
+  more: placeholder="Search"  disabled={running}  autofocus  multiline (on field)
+  class="row" (fixed) and class:active={open == n} (when true)
+  <each in={shown} as="n" key={n.path} at="i"> ... </each>   key required and unique; at optional (from 0)
+  <if test={open != none}> ... <else/> ... </if>   (an empty branch is fine)
+
+STYLE (scoped to the app; looks come from the person's design)
+  selectors: #id .class element :hover :focus :active and combinations "#side .row:hover"
+  properties, exactly these names:
+    background  color  border  radius  padding  margin  gap  width  height  grow
+    font  size  weight  shadow  blur  opacity  align  justify  direction  transition
+  colours, fonts and shadows MUST be tokens: token(accent) token(surface) token(text) token(muted) token(danger)
+  token(font-body)...; a literal colour is an error that lists this design's tokens. Sizes are plain numbers.
+
+COMPONENTS: component Row(note, selected) ... end with the same sections (no data). Ids inside it belong to each
+  copy. It talks to its parent only with emit.
+
+ERRORS: caught when the file loads, before anything is drawn: file, line, the offending text, and the corrected
+  line when there is one:
+    notes.facet:41: unknown fn "sav" in on:input — did you mean "save"?   on:input="save(value)"
+  `facet check` reports every error at once; `facet fmt` writes the one canonical layout.
+  No eval, no names built from text, no macros, no silent coercion.
+
+PATCHING A RUNNING APP (validated first, rejected whole on any error; never re-runs data, state or fns; state
+  survives)
+  [[facet:patch notes]]
+  set #id attr = value
+  style #id { prop: value; }
+  add #parent first|last <markup/>
+  move #id into|before|after #other
+  replace #id <markup/>
+  remove #id
+  fn name(args) ... end        (replaces that fn)
+  [[/facet]]
+  Whole app: [[facet:app notes]] the full file [[/facet]]
+
+A WHOLE EXAMPLE (the shape every app follows)
+  app Notes
+    data notes = files("~/Notes", ".txt")
+    state
+      query = ""
+      open = none
+      draft = ""
+    end
+    derived
+      shown = filter(notes, n -> contains(lower(n.name), lower(query)))
+    end
+    fn pick(n)
+      set open = n
+      set draft = fs.read(n.path)
+    end
+    fn typed()
+      after("save", 1000, save)
+    end
+    fn save()
+      if open != none then
+        fs.write(open.path, draft)
+      end
+    end
+    fn remove()
+      if ask("Delete {open.name}?") then
+        cancel("save")
+        fs.remove(open.path)
+        set open = none
+      end
+    end
+    view
+      <row>
+        <column id="side">
+          <input id="search" bind="query" placeholder="Search" autofocus/>
+          <each in={shown} as="n" key={n.path}>
+            <button class="note" class:active={open == n} on:click="pick(n)">{n.name}</button>
+          </each>
+        </column>
+        <if test={open != none}>
+          <column id="editor">
+            <field id="body" multiline bind="draft" on:input="typed()"/>
+            <button id="delete" on:click="remove()">Delete</button>
+          </column>
+        <else/>
+          <text id="empty">Pick a note</text>
+        </if>
+      </row>
+    end
+    style
+      #side { width: 240; gap: 4; }
+      .note.active { background: token(accent); }
+      #delete { color: token(danger); }
+    end
+  end
+```
+
+## Open questions for 2.1
+
+Raised in the final round as non-blocking:
+
+- Local names inside a fn (today a temporary has to live in state).
+- `checked={expr}` on checkbox, so it can show data and not only change it.
+- An index form for `map` and `filter` (`(x, i) -> ...`) for positional edits.
+- What `slice` does past the ends (clamping is the likely answer).
+- `clock()` giving an absolute time in milliseconds, so timers that run past midnight don't wrap.
