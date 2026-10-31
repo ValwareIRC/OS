@@ -61,7 +61,7 @@ elif [ -n "${PULSE_SERVER:-}" ] || [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/
 fi
 AUDIO+=(-device intel-hda -device hda-duplex,audiodev=snd0)
 
-exec qemu-system-x86_64 -M q35,vmport=on -m 6G -smp 4 "${ACCEL[@]}" \
+exec qemu-system-x86_64 -M q35,vmport=on -m 12G -smp 4 "${ACCEL[@]}" \
     -vga std -display gtk,zoom-to-fit=on \
     -netdev "$NET" -device e1000,netdev=n0 \
     -drive id=disk0,file="$DISK",format=raw,if=none -device ide-hd,drive=disk0,bus=ide.0 \

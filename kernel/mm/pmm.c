@@ -159,12 +159,14 @@ void page_unref(uint64_t phys) {
         pmm_free(phys, 1);
 }
 
-/* Memory that was never the allocator's (boot modules): give it a count
- * that can't reach zero, so references to it come and go harmlessly. */
-void page_pin(uint64_t phys) {
+/* Memory the bootloader loaded (a boot module placed as a file): the file
+ * holds it like any page it owns, so when the file is deleted and nothing
+ * maps it any more, it joins the free memory (its frames were never free,
+ * so pmm_free takes them). */
+void page_adopt(uint64_t phys) {
     uint32_t *r = &page_refs[phys / PAGE_SIZE];
     if (__atomic_load_n(r, __ATOMIC_RELAXED) == 0)
-        __atomic_store_n(r, 2, __ATOMIC_RELAXED);
+        __atomic_store_n(r, 1, __ATOMIC_RELAXED);
     else
         __atomic_add_fetch(r, 1, __ATOMIC_RELAXED);
 }

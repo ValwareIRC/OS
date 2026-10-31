@@ -23,7 +23,7 @@ void page_ref(uint64_t phys);
 void page_unref(uint64_t phys);
 /* How many references a page has (copy-on-write: one means it is ours alone). */
 uint32_t page_refcount(uint64_t phys);
-void page_pin(uint64_t phys); /* boot-module memory that is never freed */
+void page_adopt(uint64_t phys); /* boot-module memory now owned by a file: freed with it */
 
 /* Page-backed storage for in-memory files (ramfs, memfd) and shared
  * anonymous memory: an array of single pages, each allocated (zero-filled)
@@ -50,7 +50,7 @@ int pageobj_truncate(struct pageobj *o, uint64_t size);
  * reference for the caller (a page-table entry). 0 if `idx` lies wholly
  * past the end of the object, or memory ran out. */
 uint64_t pageobj_map_page(struct pageobj *o, uint64_t idx);
-struct pageobj *pageobj_adopt(uint64_t phys, uint64_t size); /* pinned memory as a file */
+struct pageobj *pageobj_adopt(struct pageobj *o, uint64_t phys, uint64_t size); /* boot memory as (part of) a file */
 
 /* Generic page mapping flags; <asm/pgtable.h> turns them into entries.
  * Leaf mappings are always present and readable. */

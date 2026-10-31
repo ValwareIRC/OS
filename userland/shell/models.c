@@ -27,11 +27,14 @@
 
 #define BUILTIN_FILE "/usr/share/os/mind/model.gguf"
 #define MODELS_DIR "/var/lib/os-data/models"
+#define BUILTIN_KEPT MODELS_DIR "/builtin.gguf" /* the built-in model, copied to the disk */
 #define HF "https://huggingface.co/"
 
 static const model_info catalog[] = {
-    {"qwen3-0.6b", "Qwen3 0.6B", "Alibaba", "Comes with the system. Quick and simple; there for when there's no internet.",
-     NULL, 639446688, true},
+    {"qwen3-8b", "Qwen3 8B", "Alibaba", "Comes with the system: capable, good with tools, there for when there's no internet.",
+     NULL, 5027783488, true},
+    {"qwen3-0.6b", "Qwen3 0.6B", "Alibaba", "Tiny and very quick; for a computer with little memory.",
+     HF "Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf", 639446688, false},
     {"qwen3-1.7b", "Qwen3 1.7B", "Alibaba", "Small and quick. Fine for chatting and simple help.",
      HF "unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf", 1107409472, false},
     {"llama3.2-3b", "Llama 3.2 3B", "Meta", "Meta's small model: friendly, quick, good at everyday questions.",
@@ -42,8 +45,6 @@ static const model_info catalog[] = {
      HF "unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf", 2489894016, false},
     {"phi4-mini", "Phi-4 mini", "Microsoft", "Strong at reasoning and code for its size.",
      HF "unsloth/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf", 2491874272, false},
-    {"qwen3-8b", "Qwen3 8B", "Alibaba", "Noticeably smarter than the small ones.",
-     HF "Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf", 5027783488, false},
     {"llama3.1-8b", "Llama 3.1 8B", "Meta", "A capable everyday model.",
      HF "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf", 4920739232,
      false},
@@ -63,8 +64,8 @@ int models_count(void) { return NMODELS; }
 const model_info *models_get(int i) { return i >= 0 && i < NMODELS ? &catalog[i] : NULL; }
 
 static void path_of(int i, char *out, size_t n) {
-    if (catalog[i].builtin)
-        snprintf(out, n, "%s", BUILTIN_FILE);
+    if (catalog[i].builtin) /* in memory from the boot, or kept on the disk once it was let go */
+        snprintf(out, n, "%s", access(BUILTIN_FILE, R_OK) != 0 && access(BUILTIN_KEPT, R_OK) == 0 ? BUILTIN_KEPT : BUILTIN_FILE);
     else
         snprintf(out, n, MODELS_DIR "/%s.gguf", catalog[i].id);
 }
@@ -274,6 +275,81 @@ static void remove_model(int i) {
     LOG("models: %s removed\n", catalog[i].id);
 }
 
+/* ---- the built-in model, out of the way ----
+ * It comes in memory with the boot (5 GB). While another mind is in use and
+ * the computer is online it isn't needed: it is copied to the disk once (so
+ * it is still there offline) and let go from memory. The next start brings
+ * it back into memory. */
+static struct {
+    uint64_t next;
+    job *copying;
+    bool done;
+} rel;
+
+static void keep_child(void *arg, char **result) {
+    (void)arg;
+    int in = open(BUILTIN_FILE, O_RDONLY), out = open(BUILTIN_KEPT ".part", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    static char buf[1 << 20];
+    ssize_t n = 0;
+    bool ok = in >= 0 && out >= 0;
+    while (ok && (n = read(in, buf, sizeof buf)) > 0)
+        ok = write(out, buf, (size_t)n) == n;
+    ok = ok && n == 0 && fsync(out) == 0;
+    if (in >= 0)
+        close(in);
+    if (out >= 0)
+        close(out);
+    ok = ok && rename(BUILTIN_KEPT ".part", BUILTIN_KEPT) == 0;
+    if (!ok)
+        unlink(BUILTIN_KEPT ".part");
+    *result = strdup(ok ? "1" : "0");
+}
+
+static void let_go(void) {
+    if (unlink(BUILTIN_FILE) == 0)
+        LOG("models: the built-in model let go of memory (%s)\n",
+            access(BUILTIN_KEPT, R_OK) == 0 ? "kept on the disk" : "back at the next start");
+    rel.done = true;
+}
+
+static void release_poll(void) {
+    char *res = NULL;
+    if (rel.copying) {
+        if (!job_poll(rel.copying, &res))
+            return;
+        job_free(rel.copying);
+        rel.copying = NULL;
+        LOG("models: built-in model %s the disk\n", res && res[0] == '1' ? "copied to" : "could not be copied to");
+        free(res);
+        if (A.provider && strcmp(A.provider->id, "builtin") && !mind_builtin_running())
+            let_go();
+        return;
+    }
+    if (rel.done || A.now < rel.next)
+        return;
+    rel.next = A.now + 60000;
+    if (!A.provider || !strcmp(A.provider->id, "builtin") || mind_builtin_running() || access(BUILTIN_FILE, R_OK) != 0)
+        return;
+    if (net.state <= 0) { /* offline (or not known yet): keep it, and look again */
+        if (!net.check && (!net.at || A.now - net.at > 60000)) {
+            net.at = A.now;
+            net.check = job_start(online_child, NULL);
+        }
+        return;
+    }
+    struct stat st;
+    if (!spec.read)
+        read_specs();
+    bool kept = stat(BUILTIN_KEPT, &st) == 0 && (uint64_t)st.st_size == catalog[0].bytes;
+    if (!kept && spec.disk && catalog[0].bytes / (1024 * 1024) + 1024 < spec.free_disk_mb) {
+        mkdir(MODELS_DIR, 0755);
+        rel.copying = job_start(keep_child, NULL);
+        LOG("models: copying the built-in model to the disk before letting it go\n");
+        return;
+    }
+    let_go();
+}
+
 void models_poll(void) {
     char *res = NULL;
     if (net.check && job_poll(net.check, &res)) {
@@ -283,6 +359,7 @@ void models_poll(void) {
         LOG("models: %s\n", net.state > 0 ? "online" : "offline");
         free(res);
     }
+    release_poll();
     if (dl.i < 0)
         return;
     struct stat st;

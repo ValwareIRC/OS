@@ -8,6 +8,7 @@
 #include "stylist.h"
 #include "preview.h"
 #include "../lib/json.h"
+#include "browsers.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -331,7 +332,7 @@ void models_draw(void) {
     int x0 = A.W / 2 - 520, w = 1040;
     draw_text(A.frame, title, x0, 70, "A mind on this computer", PRE_TEXT);
     draw_text_wrapped(A.frame, sub, (rect){x0, 136, w, 60},
-                      "Private, and it works without the internet. One small model comes with the system; better "
+                      "Private, and it works without the internet. One capable model comes with the system; bigger "
                       "ones can be downloaded now, or any time later in Settings.",
                       PRE_MUTED, 1.3f);
     palette p = {PRE_TEXT, PRE_MUTED, PRE_ACCENT, RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 40), PRE_BG, 1};
@@ -791,6 +792,7 @@ void designing_draw(void) {
     preview_frame();     /* the design as it is written; made theirs when they say */
     if (A.screen != SCR_DESIGNING)
         return;
+    browsers_take_input(); /* their browser, asked while this is made */
     companion_tick(); /* once the draft is in, they can talk it over */
 
     font *big = font_get(A.prof.type_font[0] ? A.prof.type_font : "Fraunces", 30 * tscale()),
@@ -824,6 +826,7 @@ void designing_draw(void) {
     rect card = {(A.W - cw) / 2, top, cw, ih + 116};
     fill_round(A.frame, rect_inset(card, -16), 22, wash(22));
     preview_body(card, true);
+    browsers_draw();
 }
 
 /* Takes in the design job's answer, if it has one: on the desktop and on the

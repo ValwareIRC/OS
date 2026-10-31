@@ -170,25 +170,27 @@ uint64_t pageobj_map_page(struct pageobj *o, uint64_t idx) {
     return p;
 }
 
-/* An object over memory that is already filled and will never be freed: a
- * boot module (a large model file, say), so it becomes a file without a
- * single byte being copied. The pages are pinned: their count never drops
- * to zero, so they are never handed to the allocator. */
-struct pageobj *pageobj_adopt(uint64_t phys, uint64_t size) {
-    if (phys % PAGE_SIZE)
+/* An object over memory that is already filled: a boot module (a large model
+ * file, say), so it becomes a file without a single byte being copied. With
+ * `o` given, the memory is added after what it already holds (a file that
+ * came in parts: every part but the last a whole number of pages). The
+ * object owns the pages from then on, so they are freed with it. */
+struct pageobj *pageobj_adopt(struct pageobj *o, uint64_t phys, uint64_t size) {
+    if (phys % PAGE_SIZE || (o && o->size % PAGE_SIZE))
         return NULL;
-    struct pageobj *o = pageobj_create();
-    if (!o)
+    bool made = !o;
+    if (made && !(o = pageobj_create()))
         return NULL;
-    uint64_t n = (size + PAGE_SIZE - 1) / PAGE_SIZE;
-    if (!ensure_slots(o, n)) {
-        pageobj_put(o);
+    uint64_t first = o->size / PAGE_SIZE, n = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    if (!ensure_slots(o, first + n)) {
+        if (made)
+            pageobj_put(o);
         return NULL;
     }
     for (uint64_t i = 0; i < n; i++) {
-        page_pin(phys + i * PAGE_SIZE);
-        o->pages[i] = phys + i * PAGE_SIZE;
+        page_adopt(phys + i * PAGE_SIZE);
+        o->pages[first + i] = phys + i * PAGE_SIZE;
     }
-    o->size = size;
+    o->size += size;
     return o;
 }

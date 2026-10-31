@@ -114,7 +114,7 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
       (`shell/store.c`, crash-safe two-slot archive), restored at boot; the companion welcomes them back
 - [x] Sound and voice: Intel HDA driver (`/dev/dsp`, `/dev/mixer`); the companion speaks (Piper) and
       listens (whisper.cpp, Ctrl+Space), on this computer
-- [x] Minds on this computer: a small built-in model (Qwen3 0.6B, works offline) and bigger ones to download,
+- [x] Minds on this computer: a built-in model (Qwen3 8B, works offline, calls tools) and others to download,
       run by llama.cpp's server
 - [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face,
       voice and memory, with the person's consent and without ever seeing their keys
@@ -152,7 +152,8 @@ QEMU against a local model and saves screenshots.
 `make` produces `build/os.iso`, which boots on UEFI and BIOS machines, real or virtual. How you run it is
 up to you:
 
-- **A virtual machine** (QEMU, VirtualBox, VMware, Hyper-V...): 64-bit, 8 GB of memory or more, 4 CPUs,
+- **A virtual machine** (QEMU, VirtualBox, VMware, Hyper-V...): 64-bit, 12 GB of memory or more (16 is better: the
+  built-in model alone is 5 GB), 4 CPUs,
   the ISO as its CD, an empty disk on SATA/AHCI or virtio if you want it to remember you, and an Intel
   PRO/1000 (e1000) network adapter. `make run` starts it in QEMU.
 - **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD mode, balenaEtcher, `dd`), or

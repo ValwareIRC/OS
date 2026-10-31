@@ -112,7 +112,7 @@ $(BASE_CPIO): $(shell [ -f $(BASE_DIR)/.stamp ] && echo $(BASE_DIR)/.stamp)
 
 base: $(BASE_CPIO)
 
-iso: kernel $(ISO_MODULES) $(LIMINE_DIR)
+iso: kernel $(ISO_MODULES) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)
 	rm -rf $(BUILD)/iso_root
 	mkdir -p $(BUILD)/iso_root/boot/limine $(BUILD)/iso_root/EFI/BOOT
 	cp $(KERNEL) $(BUILD)/iso_root/boot/kernel.elf
@@ -120,14 +120,19 @@ iso: kernel $(ISO_MODULES) $(LIMINE_DIR)
 	[ ! -s $(BASE_CPIO) ] || cp $(BASE_CPIO) $(BUILD)/iso_root/boot/base.cpio
 	cp boot/limine.conf $(BUILD)/iso_root/boot/limine/
 	[ -s $(BASE_CPIO) ] || sed -i '/base.cpio/d' $(BUILD)/iso_root/boot/limine/limine.conf
-	# The one model that comes with the system, small, for when there is no
+	# The one model that comes with the system, for when there is no
 	# internet (others are downloaded; scripts/get-builtin-model.sh fetches
 	# this one to build/mind/builtin.gguf), loaded in place as a file
+	# In 3 GiB parts (a CD's file system holds files up to 4 GiB); the kernel
+	# joins parts with the same name back into one file.
+	rm -rf $(BUILD)/iso_root/boot/files; \
 	if [ -s $(BUILD)/mind/builtin.gguf ]; then \
 		mkdir -p $(BUILD)/iso_root/boot/files; \
-		cp $(BUILD)/mind/builtin.gguf $(BUILD)/iso_root/boot/files/mind.gguf; \
-		printf '    module_path: boot():/boot/files/mind.gguf\n    module_string: /usr/share/os/mind/model.gguf\n' \
-			>> $(BUILD)/iso_root/boot/limine/limine.conf; \
+		split -b 3221225472 -d -a 1 $(BUILD)/mind/builtin.gguf $(BUILD)/iso_root/boot/files/mind.gguf.; \
+		for part in $(BUILD)/iso_root/boot/files/mind.gguf.*; do \
+			printf '    module_path: boot():/boot/files/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
+				"$$(basename $$part)" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
+		done; \
 	fi
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin $(BUILD)/iso_root/boot/limine/

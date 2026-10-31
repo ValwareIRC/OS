@@ -14,8 +14,8 @@
 # -Display picks QEMU's window: gtk (default; the SDL window was closed by
 # Windows when the cursor moved over it while booting) or sdl. QEMU's own
 # errors and exit code go to buildos-vm-qemu.log.
-# -Memory sets the VM's memory (e.g. 12G); by default it takes 8 GB, or a
-# quarter of this PC's when that is more (everything inside lives in memory:
+# -Memory sets the VM's memory (e.g. 16G); by default it takes 12 GB, or a
+# third of this PC's when that is more, up to 16 (everything inside lives in memory:
 # the system, the bundled apps such as Prism, and what they use).
 # -Fullscreen is as close to it running on this PC as a VM gets: the whole
 # screen at its own resolution (no scaling) and
@@ -34,7 +34,7 @@ if (-not $Iso) {
 $mem = $Memory
 if (-not $mem) {
     $pcGB = [math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    $gb = [math]::Max(8, [math]::Min(16, [math]::Floor($pcGB / 4)))
+    $gb = [math]::Max(12, [math]::Min(16, [math]::Floor($pcGB / 3)))
     $mem = "$($gb)G"
 }
 Write-Host "Starting $Iso with $mem of memory"

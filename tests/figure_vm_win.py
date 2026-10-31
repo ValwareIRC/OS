@@ -40,7 +40,7 @@ open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://1
 def fw(name, path):
     return ["-fw_cfg", f"name=opt/os/{name},file={path.replace(os.sep, '/')}"]
 
-qargs = [QEMU, "-M", "q35,vmport=on", "-m", "6G", "-smp", "4", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg",
+qargs = [QEMU, "-M", "q35,vmport=on", "-m", "12G", "-smp", "4", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg",
          "-cpu", "Skylake-Client-noTSX-IBRS", "-vga", "std", "-display", "none",
          "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
          *fw("mind.json", mind), *fw("facet.xml", desk), *fw("presence", presence),

@@ -156,16 +156,35 @@ void fpu_capture_clean_state(void);
 static void files_from_modules(void) {
     struct limine_module_response *r = module_request.response;
     for (uint64_t i = 0; r && i < r->module_count; i++) {
-        struct limine_file *m = r->modules[i];
-        const char *dest = m->string;
+        const char *dest = r->modules[i]->string;
         if (!dest || dest[0] != '/')
             continue;
-        struct pageobj *o = pageobj_adopt(virt_to_phys_hhdm(m->address), m->size);
-        if (!o || ramfs_add_object_file(dest, o, 0444) < 0) {
+        bool seen = false; /* a later part of a file placed already */
+        for (uint64_t k = 0; k < i && !seen; k++)
+            seen = r->modules[k]->string && !strcmp(r->modules[k]->string, dest);
+        if (seen)
+            continue;
+        /* A file too big for the boot medium's file system comes in parts
+         * (each but the last a whole number of pages), in order, with the
+         * same name: they become one file again. */
+        struct pageobj *o = NULL;
+        int parts = 0;
+        bool ok = true;
+        for (uint64_t k = i; k < r->module_count && ok; k++) {
+            struct limine_file *m = r->modules[k];
+            if (!m->string || strcmp(m->string, dest))
+                continue;
+            struct pageobj *p = pageobj_adopt(o, virt_to_phys_hhdm(m->address), m->size);
+            ok = p != NULL;
+            o = p ? p : o;
+            parts++;
+        }
+        if (!ok || !o || ramfs_add_object_file(dest, o, 0444) < 0) {
             kprintf("modules: could not place %s\n", dest);
             continue;
         }
-        kprintf("modules: %s (%lu MiB, in place)\n", dest, (unsigned long)(m->size >> 20));
+        kprintf("modules: %s (%lu MiB in %d part%s, in place)\n", dest, (unsigned long)(pageobj_size(o) >> 20), parts,
+                parts == 1 ? "" : "s");
     }
 }
 
