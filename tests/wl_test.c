@@ -15,6 +15,14 @@
 
 void wls_set_screen(int w, int h);
 
+/* the shell's clipboard: WL_CLIP sets it; what apps copy is logged */
+static char clip[4096] = "hello from the OS";
+const char *clipboard_text(void) { return clip; }
+void clipboard_set(const char *text) {
+    snprintf(clip, sizeof clip, "%s", text);
+    fprintf(stderr, "clipboard: now \"%s\"\n", clip);
+}
+
 void wl_host_log(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -27,6 +35,7 @@ void wl_host_view_mapped(wl_view *v) {
     fprintf(stderr, "MAPPED view %d %dx%d title='%s' app='%s'\n", v->id, v->w, v->h, v->title, v->app_id);
 }
 void wl_host_view_unmapped(wl_view *v) { fprintf(stderr, "UNMAPPED view %d\n", v->id); }
+void wl_host_view_request(wl_view *v, int req, uint32_t edges) { fprintf(stderr, "REQUEST view %d: %d %u\n", v->id, req, edges); }
 
 static uint32_t now_ms(void) {
     struct timespec ts;

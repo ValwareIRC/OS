@@ -27,6 +27,9 @@
 #define OUTBUF 262144
 #define MAX_FDS_IN 64
 
+#define SERVER_OBJS 64
+#define SERVER_ID0 0xff000000u
+
 struct wl_client {
     int fd;
     bool dead;
@@ -40,6 +43,7 @@ struct wl_client {
     int noutfds;
     wl_obj **objs;
     uint32_t nobjs;
+    wl_obj *sobjs[SERVER_OBJS]; /* made by the compositor: ids SERVER_ID0 + i */
 };
 
 static int listen_fd = -1;
@@ -75,7 +79,22 @@ void wl_global(const struct wl_iface *iface, int version, wl_bind_fn bind) {
 
 /* ---- objects ---- */
 
-wl_obj *wl_obj_get(wl_client *c, uint32_t id) { return id < c->nobjs ? c->objs[id] : NULL; }
+wl_obj *wl_obj_get(wl_client *c, uint32_t id) {
+    if (id >= SERVER_ID0)
+        return id - SERVER_ID0 < SERVER_OBJS ? c->sobjs[id - SERVER_ID0] : NULL;
+    return id < c->nobjs ? c->objs[id] : NULL;
+}
+
+wl_obj *wl_obj_new_server(wl_client *c, const struct wl_iface *iface, int version, void *data) {
+    for (uint32_t i = 0; i < SERVER_OBJS; i++)
+        if (!c->sobjs[i]) {
+            wl_obj *o = calloc(1, sizeof *o);
+            o->id = SERVER_ID0 + i, o->iface = iface, o->version = version, o->client = c, o->data = data;
+            c->sobjs[i] = o;
+            return o;
+        }
+    return NULL;
+}
 
 wl_obj *wl_obj_new(wl_client *c, uint32_t id, const struct wl_iface *iface, int version, void *data) {
     if (id >= 0x1000000) /* server-side ids are not used by this compositor */
@@ -99,6 +118,8 @@ static void free_obj(wl_obj *o) {
         o->destroy(o);
     if (o->client && o->id < o->client->nobjs && o->client->objs[o->id] == o)
         o->client->objs[o->id] = NULL;
+    if (o->client && o->id >= SERVER_ID0 && o->id - SERVER_ID0 < SERVER_OBJS && o->client->sobjs[o->id - SERVER_ID0] == o)
+        o->client->sobjs[o->id - SERVER_ID0] = NULL;
     free(o);
 }
 
@@ -107,7 +128,7 @@ void wl_obj_destroy(wl_obj *o) {
     uint32_t id = o->id;
     free_obj(o);
     wl_obj *display = wl_obj_get(c, 1);
-    if (display && id != 1)
+    if (display && id != 1 && id < SERVER_ID0) /* the compositor's own ids are never handed back */
         wl_send(display, WL_DISPLAY_EV_DELETE_ID, id);
 }
 
@@ -398,6 +419,9 @@ static void drop_client(int i) {
     for (uint32_t id = c->nobjs; id-- > 0;)
         if (c->objs[id])
             free_obj(c->objs[id]);
+    for (int k = 0; k < SERVER_OBJS; k++)
+        if (c->sobjs[k])
+            free_obj(c->sobjs[k]);
     free(c->objs);
     for (int k = 0; k < c->nfds; k++)
         close(c->fds[k]);
@@ -465,6 +489,10 @@ void wls_dispatch(void) {
         if (c->dead)
             drop_client(i);
     }
+    wl_clipboard_poll(); /* the clipboard to the app with the keyboard; what apps copied, read */
+    for (int i = 0; i < MAX_CLIENTS; i++)
+        if (clients[i] && !clients[i]->dead)
+            flush(clients[i]);
 }
 
 /* Events sent outside a dispatch (input, frame callbacks) go out now. */

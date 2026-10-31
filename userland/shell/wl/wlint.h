@@ -37,6 +37,8 @@ typedef void (*wl_handler)(wl_obj *o, int opcode, union wl_arg *args);
 /* Objects */
 wl_obj *wl_obj_new(wl_client *c, uint32_t id, const struct wl_iface *iface, int version, void *data);
 wl_obj *wl_obj_get(wl_client *c, uint32_t id);
+/* An object the compositor makes itself (a clipboard offer), with an id of its own. */
+wl_obj *wl_obj_new_server(wl_client *c, const struct wl_iface *iface, int version, void *data);
 void wl_obj_destroy(wl_obj *o); /* also tells the client the id is free */
 void wl_register_handler(const struct wl_iface *iface, wl_handler h);
 
@@ -57,3 +59,4 @@ void wl_global(const struct wl_iface *iface, int version, wl_bind_fn bind);
 
 void wl_comp_init(void); /* registers the interfaces in comp.c */
 void wl_client_gone(wl_client *c); /* comp.c: drop views of a vanished client */
+void wl_clipboard_poll(void);      /* comp.c: the clipboard, offered and taken, each dispatch */

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "wlint.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -633,21 +634,143 @@ static void bind_output(wl_client *c, uint32_t id, int v) {
     wl_send(o, WL_OUTPUT_EV_DONE);
 }
 
-/* Clipboard and drag and drop: present, so toolkits are content; empty. */
+/* The clipboard: one text for everyone, the shell's (clipboard_text(): what
+ * was copied in the OS's own apps, or on the PC the VM runs on). The app
+ * with the keyboard is offered it whenever it gets the keyboard or the text
+ * changes; text an app copies is read from it and becomes the clipboard.
+ * Drag and drop: present, so toolkits are content; nothing is dragged. */
+const char *clipboard_text(void);
+void clipboard_set(const char *text);
+
+static const char *const text_types[] = {"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT"};
+static uint64_t offered_sig; /* the text last offered, and to whom */
+static wl_obj *own_source;   /* an app's own copy, while it is the clipboard */
+static int copy_fd = -1;     /* reading what it copied */
+static char copy_buf[4096];
+static size_t copy_len;
+
+static uint64_t text_sig(const char *s, const void *who) {
+    uint64_t h = 1469598103934665603ull ^ (uint64_t)(uintptr_t)who;
+    for (; *s; s++)
+        h = (h ^ (uint8_t)*s) * 1099511628211ull;
+    return h;
+}
+
+struct offer_ctx {
+    wl_client *client;
+};
+
+static void offer_to_device(wl_obj *dev, void *ctx) {
+    struct offer_ctx *e = ctx;
+    if (dev->client != e->client)
+        return;
+    wl_obj *offer = wl_obj_new_server(dev->client, &wl_data_offer_iface, dev->version, NULL);
+    if (!offer)
+        return;
+    wl_send(dev, WL_DATA_DEVICE_EV_DATA_OFFER, offer->id);
+    for (size_t i = 0; i < sizeof text_types / sizeof text_types[0]; i++)
+        wl_send(offer, WL_DATA_OFFER_EV_OFFER, text_types[i]);
+    wl_send(dev, WL_DATA_DEVICE_EV_SELECTION, offer);
+}
+
+
+/* The clipboard to the app with the keyboard, when that or the text changed. */
+static void offer_clipboard(void) {
+    if (!keyboard_focus || own_source)
+        return;
+    const char *t = clipboard_text();
+    uint64_t sig = text_sig(t ? t : "", keyboard_focus->client);
+    if (!t || !*t || sig == offered_sig)
+        return;
+    offered_sig = sig;
+    struct offer_ctx e = {keyboard_focus->client};
+    wl_each(&wl_data_device_iface, offer_to_device, &e);
+}
+
+/* What an app copied, read as it arrives. */
+static void read_copy(void) {
+    if (copy_fd < 0)
+        return;
+    for (;;) {
+        ssize_t n = read(copy_fd, copy_buf + copy_len, sizeof copy_buf - 1 - copy_len);
+        if (n > 0) {
+            copy_len += (size_t)n;
+            if (copy_len < sizeof copy_buf - 1)
+                continue;
+        }
+        if (n < 0 && errno == EAGAIN)
+            return;
+        break; /* the end (or full) */
+    }
+    close(copy_fd);
+    copy_fd = -1;
+    copy_buf[copy_len] = 0;
+    if (copy_len) {
+        clipboard_set(copy_buf);
+        offered_sig = text_sig(clipboard_text(), keyboard_focus ? keyboard_focus->client : NULL);
+    }
+}
+
+static void take_copy(wl_obj *source) {
+    if (copy_fd >= 0)
+        close(copy_fd), copy_fd = -1;
+    int p[2];
+    if (pipe2(p, O_CLOEXEC | O_NONBLOCK) < 0)
+        return;
+    wl_send(source, WL_DATA_SOURCE_EV_SEND, "text/plain;charset=utf-8", p[1]);
+    close(p[1]);
+    copy_fd = p[0];
+    copy_len = 0;
+}
+
+static void source_gone(wl_obj *o) {
+    if (own_source == o)
+        own_source = NULL;
+}
+
+void wl_clipboard_poll(void) {
+    read_copy();
+    offer_clipboard();
+}
+
 static void data_req(wl_obj *o, int op, union wl_arg *a) {
     if (o->iface == &wl_data_device_manager_iface) {
-        if (op == WL_DATA_DEVICE_MANAGER_CREATE_DATA_SOURCE)
-            wl_obj_new(o->client, a[0].u, &wl_data_source_iface, o->version, NULL);
-        else if (op == WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE)
+        if (op == WL_DATA_DEVICE_MANAGER_CREATE_DATA_SOURCE) {
+            wl_obj *s = wl_obj_new(o->client, a[0].u, &wl_data_source_iface, o->version, NULL);
+            if (s)
+                s->destroy = source_gone;
+        } else if (op == WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE) {
             wl_obj_new(o->client, a[0].u, &wl_data_device_iface, o->version, NULL);
+            offered_sig = 0; /* a new device: offer again */
+        }
     } else if ((o->iface == &wl_data_source_iface && op == WL_DATA_SOURCE_DESTROY) ||
-               (o->iface == &wl_data_device_iface && op == WL_DATA_DEVICE_RELEASE)) {
+               (o->iface == &wl_data_device_iface && op == WL_DATA_DEVICE_RELEASE) ||
+               (o->iface == &wl_data_offer_iface && op == WL_DATA_OFFER_DESTROY)) {
         wl_obj_destroy(o);
-    } else if (o->iface == &wl_data_source_iface && op == WL_DATA_SOURCE_OFFER) {
-        /* nothing to do */
+    } else if (o->iface == &wl_data_device_iface && op == WL_DATA_DEVICE_SET_SELECTION) {
+        wl_obj *src = a[0].u ? wl_obj_get(o->client, a[0].u) : NULL;
+        if (own_source && own_source != src)
+            wl_send(own_source, WL_DATA_SOURCE_EV_CANCELLED);
+        own_source = src;
+        if (src)
+            take_copy(src); /* it becomes the clipboard for everyone */
+    } else if (o->iface == &wl_data_offer_iface && op == WL_DATA_OFFER_RECEIVE) {
+        int fd = a[1].h;
+        const char *t = clipboard_text();
+        if (fd >= 0) {
+            size_t n = t ? strlen(t) : 0, off = 0;
+            int fl = fcntl(fd, F_GETFL);
+            if (fl >= 0)
+                fcntl(fd, F_SETFL, fl & ~O_NONBLOCK);
+            while (off < n) {
+                ssize_t w = write(fd, t + off, n - off);
+                if (w <= 0)
+                    break;
+                off += (size_t)w;
+            }
+            close(fd);
+        }
     }
-    if (o->iface == &wl_data_source_iface || o->iface == &wl_data_device_iface)
-        (void)a;
 }
 static void bind_data(wl_client *c, uint32_t id, int v) { wl_obj_new(c, id, &wl_data_device_manager_iface, v, NULL); }
 
@@ -825,6 +948,7 @@ void wl_comp_init(void) {
     wl_register_handler(&wl_data_device_manager_iface, data_req);
     wl_register_handler(&wl_data_source_iface, data_req);
     wl_register_handler(&wl_data_device_iface, data_req);
+    wl_register_handler(&wl_data_offer_iface, data_req);
 
     wl_global(&wl_compositor_iface, 5, bind_compositor);
     wl_global(&wl_subcompositor_iface, 1, bind_subcompositor);
