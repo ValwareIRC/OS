@@ -18,16 +18,24 @@ QPORT = 4468
 
 desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes", "frost.xml")
 script = os.path.join(out, "replies.json")
-json.dump(["Welcome back."], open(script, "w"))
+LOOK = bool(os.environ.get("LOOK"))  # Prism takes on the desktop's look, and follows a redesign
+json.dump(["Welcome back.", "Here it is. [[theme:luna]]"] if LOOK else ["Welcome back."], open(script, "w"))
 ailog = os.path.join(out, "ai.log")
 open(ailog, "w").close()
 port = 8912
 server = subprocess.Popen([sys.executable, os.path.join(ROOT, "tests", "fake_ai.py"), str(port), script, ailog])
 mind = os.path.join(out, "mind.json")
-open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{port}/v1", "api_key": "",
-                                  "model": "fake"}) + "\n")
+BUILTIN = bool(os.environ.get("BUILTIN"))  # the model that comes with the system, with no network at all
+if BUILTIN:
+    open(mind, "w").write(json.dumps({"provider": "builtin", "base_url": "", "api_key": "", "model": "os"}) + "\n")
+else:
+    open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{port}/v1", "api_key": "",
+                                      "model": "fake"}) + "\n")
 check = os.path.join(out, "autorun.sh")
-if os.environ.get("REAL_CJS"):  # Prism's own checks (its run.mjs --real), from inside its Flatpak, then Prism itself
+if BUILTIN:
+    open(check, "w", newline="\n").write(open(os.path.join(ROOT, "tests", "companion_builtin_check.sh"),
+                                              encoding="utf-8").read())
+elif os.environ.get("REAL_CJS"):  # Prism's own checks (its run.mjs --real), from inside its Flatpak, then Prism itself
     import base64
     b64 = base64.b64encode(open(os.environ["REAL_CJS"], "rb").read()).decode()
     open(check, "w", newline="\n").write(
@@ -37,6 +45,9 @@ if os.environ.get("REAL_CJS"):  # Prism's own checks (its run.mjs --real), from 
         "echo 'APPCHECK done'\n"
         "flatpak run com.valware.prism >/tmp/prism.log 2>&1 &\n"
         "sleep 90\necho \"PRISMLOG $(tail -c 1500 /tmp/prism.log | tr '\\n' '|')\"\n")
+elif LOOK:
+    open(check, "w", newline="\n").write("#!/bin/sh\nsleep 20\nflatpak run com.valware.prism >/tmp/prism.log 2>&1 &\n"
+                                          "sleep 600\n")
 elif os.environ.get("AGENT"):  # Prism's agent takes one turn on the OS's AI, driven over its test-only debug port
     import base64
     cdp = base64.b64encode(open(os.environ.get("CDP_MJS", os.path.join(ROOT, "..", "prism-work", "scripts", "room-test",
@@ -69,9 +80,9 @@ def fw(name, path):
     return ["-fw_cfg", f"name=opt/os/{name},file={path.replace(os.sep, '/')}"]
 
 
-qargs = [QEMU, "-M", "q35,vmport=on", "-m", "6G", "-smp", "4", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg",
+qargs = [QEMU, "-M", "q35,vmport=on", "-m", "12G", "-smp", "8" if BUILTIN else "4", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg",
          "-cpu", "Skylake-Client-noTSX-IBRS", "-vga", "std", "-display", "none",
-         "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
+         *(["-nic", "none"] if BUILTIN else ["-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]),
          "-audiodev", "none,id=a0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0",
          *fw("mind.json", mind), *fw("facet.xml", desk), *fw("autorun.sh", check),
          *(fw("figure.vrm", os.environ["VRM"]) + fw("presence", presence) if os.environ.get("VRM") else []),
@@ -109,6 +120,15 @@ class Qmp:
     def key(self, qcode):
         self.cmd("send-key", keys=[{"type": "qcode", "data": qcode}])
 
+    def type(self, text):
+        names = {" ": "spc", ".": "dot", ",": "comma", "\n": "ret"}
+        for ch in text:
+            if ch.isupper():
+                self.cmd("send-key", keys=[{"type": "qcode", "data": "shift"}, {"type": "qcode", "data": ch.lower()}])
+            else:
+                self.key(names.get(ch, ch))
+            time.sleep(0.05)
+
 
 def log_text():
     try:
@@ -139,16 +159,30 @@ try:
         print("prompt answered with Enter", flush=True)
     else:
         print("the prompt never came", flush=True)
-    wait_for(r"APPCHECK done", 400)
+    if not LOOK:
+        wait_for(r"APPCHECK done", 1500 if BUILTIN else 400)
     time.sleep(1)
     if os.environ.get("REAL_CJS"):  # Prism itself, opened on the desktop
         wait_for(r"PRISMLOG", 150)
         q.shot("prism.png")
+    if LOOK:  # Prism as it opens in the design, then after the companion switches to Luna
+        time.sleep(45)
+        q.shot("look-1-frost.png")
+        q.cmd("send-key", keys=[{"type": "qcode", "data": "alt"}, {"type": "qcode", "data": "spc"}])
+        time.sleep(1.5)
+        q.type("talk to your companion")
+        time.sleep(2.5)
+        q.type("make it look like luna\n")
+        print("theme asked:", bool(wait_for(r"theme[^\n]*luna|luna", 90)), flush=True)
+        time.sleep(12)
+        q.shot("look-2-luna.png")
     if os.environ.get("AGENT"):
         q.shot("agent.png")
 finally:
     text = log_text()
-    for line in re.findall(r"APPCHECK [^\n]*|REALCHECK [^\n]*|AGENTCHECK [^\n]*|PRISMLOG [^\n]*|shell: appapi: [^\n]*", text):
+    for line in re.findall(r"APPCHECK [^\n]*|REALCHECK [^\n]*|AGENTCHECK [^\n]*|PRISMLOG [^\n]*|shell: appapi: [^\n]*"
+                           r"|shell: models: [^\n]*|shell: mind: [^\n]*|mm: [0-9]+ MiB[^\n]*|shell: browsers: [^\n]*"
+                           r"|wayland: [^\n]*|[^\n]*theme[^\n]*luna[^\n]*", text):
         print(line)
     print("--- the mind saw:")
     for line in open(ailog, encoding="utf-8").read().splitlines():

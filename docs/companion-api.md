@@ -52,6 +52,34 @@ it can change anything inside itself.
   companion has no VRM; the app then keeps its own face.
 - Changes arrive on `/events` as `identity {"version":n}`.
 
+## The look
+
+How the desktop looks right now, so an app can look like it belongs (colours and shapes, not the scene:
+no wallpaper picture). Uses the AI line of consent.
+
+- `GET /look` returns (`404 {"error":"no_design_yet"}` before the first desktop):
+
+      {"version":3,"dark":true,
+       "colors":{"bg":"#0b1020","bg2":"#141a33","surface":"#1b2140","surface_text":"#e8ecff","text":"#f2f4ff",
+                 "muted":"#9aa3c7","accent":"#7aa2ff","accent2":"#ff8ad8"},
+       "surface_opacity":0.72,"blur":14.0,"radius":14.0,"shadows":true,"material":"frost","glow":0.40,"motion":0.50,
+       "fonts":{"heading":"Fraunces","heading_files":["/usr/share/fonts/Fraunces-Regular.ttf"],
+                "body":"Inter","body_files":["/usr/share/fonts/Inter-Regular.ttf","/usr/share/fonts/Inter-Bold.ttf"],
+                "heading_px":28.0,"body_px":15.0},
+       "wallpaper":{"kind":"aurora","colors":["#…","#…","#…","#…"],"intensity":0.60,"animated":true},
+       "comfort":{"text_scale":1.00,"high_contrast":false,"reduce_motion":false}}
+
+  - `material` is glass, frost, solid or neon. `surface_opacity` runs 0.3–1, `blur` 0–24 px, and
+    `glow` and `motion` 0–1.
+  - `wallpaper` only describes it (its kind and colours), for apps that want a matching tint.
+  - Font files are paths on the OS. Inside a Flatpak, the same files are normally under
+    `/run/host/fonts/` with the part after `/usr/share/fonts/`.
+- `/events` sends `look {"version":n}` whenever the companion restyles or redesigns. `hello` carries the
+  current `look` version too.
+- Windows: the desktop draws app windows' frames in the design's own style. An app that wants that asks for
+  server-side decoration (xdg-decoration); the compositor offers it and uses it unless the app asks to
+  draw its own.
+
 ## The face (both ways)
 
 - On `/events`:

@@ -16,6 +16,7 @@
 #include "app.h"
 #include "presence.h"
 #include "theme.h"
+#include "wallpaper.h"
 #include "voice.h"
 #include "../lib/http.h"
 #include "../lib/json.h"
@@ -1025,6 +1026,188 @@ static void vrm_child(int fd, void *ctx) {
     close(f);
 }
 
+/* ---- how the desktop looks ----
+ * The design's palette, glass, shape, light, fonts, wallpaper and the
+ * person's comfort choices, for apps that want to look like they belong
+ * here (colours, not the scene: no wallpaper picture). It changes whenever the companion restyles or redesigns. */
+
+static const char *const material_name[] = {"glass", "frost", "solid", "neon"};
+static const char *const wp_kind_name[WP_COUNT] = {"gradient", "aurora", "waves", "bokeh", "dunes", "sun",
+                                                     "constellation", "paper", "nebula", "liquid", "flow", "prism"};
+
+static void hex(sbuf *b, color c) { sb_printf(b, "\"#%02x%02x%02x\"", C_R(c), C_G(c), C_B(c)); }
+
+/* The files of a font family in /usr/share/fonts ("Inter" -> Inter-Regular.ttf, Inter-Bold.ttf ...). */
+static int face_rank(const char *path) {
+    const char *name = strrchr(path, '/');
+    name = name ? name + 1 : path;
+    int r = 0;
+    if (strcasestr(name, "italic") || strcasestr(name, "oblique"))
+        r += 10;
+    if (strcasestr(name, "bold") || strcasestr(name, "black") || strcasestr(name, "heavy") || strcasestr(name, "semi") ||
+        strcasestr(name, "medium") || strcasestr(name, "light") || strcasestr(name, "thin"))
+        r += 2;
+    if (strcasestr(name, "regular") || strstr(name, "["))
+        r -= 1;
+    return r;
+}
+
+static int by_face(const void *a, const void *b) {
+    int d = face_rank(a) - face_rank(b);
+    return d ? d : strcmp(a, b);
+}
+
+static void font_files(sbuf *b, const char *family) {
+    char want[48];
+    size_t k = 0;
+    for (const char *p = family; *p && k < sizeof want - 1; p++)
+        if (*p != ' ')
+            want[k++] = (char)tolower((unsigned char)*p);
+    want[k] = 0;
+    static char found[16][400];
+    int n = 0;
+    static const char *const dirs[] = {"/usr/share/fonts", "/usr/share/fonts/truetype", "/usr/share/fonts/opentype"};
+    for (int d = 0; d < 3 && k; d++) {
+        DIR *dir = opendir(dirs[d]);
+        struct dirent *e;
+        while (dir && (e = readdir(dir)) && n < 16) {
+            char low[256];
+            size_t l = 0;
+            for (const char *p = e->d_name; *p && l < sizeof low - 1; p++)
+                if (*p != ' ' && *p != '_')
+                    low[l++] = (char)tolower((unsigned char)*p);
+            low[l] = 0;
+            size_t nl = strlen(e->d_name);
+            bool font = nl > 4 && (!strcasecmp(e->d_name + nl - 4, ".ttf") || !strcasecmp(e->d_name + nl - 4, ".otf"));
+            /* the family's name, then a separator or the end of the name */
+            if (!font || strncmp(low, want, k) || (low[k] != '-' && low[k] != '.' && low[k] != '['))
+                continue;
+            snprintf(found[n++], sizeof found[0], "%s/%s", dirs[d], e->d_name);
+        }
+        if (dir)
+            closedir(dir);
+    }
+    /* the plain face first (an app that takes the first gets upright, regular text), italics last */
+    qsort(found, (size_t)n, sizeof found[0], by_face);
+    sb_add(b, "[");
+    for (int i = 0; i < n; i++) {
+        sb_add(b, i ? "," : "");
+        sb_json_str(b, found[i]);
+    }
+    sb_add(b, "]");
+}
+
+static void look_json(sbuf *b, bool with_version);
+
+static struct {
+    unsigned version;
+    uint64_t sig, checked;
+} L;
+
+static uint64_t fnv(const char *s) {
+    uint64_t h = 1469598103934665603ull;
+    for (; *s; s++)
+        h = (h ^ (uint8_t)*s) * 1099511628211ull;
+    return h;
+}
+
+static void look_check(void) {
+    if (A.now - L.checked < 1000 || !A.have_design)
+        return;
+    L.checked = A.now;
+    sbuf b;
+    sb_init(&b);
+    look_json(&b, false);
+    uint64_t sig = fnv(b.p ? b.p : "");
+    sb_free(&b);
+    if (sig == L.sig)
+        return;
+    bool first = !L.sig;
+    L.sig = sig;
+    if (first) { /* as when we last counted, unless it changed while we were off */
+        FILE *f = fopen(STATE_DIR "/look-version", "r");
+        unsigned long long old = 0;
+        if (f) {
+            if (fscanf(f, "%u %llu", &L.version, &old) != 2)
+                old = 0;
+            fclose(f);
+        }
+        if (old == sig)
+            return;
+    }
+    L.version++;
+    FILE *f = fopen(STATE_DIR "/look-version", "w");
+    if (f) {
+        fprintf(f, "%u %llu\n", L.version, (unsigned long long)sig);
+        fclose(f);
+    }
+    if (!first) {
+        char ev[48];
+        snprintf(ev, sizeof ev, "{\"version\":%u}", L.version);
+        broadcast("look", ev, false, -1);
+    }
+}
+
+static void look_json(sbuf *b, bool with_version) {
+    const design *d = &D;
+    sb_add(b, "{");
+    if (with_version)
+        sb_printf(b, "\"version\":%u,", L.version);
+    sb_printf(b, "\"dark\":%s,\"colors\":{\"bg\":", theme_is_dark() ? "true" : "false");
+    hex(b, d->bg);
+    sb_add(b, ",\"bg2\":");
+    hex(b, d->bg2);
+    sb_add(b, ",\"surface\":");
+    hex(b, d->surface);
+    sb_add(b, ",\"surface_text\":");
+    hex(b, d->surface_text);
+    sb_add(b, ",\"text\":");
+    hex(b, d->text);
+    sb_add(b, ",\"muted\":");
+    hex(b, d->muted);
+    sb_add(b, ",\"accent\":");
+    hex(b, d->accent);
+    sb_add(b, ",\"accent2\":");
+    hex(b, d->accent2);
+    sb_printf(b, "},\"surface_opacity\":%.2f,\"blur\":%.1f,\"radius\":%.1f,\"shadows\":%s,\"material\":\"%s\","
+                 "\"glow\":%.2f,\"motion\":%.2f,\"fonts\":{\"heading\":",
+              (double)d->surface_opacity, (double)d->blur, (double)d->radius, d->shadows ? "true" : "false",
+              material_name[d->material & 3], (double)d->glow, (double)d->motion);
+    sb_json_str(b, d->font_heading[0] ? d->font_heading : "Inter");
+    sb_add(b, ",\"heading_files\":");
+    font_files(b, d->font_heading[0] ? d->font_heading : "Inter");
+    sb_add(b, ",\"body\":");
+    sb_json_str(b, d->font_body[0] ? d->font_body : "Inter");
+    sb_add(b, ",\"body_files\":");
+    font_files(b, d->font_body[0] ? d->font_body : "Inter");
+    sb_printf(b, ",\"heading_px\":%.1f,\"body_px\":%.1f},\"wallpaper\":{\"kind\":\"%s\",\"colors\":[",
+              (double)d->heading_px, (double)d->body_px,
+              d->wallpaper >= 0 && d->wallpaper < WP_COUNT ? wp_kind_name[d->wallpaper] : "gradient");
+    for (int i = 0; i < 4; i++) {
+        if (i)
+            sb_add(b, ",");
+        hex(b, d->wp[i]);
+    }
+    sb_printf(b, "],\"intensity\":%.2f,\"animated\":%s},\"comfort\":{\"text_scale\":%.2f,\"high_contrast\":%s,"
+                 "\"reduce_motion\":%s}}",
+              (double)d->wp_intensity, wallpaper_animated(d) ? "true" : "false",
+              (double)(A.prof.text_scale > 0 ? A.prof.text_scale : 1), A.prof.high_contrast ? "true" : "false",
+              A.prof.reduce_motion ? "true" : "false");
+}
+
+static void look(struct conn *c) {
+    if (!A.have_design) {
+        reply_error(c, 404, "no_design_yet");
+        return;
+    }
+    look_check();
+    sbuf b;
+    sb_init(&b);
+    look_json(&b, true);
+    reply(c, 200, b.p);
+    sb_free(&b);
+}
+
 /* ---- what she knows about them ---- */
 
 /* The portrait (A.prof.facts: "rhythm" -> "night owl; sharpest after 10pm")
@@ -1828,6 +2011,8 @@ static void route(int i) {
         chat(i);
     else if (get && !strcmp(p, "/identity"))
         identity(c);
+    else if (get && !strcmp(p, "/look"))
+        look(c);
     else if (get && !strcmp(p, "/identity/vrm")) {
         if (I.vrm_size <= 0)
             reply_error(c, 404, "no_vrm");
@@ -1840,7 +2025,7 @@ static void route(int i) {
         char b[96];
         snprintf(b, sizeof b, "{\"identity\":%u,\"memory\":%s}", I.version, a->mem == 1 ? "0" : "null");
         if (a->mem == 1)
-            snprintf(b, sizeof b, "{\"identity\":%u,\"memory\":%u}", I.version, mem_version);
+            snprintf(b, sizeof b, "{\"identity\":%u,\"memory\":%u,\"look\":%u}", I.version, mem_version, L.version);
         sse(c, "hello", b);
     } else if (post && !strcmp(p, "/avatar")) {
         json *j = json_parse(c->body ? c->body : "", c->blen);
@@ -2153,6 +2338,7 @@ void appapi_poll(void) {
     speak_poll();
     mic_poll();
     identity_check();
+    look_check();
     if (A.now - mem_checked > 2000) {
         mem_checked = A.now;
         mem_sync();
