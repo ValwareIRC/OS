@@ -113,15 +113,23 @@ static void put_entry(struct out *o, uint32_t kind, uint32_t mode, const char *p
  * never kept, and never brought back over this boot's copy. A saved display
  * size from a full-screen run made the next windowed one too big. */
 static bool for_this_boot(const char *path) {
-    return !strcmp(path, "/etc/os/display") || !strcmp(path, "/etc/os/autorun.sh") ||
-           !strcmp(path, "/etc/os/app.env");
+    if (!strcmp(path, "/etc/os/display") || !strcmp(path, "/etc/os/autorun.sh") || !strcmp(path, "/etc/os/app.env"))
+        return true;
+    /* caches are made again by whatever made them: a browser's alone can fill the store */
+    const char *name = strrchr(path, '/');
+    name = name ? name + 1 : path;
+    return strcasestr(name, "cache") != NULL || !strcmp(name, "Service Worker") || !strcmp(name, "blob_storage");
 }
+
+static bool skip_app_data; /* the store was too full with apps' own data: kept without it */
 
 static void walk(struct out *o, const char *path) {
     struct stat st;
     if (lstat(path, &st) < 0)
         return;
     if (for_this_boot(path))
+        return;
+    if (skip_app_data && !strcmp(path, "/root/.var"))
         return;
     /* the host's mind for this boot is not theirs to keep (see store_restore) */
     if (!strcmp(path, MIND_PATH) && access(MIND_KEPT, F_OK) == 0)
@@ -160,9 +168,16 @@ bool store_save(void) {
     struct header h;
     bool had = read_header(fd, &h);
     struct out o = {0};
-    for (int i = 0; roots[i]; i++)
-        walk(&o, roots[i]);
-    put(&o, "END!", 4);
+    for (int pass = 0; pass < 2; pass++) { /* everything; else without the apps' data, never nothing */
+        skip_app_data = pass == 1;
+        free(o.buf);
+        o = (struct out){0};
+        for (int i = 0; roots[i]; i++)
+            walk(&o, roots[i]);
+        put(&o, "END!", 4);
+        if (!o.full)
+            break;
+    }
     if (o.full) {
         free(o.buf);
         close(fd);

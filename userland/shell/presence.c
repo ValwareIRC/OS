@@ -536,7 +536,7 @@ static struct {
 } H;
 
 void presence_draw_corner(canvas *c) {
-    if (P.mode == PRESENCE_LIGHT || P.pid < 0 || !P.ready || A.now - orb_home_at < 400)
+    if ((P.mode == PRESENCE_LIGHT && !model_mode()) || P.pid < 0 || !P.ready || A.now - orb_home_at < 400)
         return;
     int side = A.H >= 900 ? 220 : A.H >= 700 ? 180 : 140;
     if (!H.loaded) {
@@ -584,7 +584,10 @@ void presence_draw_corner(canvas *c) {
                 fm_host_action(A.ui, NULL, "open:companion");
         }
     }
-    draw_home(c, r, A.companion.pending != NULL || H.dragging, HOME_ROUND, TINT_NONE, NULL);
+    if (model_mode()) /* a model of theirs stands on its own, no frame round it */
+        draw_home(c, r, false, HOME_FREE, TINT_NONE, "full");
+    else
+        draw_home(c, r, A.companion.pending != NULL || H.dragging, HOME_ROUND, TINT_NONE, NULL);
 }
 
 static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const char *want_shot) {
@@ -839,7 +842,12 @@ const char *presence_prompt(void) {
 }
 
 bool presence_draw_model(canvas *c, rect r) {
-    if (!model_mode() || P.pid < 0 || !P.ready)
+    if (!model_mode())
         return false;
+    /* still starting, or a spot too small to show a model in (a title bar's icon): it stands in its
+     * own corner instead (presence_draw_corner), and the spot stays empty */
+    if (P.pid < 0 || !P.ready || r.w < 96 || r.h < 96)
+        return true;
+    orb_home_at = A.now;
     return draw_home(c, r, false, HOME_FREE, TINT_NONE, "full");
 }

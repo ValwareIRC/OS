@@ -209,10 +209,56 @@ static struct {
     input_state held;
 } F;
 
+/* starts like the file it should be (a glTF model's magic, or not a web page) */
+static bool looks_right(const char *path, char kind) {
+    char head[16] = {0};
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+    size_t n = fread(head, 1, sizeof head - 1, f);
+    fclose(f);
+    if (kind == 'm')
+        return n >= 4 && !memcmp(head, "glTF", 4);
+    return n > 0 && head[0] != '<';
+}
+
 static void fetch_child(void *arg, char **result) {
     const char *url = arg;
     const char *path = F.fetch_kind == 'm' ? "/tmp/emblem-fetch.glb" : "/tmp/emblem-fetch.img";
-    *result = strdup(web_download(url, path, F.fetch_kind == 'm' ? (200u << 20) : (25u << 20)) ? path : "");
+    size_t cap = F.fetch_kind == 'm' ? (200u << 20) : (25u << 20);
+    bool ok = web_download(url, path, cap) && looks_right(path, F.fetch_kind);
+    /* a sharing site's page instead of the file: the usual ways such sites hand the file itself over */
+    static const char *const ask[] = {"download=true", "download=1", "dl=1", "raw=1", NULL};
+    for (int i = 0; !ok && ask[i]; i++) {
+        char again[1200];
+        snprintf(again, sizeof again, "%s%c%s", url, strchr(url, '?') ? '&' : '?', ask[i]);
+        ok = web_download(again, path, cap) && looks_right(path, F.fetch_kind);
+    }
+    *result = strdup(ok ? path : "");
+}
+
+/* a VRM is a person's own avatar: it becomes their companion's face, not an object on a turntable */
+static bool is_vrm(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+    static char json[1 << 16];
+    size_t n = fread(json, 1, sizeof json - 1, f);
+    fclose(f);
+    json[n] = 0;
+    for (size_t i = 20; i + 8 < n; i++) /* the JSON chunk, after the 20-byte headers */
+        if (!memcmp(json + i, "\"VRM\"", 5) || !memcmp(json + i, "\"VRMC_vrm\"", 10))
+            return true;
+    return false;
+}
+
+static bool take_model(const char *path) {
+    if (is_vrm(path))
+        return presence_set_body(path);
+    if (!emblem_set_model(path))
+        return false;
+    presence_set_mode(PRESENCE_LIGHT);
+    return true;
 }
 
 static char fetch_url[1024];
@@ -258,10 +304,8 @@ void body_use(const char *how, const char *what) {
     } else if (!strcmp(how, "model")) {
         if (!strncmp(what, "http://", 7) || !strncmp(what, "https://", 8))
             fetch(what, 'm');
-        else if (!emblem_set_model(what))
+        else if (!take_model(what))
             toast("That model couldn't be read.");
-        else
-            presence_set_mode(PRESENCE_LIGHT);
     } else if (!strcmp(how, "find") && !F.find) {
         snprintf(F.query, sizeof F.query, "%s", what);
         F.find = job_start(find_child, F.query);
@@ -276,8 +320,8 @@ static void body_poll(void) {
         job_free(F.fetch);
         F.fetch = NULL;
         bool ok = res && res[0] &&
-                  (F.fetch_kind == 'm' ? emblem_set_model(res) : emblem_set_picture(res));
-        if (ok)
+                  (F.fetch_kind == 'm' ? take_model(res) : emblem_set_picture(res));
+        if (ok && F.fetch_kind != 'm')
             presence_set_mode(PRESENCE_LIGHT);
         else
             toast(F.fetch_kind == 'm' ? "That model couldn't be fetched or read." : "That picture couldn't be fetched.");
