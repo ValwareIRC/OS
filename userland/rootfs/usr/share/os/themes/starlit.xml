@@ -1,7 +1,7 @@
 <facet>
-<meta ai-name="Rin" user-name="Sam" greeting="Mm... you're back. I made coffee." tagline="soft and sleepy"
-      rationale="A sleepy little house at night: stars blinking slowly, clouds drifting past the moon, a warm mug on the sill. Nothing hurries here."
-      theme-about="sleepy starry night, soft and cosy: a full-screen canvas of a deep violet-to-navy night sky with slowly twinkling stars, a big gentle crescent moon, drifting puffy clouds, a windowsill along the bottom with a steaming mug and a little potted plant, drowsy 'z' letters floating up now and then; the companion resting on a cloud-shaped cushion, the time in a soft round font, the apps as pastel moon-pebble buttons on the sill; lavender, periwinkle and warm cream. Quiet and restful. (#sky, #nest, #sill)"/>
+<meta ai-name="Rin" user-name="Sam" greeting="Mm... you're back. Stay a while." tagline="soft and sleepy"
+      rationale="A sleepy night sky: stars blinking slowly, clouds drifting past the moon. Nothing hurries here."
+      theme-about="sleepy starry night, soft and cosy, with no objects: a full-screen canvas of a deep violet-to-navy night sky with slowly twinkling stars, a big gentle crescent moon, drifting puffy clouds and a soft violet glow low down, drowsy 'z' letters floating up now and then; the companion resting above a soft cushion with the time in a round font, the apps as pastel pebble buttons in a floating dock; lavender, periwinkle and warm cream. Quiet and restful. (#sky, #nest, #sill)"/>
 <apps>
   <app id="files" label="Keepsakes"/><app id="companion" label="Rin"/><app id="notes" label="Dreams"/>
   <app id="settings" label="Blankets"/><app id="about" label="Starlight"/><app id="terminal" label="Night owl"/>
@@ -54,27 +54,28 @@ slot { padding:6 18 18 18; }
       -- the moon, a soft crescent
       local mx, my = w * 0.8, h * 0.2
       g.glow(mx, my, 150, "#fff3d633")
-      g.circle(mx, my, 64, "#fff3d6")
-      g.circle(mx + 26, my - 14, 58, "#17173a") -- the sky behind it, so only the crescent shows
+      -- a real crescent: the moon's edge one way, the shadow's edge back
+      local R, r, ox, oy = 64, 58, 26, -14
+      local c = (math.atan2 or math.atan)(-oy, -ox)
+      local pts = {}
+      for k = -40, 40 do
+        local a = c + k / 40 * 2.6
+        local px, py = R * math.cos(a), R * math.sin(a)
+        if (px - ox) ^ 2 + (py - oy) ^ 2 >= r * r then pts[#pts + 1] = mx + px; pts[#pts + 1] = my + py end
+      end
+      for k = 40, -40, -1 do
+        local a = c + k / 40 * 1.9
+        local px, py = ox + r * math.cos(a), oy + r * math.sin(a)
+        if px * px + py * py <= R * R then pts[#pts + 1] = mx + px; pts[#pts + 1] = my + py end
+      end
+      g.poly(pts, "#fff3d6")
       -- clouds drifting past
       for i = 0, 3 do
         local cx = ((i * 520 + t * (6 + i * 2)) % (w + 400)) - 200
         cloud(cx, h * (0.32 + i * 0.09), 0.8 + (i % 2) * 0.4, "#c9c0ff22")
       end
-      -- the windowsill, a mug and a plant
-      local sy = h * 0.86
-      g.rect(0, sy, w, h - sy, "#2a2456")
-      g.rect(0, sy, w, 10, "#463d86")
-      local mxg = w * 0.12
-      g.rect(mxg, sy - 54, 52, 54, "#ffc9a6", 10); g.arc(mxg + 54, sy - 28, 14, -1.57, 1.57, "#ffc9a6", 6)
-      for k = 0, 2 do
-        local p = ((t * 0.35 + k / 3) % 1)
-        local sx2 = mxg + 14 + k * 12 + math.sin(t * 2 + k) * 4
-        g.circle(sx2, sy - 62 - p * 70, 6 + p * 6, string.format("#ffffff%02x", math.floor(90 * (1 - p))))
-      end
-      local px = w * 0.9
-      g.rect(px - 22, sy - 40, 44, 40, "#a99cff", 8)
-      g.circle(px - 10, sy - 56, 14, "#7fd3a8"); g.circle(px + 10, sy - 62, 16, "#8fe0b6"); g.circle(px, sy - 76, 12, "#7fd3a8")
+      -- a soft violet glow low on the horizon
+      g.glow(w * 0.5, h * 1.15, h * 0.7, "#8a6fd844")
       -- a sleepy z, drifting up now and then
       local zp = (t * 0.25) % 1
       if zp < 0.8 then

@@ -12,7 +12,7 @@ language the AI uses to design every screen.
 ## What it looks like
 
 Every desktop is written by the AI for the person in front of it. It can design one from nothing, or
-start from one of 36 built-in templates and make it theirs (their colours, their words, their
+start from one of 34 built-in templates and make it theirs (their colours, their words, their
 wallpaper). These are the templates as they come, before any of that. Many are live: a 3D fly-over of
 your real files, planets that orbit, fish that swim, a sky that follows the time of day.
 
@@ -51,10 +51,8 @@ your real files, planets that orbit, fish that swim, a sky that follows the time
 | **Subway** · apps are stations | **Swiss** · a modernist poster |
 | ![Tiling: a single thin dark status line across the TOP in small monospace](docs/screenshots/tiling.jpg) | ![Workbench: a flat bright blue screen with a white-and-blue screen title bar across the top showing free memory, the apps as small chunky drawer and disk icons in a loose grid at the top-left,](docs/screenshots/workbench.jpg) |
 | **Tiling** · a tiling window manager | **Workbench** · Amiga, with the Boing ball |
-| ![Apartment: a cosy evening living room, cream wallpaper with tiny hearts, a navy sofa with a red cushion, a glowing lamp, a window of city lights, the companion in a round portrait frame on the wall, a sticky note with the time and the days together, the apps as magnet tiles](docs/screenshots/apartment.jpg) | ![Cartridge: a cute cherry-red handheld console with a pixel landscape on its screen, a d-pad and A/B buttons, the apps as labelled cartridges in a navy rack](docs/screenshots/cartridge.jpg) |
-| **Apartment** · coming home in the evening | **Cartridge** · a pocket console, apps as cartridges |
-| ![Starlit: a sleepy violet night sky with slowly twinkling stars, a crescent moon, drifting clouds, a windowsill with a steaming mug and a little plant, the time on a soft cushion in the middle](docs/screenshots/starlit.jpg) | ![Minigame: a sunny sky-blue game hub with rhythm lanes of falling notes, a combo counter, three hearts of life, and a stage-select grid of the apps](docs/screenshots/minigame.jpg) |
-| **Starlit** · sleepy, soft and slow | **Minigame** · pick a stage |
+| ![Afternoon: nothing but warm late-afternoon light, a peach-to-rose wash with a low sun glowing on the left, faint slanting beams and dust glinting in them, lavender in the shade, the time on a frosted cream card and the apps in a frosted dock](docs/screenshots/afternoon.jpg) | ![Starlit: a sleepy violet night sky with slowly twinkling stars, a crescent moon and drifting clouds, the time on a soft cushion in the middle, the apps as pastel pebbles in a floating dock](docs/screenshots/starlit.jpg) |
+| **Afternoon** · warm light, coming home | **Starlit** · sleepy, soft and slow |
 <!-- /gallery -->
 
 ## Building (inside WSL Ubuntu or Linux)

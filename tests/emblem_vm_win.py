@@ -1,5 +1,5 @@
 """The companion's looks, end to end, with Windows QEMU (Hyper-V) and silent
-sound: a desktop in the apartment design, then tests/fake_ai.py as the
+sound: a desktop in the afternoon design, then tests/fake_ai.py as the
 companion changes how it looks when asked: the Earth, a picture it finds
 online (a thumbnail clicked over QMP), a drawing it writes itself, and a 3D
 model from a link. A screenshot after each.
@@ -42,7 +42,7 @@ server = subprocess.Popen([sys.executable, os.path.join(ROOT, "tests", "fake_ai.
 mind = os.path.join(out, "mind.json")
 open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{port}/v1", "api_key": "",
                                   "model": "fake"}) + "\n")
-desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes", "apartment.xml")
+desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes", "afternoon.xml")
 
 
 def fw(name, path):
@@ -138,7 +138,7 @@ try:
     q = Qmp()
     print("desktop:", bool(wait_for(r"shell: screen desktop", 300)), flush=True)
     time.sleep(10)
-    q.shot("1-apartment-gem.png")
+    q.shot("1-afternoon-gem.png")
     q.cmd("send-key", keys=[{"type": "qcode", "data": "alt"}, {"type": "qcode", "data": "spc"}])
     time.sleep(1.5)
     q.type("talk to your companion")
