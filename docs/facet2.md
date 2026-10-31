@@ -1,4 +1,4 @@
-# Facet 2
+# Facet 2.1
 
 Facet is the language the OS's AI writes desktops and whole apps in. Facet 2 grows it from desktop markup
 into an app language: components, state, live data from the system, logic in its own small language, and
@@ -33,12 +33,14 @@ DATA: one line each, live from the system, read-only. It may use state names: it
   data note = file(path)                     record: name, path, text ("" if the file doesn't exist)
   data accent = setting("design.accent")     a value
   data apps = apps()                         records: id, name
-  data now = clock(1000)                     ticks every 1000 ms: hour, minute, second, ms, day, weekday
+  data now = clock(1000)                     ticks every 1000 ms: time (milliseconds since 1970: subtract two for a
+                                             duration), hour, minute, second, ms (within the second), day, weekday
 STATE: names with starting values; only `set` changes them.
 DERIVED: names computed from data, state and other derived; recomputed when what they read changes. May call pure fns (fns with no set and no effects; `facet check` verifies).
 
 STATEMENTS (only inside fn; fns may read every data, state and derived name)
-  set name = expr                 (writing `name = expr` without set is an error naming the fix)
+  let name = expr                 a local: only in fn, until the fn ends; shadowing a state, data or derived name is an error
+  set name = expr                 changes a state name or a local (writing `name = expr` without set is an error naming the fix)
   if expr then ... elseif expr then ... else ... end
   for x in expr do ... end
   return expr
@@ -56,6 +58,7 @@ EXPRESSIONS
   literals: "text" (may contain {expr}; numbers inside render as text), 12, 1.5, true, false, none,
             lists [a, b], records {name: "x", n: 2}
   names, a.b, list[i] (from 0), calls f(x), lambdas only as arguments: n -> expr
+  map, filter and find also take (x, i) -> expr: i is x's position in the list they were given, from 0
   conditional: if c then a else b   (an expression: no end, both branches required)
   + on numbers adds; + on texts joins; + on lists joins them: laps + [x]; text + number is an error ("use text(n)")
   PRECEDENCE: the usual arithmetic (* / % before + -), then comparisons (== != < > <= >=),
@@ -64,9 +67,10 @@ EXPRESSIONS
 STDLIB (pure; slices count from 0, end-exclusive)
   len lower upper trim split(text, sep) join(list, sep) text(x) number(text) pad(text, width, char)
   round(x) (halves away from zero) floor(x) ceil(x) min(a, b) max(a, b)
-  slice(list|text, start, end) (end optional) first(list) last(list) (none when empty)
+  slice(list|text, start, end) (end optional; clamped to 0..len; start after end gives empty; a negative number
+  is an error suggesting len(x) - n) first(list) last(list) (none when empty)
   sort(list, x -> key) filter(list, x -> test) map(list, x -> value) find(list, x -> test) (none if no match)
-  contains(text|list, x) starts(text, prefix) ends(text, suffix) date(time, "%H:%M") base(path) dirname(path)
+  contains(text|list, x) starts(text, prefix) ends(text, suffix) date(time, "%H:%M") (local time) base(path) dirname(path)
 
 VIEW (one root element)
   elements: row column grid stack panel text button input field checkbox icon image spacer divider scroll
@@ -79,6 +83,7 @@ VIEW (one root element)
     on:key="pressed(value)": value is up down left right enter esc tab backspace delete space home end, or the
     typed character
   bind="draft": two-way with a state name (input, field, checkbox); runs before that element's on:input
+  checked={expr}: a checkbox showing data one way, changed through on:change="fn(value)"; never with bind
   more: placeholder="Search"  disabled={running}  autofocus  multiline (on field)
   class="row" (fixed) and class:active={open == n} (when true)
   <each in={shown} as="n" key={n.path} at="i"> ... </each>   key required and unique; at optional (from 0)
@@ -170,12 +175,13 @@ A WHOLE EXAMPLE (the shape every app follows)
   end
 ```
 
-## Open questions for 2.1
+## What 2.1 added
 
-Raised in the final round as non-blocking:
+The final round of 2.0 left five open questions. The chair proposed answers and all six members accepted
+them unanimously:
 
-- Local names inside a fn (today a temporary has to live in state).
-- `checked={expr}` on checkbox, so it can show data and not only change it.
-- An index form for `map` and `filter` (`(x, i) -> ...`) for positional edits.
-- What `slice` does past the ends (clamping is the likely answer).
-- `clock()` giving an absolute time in milliseconds, so timers that run past midnight don't wrap.
+- `let` for local names inside a fn.
+- `checked={expr}` on a checkbox.
+- `(x, i) ->` in `map`, `filter` and `find`. `sort` keeps the one-name form.
+- `slice` clamps at the ends, and negative numbers are an error.
+- `clock()` gives `time` in milliseconds since 1970, so durations don't wrap at midnight.
