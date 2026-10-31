@@ -717,6 +717,7 @@ static void do_act(const char *a) {
             tell("act %s", w);
         LOG("presence: act %s\n", w);
         appapi_avatar_event("act", w);
+        emblem_act(); /* the emblem (gem, picture...) shows the gesture its own way */
     }
 }
 

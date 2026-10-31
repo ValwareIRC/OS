@@ -37,6 +37,7 @@ static struct {
     int kind;
     int last_state;
     uint64_t done_at, changed_at;
+    uint64_t act_at; /* a gesture (a recorded clip, or [[act:]]): a hop and a spin */
 } E = {.kind = EM_GEM, .last_state = ES_IDLE};
 
 const char *emblem_name(int kind) {
@@ -695,6 +696,8 @@ static bool draw_picture(canvas *cv, float cx, float cy, float r, color a, color
 
 /* ---- the whole emblem, in its state ---- */
 
+static float act_phase(void);
+
 void emblem_draw_kind(canvas *cv, int kind, float cx, float cy, float r, color a, color b, int state, float level) {
     float t = (float)(A.now % 1000000) / 1000.0f;
     bool still = A.prof.reduce_motion;
@@ -703,6 +706,13 @@ void emblem_draw_kind(canvas *cv, int kind, float cx, float cy, float r, color a
     if (kind == EM_ORB) {
         ui_orb(cv, cx, cy, r, a, b, state == ES_THINKING || state == ES_LISTENING || state == ES_SPEAKING);
         return;
+    }
+    /* a gesture: it hops, and a little ring of light opens around it */
+    float ap = act_phase();
+    if (ap >= 0) {
+        cy -= r * 0.28f * sinf(PI * ap);
+        glow_circle(cv, cx, cy, r * (1.2f + ap), color_alpha(b, 0.35f * (1 - ap)));
+        draw_arc(cv, cx, cy, r * (1.15f + 0.6f * ap), 0, 2 * PI, 2, color_alpha(a, 0.8f * (1 - ap)));
     }
     /* trouble: a small shake, and the colour drains a little */
     if (state == ES_ERROR && !still) {
@@ -753,4 +763,14 @@ void emblem_draw(canvas *cv, float cx, float cy, float r, color a, color b, bool
     float level;
     int state = emblem_state(active, &level);
     emblem_draw_kind(cv, emblem_kind(), cx, cy, r, a, b, state, level);
+}
+
+void emblem_act(void) { E.act_at = A.now ? A.now : 1; }
+
+/* How far through a gesture it is (0..1), or -1 when there is none. */
+static float act_phase(void) {
+    if (!E.act_at || A.prof.reduce_motion)
+        return -1;
+    float p = (float)(A.now - E.act_at) / 900.0f;
+    return p >= 1 ? -1 : p;
 }

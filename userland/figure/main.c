@@ -201,10 +201,19 @@ static void draw(double now) {
         /* an object, not a character: it turns (faster while thinking), bobs a
          * little, and swells with the voice; framed whole */
         static float angle;
-        angle += dt * (G.L.thinking ? 1.6f : G.L.listening ? 0.8f : 0.45f);
+        static int last_act = -1;
+        static double act_at;
+        if (G.L.act >= 0 && last_act < 0) /* a gesture: a hop and a whole turn */
+            act_at = now;
+        last_act = G.L.act;
+        float ap = act_at > 0 && now - act_at < 0.9 ? (float)((now - act_at) / 0.9) : -1;
+        if (ap < 0 && G.L.act >= 0 && now - act_at >= 0.9) /* done: ready for the next one */
+            G.L.act = -1, last_act = -1;
+        angle += dt * (G.L.thinking ? 1.6f : G.L.listening ? 0.8f : 0.45f) + (ap >= 0 ? dt * 7.0f : 0);
         fig_pose_rest(&G.fig.m, &pose);
         pose.local[0] = qaxis(V3(0, 1, 0), angle);
-        float bob = 0.02f * sinf((float)now * (G.L.thinking ? 3.0f : 1.3f)) + (G.L.speaking ? 0.03f * G.L.speak : 0);
+        float bob = 0.02f * sinf((float)now * (G.L.thinking ? 3.0f : 1.3f)) + (G.L.speaking ? 0.03f * G.L.speak : 0) +
+                    (ap >= 0 ? 0.18f * sinf(3.14159f * ap) : 0);
         pose.root = V3(0, bob, 0);
         fig_pose_update(&G.fig.m, &pose);
         G.sc.shot = SHOT_FULL;

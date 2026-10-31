@@ -35,3 +35,5 @@ bool emblem_draw_model(canvas *c, float cx, float cy, float r, int state, float 
 bool emblem_set_drawing(const char *script);
 /* A 3D model of theirs (.glb or .gltf) becomes the emblem; false if it can't be read. */
 bool emblem_set_model(const char *path);
+/* A gesture happened (a recorded clip or [[act:...]]): looks that can't wave hop and spin instead. */
+void emblem_act(void);
