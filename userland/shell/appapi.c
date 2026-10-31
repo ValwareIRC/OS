@@ -18,6 +18,7 @@
 #include "theme.h"
 #include "wallpaper.h"
 #include "voice.h"
+#include "models.h"
 #include "../lib/http.h"
 #include "../lib/json.h"
 
@@ -403,7 +404,10 @@ static void models(struct conn *c) {
     sb_init(&b);
     sb_add(&b, "{\"object\":\"list\",\"data\":[{\"id\":\"os\",\"object\":\"model\",\"owned_by\":\"os\",\"label\":");
     sb_json_str(&b, label);
-    sb_printf(&b, ",\"tools\":%s}]}", mind_has_tools(p) ? "true" : "false");
+    sb_printf(&b, ",\"tools\":%s", mind_has_tools(p) ? "true" : "false");
+    if (!strcmp(p->id, "builtin")) /* the model on this computer: as much as its memory allows */
+        sb_printf(&b, ",\"context\":%d", models_context());
+    sb_add(&b, "}]}");
     reply(c, 200, b.p);
     sb_free(&b);
 }

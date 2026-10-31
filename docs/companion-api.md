@@ -30,7 +30,8 @@ it can change anything inside itself.
 
 - `POST /v1/chat/completions` (streaming or not) and `GET /v1/models`. The OS forwards each request to
   whichever mind she chose (built-in, local or cloud) and adds nothing to the prompt.
-- `/v1/models` lists one model, `"os"`, with a `label` (e.g. "Claude Sonnet (yours)").
+- `/v1/models` lists one model, `"os"`, with a `label` (e.g. "Claude Sonnet (yours)"). For the model on this
+  computer it also says `"context"`: how many tokens it can hold, which depends on the memory (4096 to 16384).
 - `503 {"error":"no_mind"}` when no mind is set up.
 - Function calling: `tools`, `tool_choice`, `tool_calls`, `role:"tool"` messages with `tool_call_id`,
   `image_url` data URLs and `stream_options` pass through untouched to minds that speak OpenAI (the
