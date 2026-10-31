@@ -118,7 +118,8 @@ if ($Facet) {
 # picture. Without it QEMU sizes its window (in full screen, its drawing area)
 # from the picture, so a resolution change made the window taller than the
 # screen: off the bottom in a window, stretched and cut off in full screen.
-$cpus = 4
+# Processors: all of this computer's but two (one for Windows, one for QEMU's own display and disk work).
+$cpus = [Math]::Max(2, [Environment]::ProcessorCount - 2)
 $gtk = "gtk,show-menubar=off,zoom-to-fit=on"
 # How much room the system has, in this screen's real pixels: the screen
 # itself in full screen, else what a window fits in (the work area less the
