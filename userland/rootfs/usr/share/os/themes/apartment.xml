@@ -1,0 +1,122 @@
+<facet>
+<meta ai-name="Rin" user-name="Sam" greeting="Welcome home. I kept the lamp on." tagline="our little place"
+      rationale="A warm evening flat: the lamp on, the sofa waiting, the city at the window, and the two of you counting the days."
+      theme-about="cosy evening apartment, cute and warm: a full-screen canvas of a little living room at night (cream wallpaper with tiny hearts, a wooden floor, a navy sofa with a red cushion, a glowing floor lamp, a window of city lights and a moon, a small TV humming blue), the companion in a round portrait frame on the wall with a red ribbon, a sticky-note card with the time and the days together, the apps as fridge-magnet tiles on a cork strip; scarlet and navy on cream, rounded and soft. Coming home. (#room, #portrait, #note, #magnets)"/>
+<apps>
+  <app id="files" label="Drawers"/><app id="companion" label="Rin"/><app id="notes" label="Diary"/>
+  <app id="settings" label="Tidy up"/><app id="about" label="This place"/><app id="terminal" label="Toolbox"/>
+  <app id="redesign" label="Redecorate"/><app id="power" label="Lights out"/>
+</apps>
+<wallpaper kind="gradient" colors="#f6e9e1 #f3dcd6 #e9d2c8 #2a2f55" seed="3" intensity="0.2"/>
+<style>
+:root { --bg:#f6e9e1; --surface:#fffaf6; --surface-2:#f6e9e1; --surface-text:#2a2f55; --text:#2a2f55;
+        --muted:#7a6f88; --accent:#d8344a; --accent2:#2a2f55; --font-heading:Outfit; --font-body:Manrope; --radius:18; }
+desktop { color:var(--text); font-family:Manrope; font-size:15; }
+#room { size:full; }
+#portrait { margin:80 0 0 0; gap:10; align:center; }
+#core { size:150; radius:75; border:8 #fffaf6; background:#f3dcd6; shadow:0 12 28 rgba(42,47,85,0.28); }
+#ribbon { padding:6 18; radius:14; background:#d8344a; color:#fffaf6; font:"Outfit 15"; }
+#note { margin:110 120 0 0; padding:18 22; gap:4; width:250; radius:4; background:#fff3a8; color:#4a3a2a;
+        shadow:4 10 20 rgba(80,40,20,0.25); align:start; transform:rotate(-2); }
+#note clock.time { font:"Outfit 44"; color:#4a3a2a; line-height:1; }
+#note clock.day { font:"Caveat 26"; color:#d8344a; }
+#note text { font:"Caveat 22"; color:#6a5440; }
+#magnets { margin:0 0 54 0; padding:14 22; gap:12; radius:22; background:rgba(176,120,78,0.92);
+           shadow:0 14 30 rgba(60,30,20,0.3); }
+#magnets applist { direction:row; gap:12; }
+#magnets item { size:86; padding:8; radius:20; gap:6; background:#fffaf6; color:#2a2f55; font:"Outfit 13";
+                icon-size:30; icon-style:duotone; shadow:0 6 0 rgba(42,47,85,0.25); transition:140; }
+#magnets item:hover { transform:translate(0, -6) rotate(-3); background:#ffe1e6; color:#d8344a; }
+#magnets button { size:86; padding:8; radius:20; gap:6; background:#2a2f55; color:#fffaf6; font:"Outfit 13";
+                  icon-size:26; shadow:0 6 0 rgba(0,0,0,0.25); transition:140; }
+#magnets button:hover { transform:translate(0, -6) rotate(3); background:#d8344a; }
+frame { direction:column; radius:22; overflow:hidden; background:#fffaf6; color:#2a2f55;
+        border:3 #2a2f55; shadow:0 18 48 rgba(42,47,85,0.3); }
+titlebar { height:46; padding:0 10 0 20; gap:6; background:#f3dcd6; color:#2a2f55; font:"Outfit 16"; }
+frame:focus titlebar { background:#d8344a; color:#fffaf6; }
+titlebar text { grow:1; }
+titlebar button { size:28; radius:14; icon-size:11; color:inherit; background:rgba(255,255,255,0.35); }
+titlebar button:hover { background:#fffaf6; color:#d8344a; }
+slot { padding:6 18 18 18; }
+</style>
+<desktop>
+  <canvas id="room" place="fill" over="screen">
+    local function heart(x, y, s, c)
+      g.circle(x - s * 0.5, y, s * 0.55, c); g.circle(x + s * 0.5, y, s * 0.55, c)
+      g.poly({x - s * 1.02, y + s * 0.15, x + s * 1.02, y + s * 0.15, x, y + s * 1.2}, c)
+    end
+    function draw(w, h, t)
+      local floor = h * 0.74
+      -- wallpaper: cream, soft stripes and tiny hearts
+      g.gradient(0, 0, w, floor, "#f8ece4", "#f0dcd2")
+      for x = 0, w, 64 do g.rect(x, 0, 30, floor, "#ffffff22") end
+      for y = 40, floor - 40, 90 do
+        for x = 32, w, 128 do heart(x + (y % 180 == 40 and 64 or 0), y, 5, "#e8a9b244") end
+      end
+      -- the window: city at night, a moon
+      local wx, wy, ww, wh = w * 0.08, h * 0.16, w * 0.2, h * 0.32
+      g.rect(wx - 10, wy - 10, ww + 20, wh + 20, "#b0784e", 6)
+      g.gradient(wx, wy, ww, wh, "#1c2147", "#4a3d78")
+      g.circle(wx + ww * 0.75, wy + wh * 0.22, 16, "#fff3cf")
+      g.glow(wx + ww * 0.75, wy + wh * 0.22, 46, "#fff3cf55")
+      for i = 0, 11 do
+        local bx = wx + (i * 37) % ww
+        local bh = 30 + (i * 23) % 70
+        g.rect(bx, wy + wh - bh, 26, bh, "#2a2f55")
+        for k = 0, 3 do
+          if math.floor(t * 0.5 + i + k) % 4 ~= 0 then g.rect(bx + 6, wy + wh - bh + 8 + k * 14, 5, 6, "#ffd36b") end
+        end
+      end
+      g.rect(wx + ww / 2 - 3, wy, 6, wh, "#b0784e"); g.rect(wx, wy + wh / 2 - 3, ww, 6, "#b0784e")
+      -- the floor
+      g.gradient(0, floor, w, h - floor, "#b9825a", "#8f5e3e")
+      for x = 0, w, 120 do g.line(x, floor, x - 60, h, "#7a4e3244", 2) end
+      -- a lamp, glowing
+      local lx = w * 0.84
+      g.glow(lx, floor - 300, 180 + 8 * math.sin(t * 1.3), "#ffd59a66")
+      g.rect(lx - 3, floor - 290, 6, 290, "#2a2f55")
+      g.poly({lx - 46, floor - 290, lx + 46, floor - 290, lx + 30, floor - 350, lx - 30, floor - 350}, "#ffe7c4")
+      g.rect(lx - 30, floor - 6, 60, 10, "#2a2f55", 5)
+      -- the sofa, a red cushion
+      local sx, sw = w * 0.32, w * 0.36
+      g.rect(sx, floor - 150, sw, 90, "#2a2f55", 26)
+      g.rect(sx - 26, floor - 120, 60, 120, "#232849", 22); g.rect(sx + sw - 34, floor - 120, 60, 120, "#232849", 22)
+      g.rect(sx + 10, floor - 80, sw - 20, 70, "#343a6a", 20)
+      g.rect(sx + sw * 0.6, floor - 132, 80, 62, "#d8344a", 18)
+      heart(sx + sw * 0.6 + 40, floor - 108, 8, "#ffffffaa")
+      -- a small TV, its blue light breathing
+      local tx = w * 0.70
+      g.glow(tx + 70, floor - 40, 110, string.format("#5fa8ff%02x", math.floor(40 + 20 * math.sin(t * 2))))
+      g.rect(tx, floor - 98, 140, 86, "#1b1e3a", 10); g.rect(tx + 8, floor - 90, 124, 70, "#3a6fd8", 6)
+      g.rect(tx + 50, floor - 12, 40, 12, "#1b1e3a", 4)
+      -- the rug
+      g.rect(w * 0.3, floor + 40, w * 0.4, 40, "#d8344a55", 20)
+    end
+  </canvas>
+  <column id="portrait" place="top">
+    <ai id="core"/>
+    <text id="ribbon" bind="ai.name"/>
+  </column>
+  <column id="note" place="top-right">
+    <clock class="time" format="%H:%M"/>
+    <clock class="day" format="day %j, together"/>
+    <text bind="greeting"/>
+  </column>
+  <row id="magnets" place="bottom">
+    <applist apps="companion,notes,files,settings,terminal,about" labels="below"/>
+    <button what="redesign" icon="sparkle">Redo</button>
+    <button what="power:off" icon="power" hotkey="meta">Sleep</button>
+  </row>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>

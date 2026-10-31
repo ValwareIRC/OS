@@ -1,0 +1,113 @@
+<facet>
+<meta ai-name="Rin" user-name="Sam" greeting="Player two has joined!" tagline="pocket world"
+      rationale="A little handheld console you hold in both hands: its screen is your world, and every app is a cartridge you slot in."
+      theme-about="cute handheld game console: a full-screen canvas of a chunky two-tone console (cherry red body, navy grip, a d-pad, round A and B buttons, a speaker grille, a power light that blinks), its big screen showing a soft pixel landscape with drifting clouds; the companion glows in the corner of the screen; the apps are game cartridges with labels stacked in a slot rack beside it; rounded plastic shapes, scarlet, navy and cream. Playful, pocket-sized. (#console, #screen, #carts)"/>
+<apps>
+  <app id="files" label="Save Data"/><app id="companion" label="Rin"/><app id="notes" label="Journal"/>
+  <app id="settings" label="Options"/><app id="about" label="Credits"/><app id="terminal" label="Debug Mode"/>
+  <app id="redesign" label="New Skin"/><app id="power" label="Power Off"/>
+</apps>
+<wallpaper kind="gradient" colors="#f3e3dc #f7d6d9 #e8d6f2 #2a2f55" seed="5" intensity="0.2"/>
+<style>
+:root { --bg:#f3e3dc; --surface:#fffaf6; --surface-2:#f7e7e2; --surface-text:#2a2f55; --text:#2a2f55;
+        --muted:#7a6f88; --accent:#e23d55; --accent2:#2a2f55; --font-heading:Unbounded; --font-body:Manrope; --radius:16; }
+desktop { color:var(--text); font-family:Manrope; font-size:15; }
+#console { size:full; }
+#screen { margin:128 0 0 312; padding:10 18 10 10; gap:12; align:center; radius:20; background:rgba(42,47,85,0.82); }
+#core { size:64; }
+#hud { gap:4; align:start; }
+#hud clock { font:"Unbounded 30"; color:#fffaf6; }
+#hud text { font:"Unbounded 12"; color:#ffd6dc; }
+#carts { margin:0 70 0 0; padding:16; gap:10; radius:24; background:#2a2f55; shadow:0 18 40 rgba(42,47,85,0.35); }
+#carts applist { direction:column; gap:10; }
+#carts item { width:200; height:52; direction:row; justify:start; padding:0 14; gap:12; radius:10 10 18 18;
+              background:#9aa0b8; color:#2a2f55; font:"Unbounded 11"; icon-size:22; icon-style:duotone;
+              border:3 #c2c7da; transition:120; }
+#carts item:hover { background:#ffd6dc; color:#e23d55; transform:translate(-10, 0); }
+#carts button { width:200; height:44; radius:22; padding:0 14; gap:10; background:#b8213a; color:#fffaf6;
+                font:"Unbounded 11"; icon-size:16; transition:120; }
+#carts button:hover { background:#fffaf6; color:#e23d55; }
+frame { direction:column; radius:20; overflow:hidden; background:#fffaf6; color:#2a2f55;
+        border:5 #e23d55; shadow:0 10 0 #a8213a; }
+titlebar { height:42; padding:0 8 0 16; gap:6; background:#e23d55; color:#fffaf6; font:"Unbounded 12"; }
+frame:focus titlebar { background:#2a2f55; }
+titlebar text { grow:1; text-transform:uppercase; }
+titlebar button { size:26; radius:13; icon-size:10; color:#2a2f55; background:#fffaf6; }
+titlebar button:hover { background:#ffd6dc; }
+slot { padding:8 16 16 16; }
+</style>
+<desktop>
+  <canvas id="console" place="fill" over="screen">
+    function draw(w, h, t)
+      g.gradient(0, 0, w, h, "#f6e6df", "#ead9f0")
+      -- the console body
+      local bx, by, bw, bh = w * 0.06, h * 0.08, w * 0.66, h * 0.84
+      g.rect(bx + 10, by + 16, bw, bh, "#a8213a55", 60)
+      g.rect(bx, by, bw, bh, "#e23d55", 60)
+      g.rect(bx + 14, by + 14, bw - 28, bh * 0.5, "#ec5a6f", 48)
+      -- the screen: a soft pixel world
+      local sx, sy, sw, sh = bx + bw * 0.18, by + 46, bw * 0.64, bh * 0.56
+      g.rect(sx - 14, sy - 14, sw + 28, sh + 28, "#2a2f55", 22)
+      g.gradient(sx, sy, sw, sh, "#7ec8ff", "#ffd6dc")
+      for i = 0, 4 do
+        local cx = (i * 190 + t * 18) % (sw + 160) - 80
+        if cx > 10 and cx < sw - 90 then
+          g.rect(sx + cx, sy + 40 + i * 24, 70, 18, "#ffffffcc", 9)
+          g.rect(sx + cx + 18, sy + 30 + i * 24, 34, 18, "#ffffffcc", 9)
+        end
+      end
+      for x = 0, sw - 16, 16 do
+        local hh = 40 + math.floor(18 * math.sin(x * 0.02 + 1))
+        g.rect(sx + x, sy + sh - hh, 16, hh, "#7fd38a")
+        g.rect(sx + x, sy + sh - hh, 16, 6, "#5bbf6c")
+      end
+      g.rect(sx, sy + sh - 22, sw, 22, "#c98a5a")
+      -- the hearts of a little life bar
+      for i = 0, 2 do
+        local hx, hy = sx + sw - 110 + i * 32, sy + 22
+        g.circle(hx - 5, hy, 7, "#e23d55"); g.circle(hx + 5, hy, 7, "#e23d55")
+        g.poly({hx - 12, hy + 2, hx + 12, hy + 2, hx, hy + 15}, "#e23d55")
+      end
+      -- the d-pad, the buttons, the grille
+      local dy = by + bh * 0.8
+      local dx = bx + bw * 0.2
+      g.rect(dx - 60, dy - 20, 120, 40, "#2a2f55", 10); g.rect(dx - 20, dy - 60, 40, 120, "#2a2f55", 10)
+      g.circle(dx, dy, 10, "#3a4074")
+      local ax = bx + bw * 0.78
+      local press = math.floor(t * 1.5) % 4 == 0
+      g.circle(ax + 46, dy - 26, 30, press and "#c42a40" or "#2a2f55")
+      g.circle(ax - 26, dy + 18, 30, "#2a2f55")
+      g.text(ax + 36, dy - 40, "A", "#fffaf6", 22, "Unbounded")
+      g.text(ax - 36, dy + 4, "B", "#fffaf6", 22, "Unbounded")
+      for i = 0, 5 do g.rect(bx + bw * 0.44 + i * 22, dy + 20, 10, 50, "#c42a40", 5) end
+      g.rect(bx + bw * 0.42, dy - 40, 50, 16, "#2a2f55", 8); g.rect(bx + bw * 0.52, dy - 40, 50, 16, "#2a2f55", 8)
+      local blink = (math.sin(t * 2) + 1) / 2
+      g.circle(bx + 46, by + 46, 7, string.format("#7dffb0%02x", math.floor(120 + 135 * blink)))
+      g.glow(bx + 46, by + 46, 18, string.format("#7dffb0%02x", math.floor(60 * blink)))
+    end
+  </canvas>
+  <row id="screen" place="top-left">
+    <ai id="core"/>
+    <column id="hud">
+      <clock format="%H:%M"/>
+      <text bind="greeting"/>
+    </column>
+  </row>
+  <column id="carts" place="right">
+    <applist apps="companion,notes,files,settings,terminal,about" labels="right"/>
+    <button what="redesign" icon="sparkle">New Skin</button>
+    <button what="power:off" icon="power" hotkey="meta">Power Off</button>
+  </column>
+</desktop>
+<template id="window">
+  <frame>
+    <titlebar drag="window">
+      <text bind="window.title"/>
+      <button what="window:minimize" icon="minimize"/>
+      <button what="window:maximize" icon="maximize"/>
+      <button what="window:close" icon="close"/>
+    </titlebar>
+    <slot/>
+  </frame>
+</template>
+</facet>
