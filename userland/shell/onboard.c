@@ -86,6 +86,16 @@ void strip_markdown(char *s) {
     char *w = s;
     bool line_start = true;
     for (char *r = s; *r; r++) {
+        /* a script inside a tag (a drawing of itself) is code, not prose: kept exactly */
+        if (!strncmp(r, "<canvas", 7)) {
+            char *end = strstr(r, "</canvas>");
+            size_t n = end ? (size_t)(end + 9 - r) : strlen(r);
+            memmove(w, r, n);
+            w += n;
+            r += n - 1;
+            line_start = false;
+            continue;
+        }
         if (*r == '*' || *r == '`' || (*r == '_' && r[1] == '_')) {
             if (*r == '_')
                 r++;
