@@ -122,6 +122,10 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
       run by llama.cpp's server
 - [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face,
       voice and memory, with the person's consent and without ever seeing their keys
+- [x] The companion's look is theirs to choose: a gem (the default), a light, an 8-ball, the Earth, a planet,
+      a heart, the moon, a picture (theirs, a link, or one it finds online), a drawing it makes of itself, any
+      3D model (.glb), an anime figure, or their own VRM; each shows what it is doing (`shell/emblem.c`)
+- [x] The companion looks things up on the web ([[search:]], [[read:]]); onboarding offers a browser
 - [ ] Next: Wi-Fi, USB, NVMe and more network cards
 
 ## The experience (userland/shell)
