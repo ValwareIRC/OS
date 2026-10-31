@@ -1,21 +1,28 @@
-/* Onboarding's question about the companion's body: a light (the orb), the
- * face the OS makes for her, or a VRM model of their own that is already on
- * this computer (any .vrm in their home folder or its usual folders). Asked
- * once, while the AI makes their space; Settings > Mind can change it later.
- * A model of theirs is shown as it is, never altered. */
+/* How the companion looks, chosen by the person: once in onboarding (while
+ * the AI makes their space), any time in Settings > Mind, or by asking the
+ * companion. A gallery of living previews: the built-in emblems (a gem, a
+ * light, an 8-ball, the Earth, a ringed planet, a heart, the moon), the face
+ * the OS makes, any VRM model of theirs on this computer, and "something
+ * else" (a picture, a link, a 3D model, or a description), which the
+ * companion takes from them in conversation. A model of theirs is shown as
+ * it was made. */
 #include "body.h"
 #include "app.h"
-#include "presence.h"
+#include "emblem.h"
 #include "files.h"
+#include "presence.h"
 #include "settings.h"
 
+#include <ctype.h>
 #include <dirent.h>
+#include <math.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
 #define D (A.d)
-#define MAX_FOUND 6
+#define MAX_FOUND 4
 
 static struct {
     bool onboarding, done, took;
@@ -45,19 +52,122 @@ int body_find_vrms(char out[][300], int max) {
     return n;
 }
 
-static void answered(int choice, const char *vrm) {
-    Q.done = true;
-    settings_set_int("body_asked", 1);
-    if (choice == 0) {
+/* ---- the gallery ---- */
+
+enum { T_EMBLEM, T_FACE, T_VRM, T_ELSE };
+struct tile {
+    int kind, emblem;
+    const char *vrm;
+    const char *title, *line;
+};
+
+static const char *const emblem_line[EM_COUNT] = {
+    "A cut gem, turning slowly in the light",  "A soft glow that breathes and listens",
+    "A magic 8-ball, thinking it over",        "The Earth, clouds and all",
+    "A ringed planet in the design's colours", "A heart that beats when it speaks",
+    "The moon, quiet and silver"};
+static const char *const emblem_title[EM_COUNT] = {"A gem", "A light", "An 8-ball", "The Earth",
+                                                   "A planet", "A heart", "The moon"};
+
+static int tiles(struct tile *t, char found[][300], int nfound) {
+    int n = 0;
+    for (int k = 0; k < EM_COUNT; k++)
+        t[n++] = (struct tile){T_EMBLEM, k, NULL, emblem_title[k], emblem_line[k]};
+    t[n++] = (struct tile){T_FACE, 0, NULL, "A face", "An anime-style figure who looks at you and talks"};
+    for (int i = 0; i < nfound; i++) {
+        const char *name = strrchr(found[i], '/');
+        t[n++] = (struct tile){T_VRM, 0, found[i], name ? name + 1 : found[i], "Your own model, just as it was made"};
+    }
+    t[n++] = (struct tile){T_ELSE, 0, NULL, "Something else",
+                           "A picture, a link, a 3D model, or describe it: tell me"};
+    return n;
+}
+
+/* Which tile is how it looks now. */
+static bool current(const struct tile *t) {
+    bool face = presence_mode() != PRESENCE_LIGHT;
+    bool own = access(STATE_DIR "/figure.vrm", R_OK) == 0;
+    if (t->kind == T_EMBLEM)
+        return !face && emblem_kind() == t->emblem;
+    if (t->kind == T_FACE)
+        return face && !own;
+    return false;
+}
+
+static void choose(const struct tile *t) {
+    if (t->kind == T_EMBLEM) {
         presence_set_mode(PRESENCE_LIGHT);
-        LOG("body: a light\n");
-    } else if (choice == 1) {
+        emblem_set(t->emblem);
+        LOG("body: %s\n", emblem_name(t->emblem));
+    } else if (t->kind == T_FACE) {
         presence_set_body(NULL);
         LOG("body: the face the OS makes\n");
-    } else if (!presence_set_body(vrm)) {
-        toast("That model couldn't be read. Try another in Settings.");
+    } else if (t->kind == T_VRM) {
+        if (!presence_set_body(t->vrm))
+            toast("That model couldn't be read.");
+    } else {
+        LOG("body: something else, in conversation\n");
+        toast("Tell me what you'd like me to be: a picture, a link, a 3D model, or just describe it.");
     }
 }
+
+/* The gallery in r (cols across): each tile a living preview. Returns its height. */
+int body_gallery(rect r, int cols, bool desk, bool *picked) {
+    char found[MAX_FOUND][300];
+    static uint64_t looked;
+    static char cache[MAX_FOUND][300];
+    static int ncache;
+    if (!looked || A.now - looked > 3000) {
+        looked = A.now;
+        ncache = body_find_vrms(cache, MAX_FOUND);
+    }
+    memcpy(found, cache, sizeof found);
+    struct tile t[EM_COUNT + 2 + MAX_FOUND];
+    int n = tiles(t, found, ncache);
+    color ink = desk ? D.surface_text : RGBA(31, 34, 64, 255);
+    color muted = desk ? D.muted : RGBA(107, 111, 147, 255);
+    color accent = desk ? D.accent : RGBA(124, 108, 255, 255);
+    color accent2 = desk ? D.accent2 : RGBA(255, 143, 184, 255);
+    color card = desk ? color_alpha(D.surface_text, 0.05f) : RGBA(255, 255, 255, 255);
+    font *fb = font_get_styled("Outfit", 15, 600, false, 0), *fs = font_get("Manrope", 12);
+    int gap = 12, tw = (r.w - (cols - 1) * gap) / cols, th = 150;
+    for (int i = 0; i < n; i++) {
+        rect c = {r.x + (i % cols) * (tw + gap), r.y + (i / cols) * (th + gap), tw, th};
+        bool over = pt_in(c, A.in.mx, A.in.my), now = current(&t[i]);
+        if (!desk)
+            shadow_round(A.frame, (rect){c.x, c.y + 8, c.w, c.h}, 16, 20, RGBA(60, 50, 140, over ? 50 : 24));
+        fill_round(A.frame, c, 16, card);
+        if (over || now)
+            stroke_round(A.frame, c, 16, 2, now ? accent : color_alpha(accent, 0.6f));
+        float cx = c.x + c.w / 2.0f, cy = c.y + 52;
+        if (t[i].kind == T_EMBLEM) {
+            emblem_draw_kind(A.frame, t[i].emblem, cx, cy, 30, accent, accent2, over ? ES_THINKING : ES_IDLE, 0);
+        } else if (t[i].kind == T_FACE || t[i].kind == T_VRM) { /* a little bust: head and shoulders */
+            fill_round(A.frame, (rect){(int)cx - 26, (int)cy + 10, 52, 30}, 14, color_alpha(accent, 0.35f));
+            fill_circle(A.frame, cx, cy - 6, 18, color_alpha(accent2, 0.55f));
+            fill_circle(A.frame, cx - 6, cy - 8, 2.5f, ink);
+            fill_circle(A.frame, cx + 6, cy - 8, 2.5f, ink);
+        } else { /* something else: a sparkle */
+            for (int k = 0; k < 4; k++) {
+                float a = k * 3.14159f / 2 + (over ? (float)A.now / 900.0f : 0);
+                draw_line(A.frame, cx, cy, cx + cosf(a) * 22, cy + sinf(a) * 22, 3, color_alpha(accent, 0.8f));
+            }
+            fill_circle(A.frame, cx, cy, 7, accent2);
+        }
+        draw_text_centered(A.frame, fb, (rect){c.x + 6, c.y + 92, c.w - 12, 22}, t[i].title, ink);
+        draw_text_wrapped(A.frame, fs, (rect){c.x + 12, c.y + 114, c.w - 24, 34}, t[i].line, muted, 1.15f);
+        if (now)
+            draw_text(A.frame, fs, c.x + 10, c.y + 8, "now", accent);
+        if (over && A.in.clicked) {
+            choose(&t[i]);
+            if (picked)
+                *picked = true;
+        }
+    }
+    return ((n + cols - 1) / cols) * (th + gap) - gap;
+}
+
+/* ---- the onboarding question ---- */
 
 static bool showing(void) {
     if (Q.done)
@@ -69,10 +179,6 @@ static bool showing(void) {
     if (settings_get_int("body_asked", 0)) {
         Q.done = true;
         return false;
-    }
-    if (!Q.looked_at || A.now - Q.looked_at > 3000) { /* a file they put there just now shows up */
-        Q.looked_at = A.now;
-        Q.nfound = body_find_vrms(Q.found, MAX_FOUND);
     }
     if (!Q.shown_at) {
         Q.shown_at = A.now;
@@ -95,69 +201,39 @@ void body_take_input(void) {
     A.in.mx = A.in.my = -10000;
 }
 
-static bool tile(rect t, const char *title, const char *line, font *fb, font *fs, color ink, color muted, color accent) {
-    bool over = pt_in(t, A.in.mx, A.in.my);
-    fill_round(A.frame, t, 14, color_alpha(over ? accent : ink, over ? 0.22f : 0.06f));
-    draw_text(A.frame, fb, t.x + 16, t.y + 12, title, ink);
-    draw_text(A.frame, fs, t.x + 16, t.y + 18 + font_line_height(fb), line, muted);
-    return over && A.in.clicked;
-}
-
 void body_draw(void) {
     if (!Q.took)
         return;
     A.in = Q.held;
     Q.took = false;
     bool desk = A.screen == SCR_DESKTOP;
-    color panel = desk ? (D.surface | 0xff000000u) : RGBA(24, 18, 22, 255);
-    color ink = desk ? D.surface_text : RGBA(242, 233, 226, 255);
-    color muted = desk ? D.muted : RGBA(168, 150, 142, 255);
-    color accent = desk ? D.accent : (A.prof.has_palette ? A.prof.palette[1] : RGBA(232, 131, 107, 255));
+    color panel = desk ? (D.surface | 0xff000000u) : RGBA(247, 246, 255, 255);
+    color ink = desk ? D.surface_text : RGBA(31, 34, 64, 255);
+    color muted = desk ? D.muted : RGBA(107, 111, 147, 255);
     float e = (float)(A.now - Q.shown_at) / 220.0f;
     e = e > 1 ? 1 : e;
-    fill_rect(A.frame, (rect){0, 0, A.W, A.H}, color_alpha(RGBA(0, 0, 0, 255), 0.35f * e));
-
-    font *ft = font_get(desk ? D.font_heading : "Fraunces", 26), *fb = font_get("Inter", 16), *fs = font_get("Inter", 13);
-    int tile_w = 560, tile_h = 70, gap = 10, n = 2 + Q.nfound;
-    int w = tile_w + 56, h = 116 + n * (tile_h + gap) + (Q.nfound ? 0 : 44) + 24;
+    fill_rect(A.frame, (rect){0, 0, A.W, A.H}, color_alpha(RGBA(40, 34, 90, 255), 0.30f * e));
+    int cols = 5, w = cols * 168 + (cols - 1) * 12 + 64;
+    if (w > A.W - 60)
+        w = A.W - 60;
+    int rows = (EM_COUNT + 2 + Q.nfound + cols - 1) / cols;
+    int h = 118 + rows * 162 + 30;
     rect r = {(A.W - w) / 2, (A.H - h) / 2 + (int)((1 - e) * 16), w, h};
-    shadow_round(A.frame, (rect){r.x, r.y + 16, r.w, r.h}, 22, 48, RGBA(0, 0, 0, 110));
-    fill_round(A.frame, r, 22, panel);
-    stroke_round(A.frame, r, 22, 1, color_alpha(ink, 0.12f));
+    shadow_round(A.frame, (rect){r.x, r.y + 18, r.w, r.h}, 28, 56, RGBA(40, 30, 110, 90));
+    fill_round(A.frame, r, 28, panel);
     char title[96];
     snprintf(title, sizeof title, "How should %s look?", A.prof.ai_name[0] ? A.prof.ai_name : "your companion");
-    draw_text(A.frame, ft, r.x + 28, r.y + 24, title, ink);
-    draw_text(A.frame, fs, r.x + 28, r.y + 30 + font_line_height(ft), "You can change it any time in Settings.", muted);
-
-    int y = r.y + 96;
-    if (tile((rect){r.x + 28, y, tile_w, tile_h}, "A light", "A soft glow that breathes and listens, like in Her.", fb,
-             fs, ink, muted, accent)) {
-        answered(0, NULL);
-        return;
-    }
-    y += tile_h + gap;
-    if (tile((rect){r.x + 28, y, tile_w, tile_h}, "A face",
-             "An anime-style figure in a round frame, who looks at you and talks.", fb, fs, ink, muted, accent)) {
-        answered(1, NULL);
-        return;
-    }
-    y += tile_h + gap;
-    for (int i = 0; i < Q.nfound; i++, y += tile_h + gap) {
-        const char *name = strrchr(Q.found[i], '/');
-        char t[160];
-        snprintf(t, sizeof t, "Your model: %s", name ? name + 1 : Q.found[i]);
-        if (tile((rect){r.x + 28, y, tile_w, tile_h}, t, "A VRM model of yours, shown just as it was made.", fb, fs, ink,
-                 muted, accent)) {
-            answered(2, Q.found[i]);
-            return;
-        }
-    }
-    if (!Q.nfound)
-        draw_text_wrapped(A.frame, fs, (rect){r.x + 28, y + 2, tile_w, 44},
-                          "Have a VRM model (from VRoid Studio, say)? Put the .vrm file in your Downloads folder and it "
-                          "shows here.",
-                          muted, 1.3f);
+    font *ft = font_get_styled("Outfit", 28, 600, false, 0), *fs = font_get("Manrope", 14);
+    draw_text(A.frame, ft, r.x + 32, r.y + 26, title, ink);
+    draw_text(A.frame, fs, r.x + 32, r.y + 34 + font_line_height(ft),
+              "Pick one to begin. You can change it any time, in Settings or just by asking.", muted);
+    bool picked = false;
+    body_gallery((rect){r.x + 32, r.y + 104, r.w - 64, r.h - 130}, cols, desk, &picked);
     for (int i = 0; i < A.in.nkeys; i++)
         if (A.in.keys[i] == K_ESC)
-            answered(0, NULL);
+            picked = true;
+    if (picked) {
+        Q.done = true;
+        settings_set_int("body_asked", 1);
+    }
 }

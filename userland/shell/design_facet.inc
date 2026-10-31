@@ -34,7 +34,7 @@ static void reach_rec(const fm_node *n, bool *reach, bool *search) {
             continue;
         if (!strcasecmp(n->tag, "search"))
             *search = true;
-        if (!strcasecmp(n->tag, "orb"))
+        if (!strcasecmp(n->tag, "orb") || !strcasecmp(n->tag, "ai"))
             reach[APP_COMPANION] = true;
         if (!strcasecmp(n->tag, "view")) {
             const char *a = fm_attr_get(n, "app");

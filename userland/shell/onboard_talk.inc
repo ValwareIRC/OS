@@ -703,12 +703,11 @@ static int user_turns(void) {
 static float tscale(void) { return A.prof.text_scale > 0.5f ? A.prof.text_scale : 1.0f; }
 /* A light room gets dark words; everything else light ones. */
 static bool light_room(void) { return room_set && room_mix > 0.5f && color_luma(room_wall.wp[0]) > 0.55f; }
-static color ink(float a) {
-    color base = light_room() ? RGBA(36, 28, 24, 255) : PRE_TEXT;
-    return color_alpha(base, A.prof.high_contrast ? (a < 0.85f ? 0.92f : 1.0f) : a);
-}
-/* Quiet fills for chips and cards that read on either kind of room. */
-static color wash(int alpha) { return light_room() ? RGBA(40, 30, 20, alpha * 3 / 4) : RGBA(255, 255, 255, alpha); }
+/* Words sit on white cards and pills (whatever room is behind them), so
+ * they are always dark ink. */
+static color ink(float a) { return color_alpha(LK_INK, A.prof.high_contrast ? (a < 0.85f ? 0.92f : 1.0f) : a); }
+/* Quiet fills for chips and cards: a tint of the accent. */
+static color wash(int alpha) { return RGBA(124, 108, 255, alpha * 2 / 3); }
 
 /* Centred, film-like lines of the companion's words. Returns the height. */
 static int centred_text(font *f, int y, int maxw, const char *s, color col, bool draw) {
@@ -742,13 +741,9 @@ static int centred_text(font *f, int y, int maxw, const char *s, color col, bool
 static void draw_backdrop(color a, color b) {
     color bg1 = A.prof.has_palette ? color_mix(PRE_BG, A.prof.palette[0], 0.3f) : PRE_BG;
     color bg2 = A.prof.has_palette ? color_mix(PRE_BG2, A.prof.palette[3], 0.3f) : PRE_BG2;
-    if (!room_set || room_mix < 1) {
-        if (A.prof.reduce_motion) {
-            fill_vgradient(A.frame, (rect){0, 0, A.W, A.H}, bg1, bg2);
-        } else {
-            ui_backdrop(bg1, a, b, bg2);
-        }
-    }
+    (void)bg1, (void)bg2, (void)a, (void)b;
+    if (!room_set || room_mix < 1)
+        look_stage();
     if (room_set) {
         room_mix += A.prof.reduce_motion ? 1.0f : 0.02f;
         if (room_mix > 1)
@@ -766,14 +761,8 @@ static void draw_backdrop(color a, color b) {
             uint32_t g = ((((s & 0x00ff00) * (uint32_t)k) + ((d & 0x00ff00) * (uint32_t)(256 - k))) >> 8) & 0x00ff00;
             dst[i] = 0xff000000u | rb | g;
         }
-        /* A soft band behind the words only, so the room keeps its light. */
-        bool light = light_room();
-        int peak = A.prof.high_contrast ? 170 : 105;
-        color clear = light ? RGBA(255, 250, 244, 0) : RGBA(8, 6, 10, 0);
-        color veil = light ? RGBA(255, 250, 244, peak) : RGBA(8, 6, 10, peak);
-        fill_vgradient(A.frame, (rect){0, 230, A.W, 110}, clear, veil);
-        fill_rect(A.frame, (rect){0, 340, A.W, 200}, veil);
-        fill_vgradient(A.frame, (rect){0, 540, A.W, 130}, veil, clear);
+        /* the words sit on white cards: the room keeps all its light */
+        (void)light_room;
     }
 }
 
@@ -782,10 +771,12 @@ static void draw_backdrop(color a, color b) {
 static void draw_portrait(void) {
     if (!A.prof.nfacts)
         return;
-    font *f = font_get("Inter", 13 * tscale());
-    int y = 110, x = 36, maxw = 300;
-    draw_text(A.frame, f, x, y - 26, "What I'm learning", ink(0.38f));
-    for (int i = 0; i < A.prof.nfacts && y < A.H - 180; i++) {
+    /* collected, like badges: a coloured mark and the words, on white */
+    font *f = lk_body(13 * tscale());
+    int y = 118, x = 40, maxw = 270;
+    draw_text(A.frame, lk_label(10), x, y - 28, "WHAT I'M LEARNING", LK_FAINT);
+    static const color marks[] = {LK_ACCENT, LK_ACCENT2, LK_MINT, LK_SUN};
+    for (int i = 0; i < A.prof.nfacts && y < A.H - 200; i++) {
         char t[300];
         snprintf(t, sizeof t, "%s", A.prof.facts[i].val);
         /* the newest part of an accumulated value is the interesting one */
@@ -793,18 +784,22 @@ static void draw_portrait(void) {
         const char *show = last ? last + 2 : t;
         char cut[120];
         snprintf(cut, sizeof cut, "%s", show);
-        while (text_width(f, cut) > maxw - 28 && strlen(cut) > 4)
+        while (text_width(f, cut) > maxw - 56 && strlen(cut) > 4)
             strcpy(cut + strlen(cut) - 4, "...");
-        int w = text_width(f, cut) + 28, h = (int)(font_line_height(f) + 14);
+        int h = (int)(font_line_height(f) + 20), w = maxw;
         rect r = {x, y, w, h};
         bool hover = ui_hover(r);
-        float age = (float)(A.now - A.screen_since) / 1000.0f;
-        (void)age;
-        fill_round(A.frame, r, h / 2.0f, wash(hover ? 34 : 16));
-        draw_text(A.frame, f, x + 14, y + 7, cut, ink(hover ? 0.9f : 0.62f));
+        look_card(r, 14, hover, false);
+        if (hover)
+            r.y -= 3;
+        rect mark = {r.x + 10, r.y + (h - 24) / 2, 24, 24};
+        fill_round(A.frame, mark, 8, marks[i % 4]);
+        char letter[2] = {(char)toupper((unsigned char)A.prof.facts[i].key[0]), 0};
+        draw_text_centered(A.frame, lk_bold(12), mark, letter, LK_WHITE);
+        draw_text(A.frame, f, r.x + 44, r.y + (h - font_line_height(f)) / 2, cut, ink(hover ? 1 : 0.85f));
         if (hover) {
-            font *s = font_get("Inter", 12 * tscale());
-            draw_text(A.frame, s, x + w + 10, y + 8, "tap to forget", ink(0.4f));
+            font *s = lk_body(12 * tscale());
+            draw_text(A.frame, s, x + w + 12, y + (h - font_line_height(s)) / 2, "click to take back", LK_SOFT);
             if (A.in.clicked) {
                 char note[400];
                 snprintf(note, sizeof note, "(They took back what you had noted under %s: \"%s\". Forget it.)",
@@ -821,7 +816,7 @@ static void draw_portrait(void) {
 static void draw_pick(int y, color accent) {
     struct pick *pk = &A.pick;
     float s = tscale();
-    font *body = font_get("Inter", 17 * s), *small = font_get("Inter", 13 * s);
+    font *body = lk_head(18 * s), *small = lk_body(13 * s);
     const char *k = pk->kind;
     bool room = !strcmp(k, "room"), pal = !strcmp(k, "palette"), type = !strcmp(k, "type"), tempo = !strcmp(k, "tempo");
     int cw = room ? 280 : pal ? 220 : type ? 300 : tempo ? 220 : 250;
@@ -843,7 +838,16 @@ static void draw_pick(int y, color accent) {
             LOGRECT(name, r);
         }
         bool hover = ui_hover(r);
-        fill_round(A.frame, r, 18, wash(hover ? 40 : 18));
+        /* a key for each: 1, 2, 3 ... picks it too */
+        bool key = false;
+        for (int q = 0; q < A.in.nkeys && A.reply.len == 0; q++) /* not while they type a reply */
+            key = key || A.in.keys[q] == '1' + i;
+        look_card(r, 20, hover, false);
+        if (hover)
+            r.y -= 3; /* it lifts */
+        char num[4];
+        snprintf(num, sizeof num, "%d", i + 1);
+        look_keycap(r.x + r.w - 34, r.y + 10, num, hover);
         if (room) {
             rect th = {r.x + 10, r.y + 10, r.w - 20, r.h - 80};
             if (!pk->thumb[i] || pk->thumb[i]->w != th.w)
@@ -877,14 +881,12 @@ static void draw_pick(int y, color accent) {
             float speed = n > 1 ? 0.25f + 1.6f * (float)i / (float)(n - 1) : 1;
             float ph = A.prof.reduce_motion ? 0 : sinf((float)A.now / 1000.0f * speed * 3.1416f);
             float rad = 30 + 7 * ph;
-            ui_orb(A.frame, r.x + r.w / 2.0f, r.y + 64, rad, accent, color_mix(accent, PRE_TEXT, 0.5f), false);
+            ui_orb(A.frame, r.x + r.w / 2.0f, r.y + 64, rad, accent, color_mix(accent, LK_WHITE, 0.5f), false);
             draw_text_centered(A.frame, body, (rect){r.x, r.y + r.h - 46, r.w, 30}, pk->label[i], ink(0.9f));
         } else {
             draw_text_wrapped(A.frame, body, (rect){r.x + 18, r.y + 16, r.w - 36, r.h - 20}, pk->label[i], ink(1), 1.2f);
         }
-        if (hover)
-            stroke_round(A.frame, r, 18, 1.4f, color_alpha(accent, 0.9f));
-        if (hover && A.in.clicked) {
+        if ((hover && A.in.clicked) || key) {
             record_pick(i);
             return;
         }
@@ -927,13 +929,49 @@ void onboard_draw(void) {
 
     float s = tscale();
     bool thinking = c->pending != NULL;
-    ui_orb(A.frame, A.W / 2.0f, 190, 54, a, b, thinking && !A.prof.reduce_motion);
-    font *name_f = font_get("Inter", 15 * s);
-    if (A.prof.ai_name[0])
-        draw_text_centered(A.frame, name_f, (rect){0, 262, A.W, 24}, A.prof.ai_name, ink(0.6f));
 
-    font *big = font_get(A.prof.type_font[0] ? A.prof.type_font : "Fraunces", 25 * s);
-    font *body = font_get("Inter", 18 * s), *small = font_get("Inter", 14 * s);
+    /* chapters along the top: what has been settled, what is being asked */
+    {
+        static const char *const labels[] = {"COMFORT", "YOU", "COLOURS", "HOME", "WORDS", "RHYTHM", "PRESENCE", "A NAME"};
+        static const char *const kinds[] = {"comfort", NULL, "palette", "room", "type", "tempo", "presence", NULL};
+        int st[8];
+        bool now_set = false;
+        for (int i = 0; i < 8; i++) {
+            bool done = false;
+            if (kinds[i])
+                for (int k = 0; k < n_answered && !done; k++)
+                    done = !strcmp(answered[k], kinds[i]);
+            else
+                done = i == 1 ? user_turns() >= 2 : A.prof.ai_name[0] != 0;
+            bool now = A.pick.active && kinds[i] && !strcmp(A.pick.kind, kinds[i]);
+            st[i] = done ? 2 : now ? 1 : 0;
+            now_set = now_set || now;
+        }
+        if (!now_set) /* talking, not picking: the first chapter still open */
+            for (int i = 0; i < 8; i++)
+                if (st[i] == 0) {
+                    st[i] = 1;
+                    break;
+                }
+        look_steps(26, labels, st, 8);
+    }
+
+    /* the companion, as it has chosen (or been given) to look; its name on a tag */
+    emblem_draw(A.frame, A.W / 2.0f, 168, 54, room_set ? a : LK_ACCENT, room_set ? b : LK_ACCENT2,
+                thinking && !A.prof.reduce_motion);
+    if (A.prof.ai_name[0]) {
+        char up[48];
+        snprintf(up, sizeof up, "%s", A.prof.ai_name);
+        for (char *p = up; *p; p++)
+            *p = (char)toupper((unsigned char)*p);
+        font *nf = lk_label(11);
+        int w = text_width(nf, up) + 30;
+        rect tag = {A.W / 2 - w / 2, 240, w, 28};
+        look_pill(tag, LK_WHITE, 0);
+        draw_text_centered(A.frame, nf, tag, up, LK_ACCENT);
+    }
+
+    font *big = lk_head(28 * s), *body = lk_body(16 * s), *bold = lk_bold(16 * s), *small = lk_body(13 * s);
     const char *you = last_of(c, "user");
     /* The companion's last real words stay up, even if a reply came back
      * empty; before it has spoken, the OS asks about comfort itself. */
@@ -943,43 +981,70 @@ void onboard_draw(void) {
             ai = c->msgs[i].text;
     if (!ai && A.pick.active && !strcmp(A.pick.kind, "comfort"))
         ai = "Before anything else: is this comfortable for you to read?";
-    int y = 300, maxw = (int)(780 * (s > 1 ? 1.15f : 1));
-    if (you && user_turns() > 0) {
-        /* their last words, one quiet line */
-        char line[400];
-        snprintf(line, sizeof line, "“%s”", you);
-        while (text_width(body, line) > maxw && strlen(line) > 8)
-            strcpy(line + strlen(line) - 8, "...”");
-        draw_text_centered(A.frame, body, (rect){0, y, A.W, 30}, line, ink(0.42f));
-    }
-    y += 48;
-    /* the mind on this computer still loading its model: say so, kindly */
+
+    /* what it says, on a card with a little point towards it */
+    int cw = (int)(860 * (s > 1 ? 1.12f : 1));
+    if (cw > A.W - 120)
+        cw = A.W - 120;
+    int maxw = cw - 88;
     bool waking = !strcmp(A.cfg.provider, "builtin") && mind_builtin_waking_for() > 0 && !mind_builtin_ready();
+    bool said = you && user_turns() > 0;
+    char you_line[300] = "";
+    if (said) {
+        snprintf(you_line, sizeof you_line, "\xe2\x80\x9c%s\xe2\x80\x9d", you);
+        while (text_width(bold, you_line) > maxw - 90 && strlen(you_line) > 10)
+            strcpy(you_line + strlen(you_line) - 10, "...\xe2\x80\x9d");
+    }
+    if (c->error[0] && c->errors <= 1 && A.now - c->pending_since > 2500 && !thinking)
+        convo_send(c, onboarding_system(), 700); /* one quiet retry before bothering them */
+    int content = 0;
+    if (thinking && waking)
+        content = centred_text(big, 0, maxw, "x", 0, false) + 60;
+    else if (thinking)
+        content = 44;
+    else if (c->error[0])
+        content = centred_text(body, 0, maxw, c->error, 0, false) + 70;
+    else if (ai)
+        content = centred_text(big, 0, maxw, ai, 0, false);
+    else
+        content = 44;
+    rect card = {(A.W - cw) / 2, 292, cw, content + (said ? 36 : 0) + 60};
+    look_card(card, 28, false, false);
+    float tip[8] = {A.W / 2.0f, card.y - 9.0f, A.W / 2.0f + 11, card.y + 2.0f, A.W / 2.0f, card.y + 13.0f,
+                    A.W / 2.0f - 11, card.y + 2.0f};
+    fill_polygon(A.frame, tip, 4, LK_WHITE);
+    int y = card.y + 30;
+    if (said) { /* their last words, in the accent */
+        const char *lead = "You said ";
+        int lw = text_width(body, lead), qw = text_width(bold, you_line), x = A.W / 2 - (lw + qw) / 2;
+        draw_text(A.frame, body, x, y, lead, LK_SOFT);
+        draw_text(A.frame, bold, x + lw, y, you_line, LK_ACCENT);
+        y += 36;
+    }
     if (thinking && waking) {
         char who[80], sub[160];
         snprintf(who, sizeof who, "%s is waking up", A.prof.ai_name[0] ? A.prof.ai_name : "Your AI");
         y += centred_text(big, y, maxw, who, ink(1), true);
         int t = mind_builtin_waking_for();
         snprintf(sub, sizeof sub, "Loading %s into memory  \xc2\xb7  %d:%02d", models_selected()->name, t / 60, t % 60);
-        draw_text_centered(A.frame, small, (rect){0, y + 12, A.W, 22}, sub, ink(0.5f));
+        draw_text_centered(A.frame, small, (rect){0, y + 8, A.W, 22}, sub, LK_SOFT);
         if (t > 20)
-            draw_text_centered(A.frame, small, (rect){0, y + 36, A.W, 22},
-                               "The first time can take a few minutes. It's quicker after that.", ink(0.4f));
-    } else if (thinking) {
-        int dots = (int)((A.now / 400) % 4);
-        char d[8] = "";
-        for (int i = 0; i < dots; i++)
-            strcat(d, ".");
-        draw_text_centered(A.frame, big, (rect){0, y, A.W, 50}, d, ink(0.7f));
-    } else if (c->error[0] && c->errors <= 1 && A.now - c->pending_since > 2500) {
-        convo_send(c, onboarding_system(), 700); /* one quiet retry before bothering them */
+            draw_text_centered(A.frame, small, (rect){0, y + 30, A.W, 22},
+                               "The first time can take a few minutes. It's quicker after that.", LK_FAINT);
+    } else if (thinking) { /* three dots, bouncing in turn */
+        for (int i = 0; i < 3; i++) {
+            float ph = A.prof.reduce_motion ? 0 : sinf((float)A.now / 160.0f - i * 0.9f);
+            fill_circle(A.frame, A.W / 2.0f + (i - 1) * 22, y + 20 - 6 * fmaxf(0, ph), 6,
+                        color_alpha(LK_ACCENT, 0.55f + 0.45f * fmaxf(0, ph)));
+        }
     } else if (c->error[0]) {
-        y += centred_text(body, y, maxw, c->error, RGBA(255, 170, 150, 255), true);
-        if (ui_button((rect){A.W / 2 - 80, y + 20, 160, 46}, "Try again", body, color_alpha(a, 0.9f), RGBA(20, 14, 14, 255), 12, true))
+        y += centred_text(body, y, maxw, c->error, RGBA(206, 64, 108, 255), true);
+        if (ui_button((rect){A.W / 2 - 80, y + 14, 160, 44}, "Try again", bold, LK_ACCENT, LK_WHITE, 22, true))
             convo_send(c, onboarding_system(), 700);
     } else if (ai) {
         y += centred_text(big, y, maxw, ai, ink(1), true);
     }
+    y = card.y + card.h;
 
     if (A.pick.active && !thinking) {
         /* every pick says what it is asking */
@@ -990,22 +1055,47 @@ void onboard_draw(void) {
             {"tempo", "How fast should things move?"},
             {"palette", "Which of these feels like yours?"},
         };
+        y += 16;
         for (size_t k = 0; k < sizeof cap / sizeof cap[0]; k++)
-            if (!strcmp(A.pick.kind, cap[k][0])) {
-                y += 14;
-                draw_text_centered(A.frame, small, (rect){0, y, A.W, 24}, cap[k][1], ink(0.6f));
-                y += 20;
-            }
-        draw_pick(y + 22, a);
+            if (!strcmp(A.pick.kind, cap[k][0]))
+                draw_text_centered(A.frame, small, (rect){0, y, A.W, 22}, cap[k][1], LK_SOFT);
+        draw_pick(y + 34, a);
     }
     draw_portrait();
 
-    /* Reply box */
-    rect box = {A.W / 2 - 420, A.H - 120, 840, (int)(56 * (s > 1 ? 1.15f : 1))};
+    /* the reply bar: words, the microphone, send */
+    rect bar = {A.W / 2 - 440, A.H - 132, 880, (int)(62 * (s > 1 ? 1.1f : 1))};
     bool can_type = !thinking && !A.onboard_done;
-    ui_textfield(box, &A.reply, can_type, A.pick.active ? "Choose above, or just tell me..." : "Say anything...", body,
-                 wash(22), ink(1), ink(0.45f), 28);
-    if (can_type && ui_type(&A.reply) && A.reply.len) {
+    look_pill(bar, LK_WHITE, RGBA(124, 108, 255, 34));
+    rect field = {bar.x + 14, bar.y + 3, bar.w - 140, bar.h - 6};
+    const char *hold = voice_listening() ? "Listening... (Ctrl+Space when you're done)"
+                       : voice_hearing() ? "Writing down what you said..."
+                       : A.pick.active  ? "Say anything, or pick one above..."
+                                        : "Say anything...";
+    ui_textfield(field, &A.reply, can_type, hold, body, 0, LK_INK, LK_FAINT, bar.h / 2.0f);
+    float my = bar.y + bar.h / 2.0f, mx = bar.x + bar.w - 92.0f, sx = bar.x + bar.w - 36.0f;
+    bool listening = voice_listening();
+    float pulse = listening && !A.prof.reduce_motion ? 2 * sinf((float)A.now / 180.0f) : 0;
+    fill_circle(A.frame, mx, my, 23 + pulse, listening ? LK_ACCENT : RGBA(241, 240, 251, 255));
+    color mic = listening ? LK_WHITE : LK_ACCENT;
+    fill_round(A.frame, (rect){(int)mx - 5, (int)my - 11, 10, 15}, 5, mic);
+    draw_arc(A.frame, mx, my - 2, 9, 0.15f, 3.14159265f - 0.15f, 2, mic);
+    draw_line(A.frame, mx, my + 7, mx, my + 12, 2, mic);
+    bool over_mic = (A.in.mx - mx) * (A.in.mx - mx) + (A.in.my - my) * (A.in.my - my) < 23 * 23;
+    if (over_mic && A.in.clicked && !thinking && voice_can_hear()) {
+        if (listening)
+            voice_listen_stop();
+        else
+            voice_listen_start();
+    }
+    glow_circle(A.frame, sx, my + 4, 30, RGBA(124, 108, 255, 70));
+    fill_circle(A.frame, sx, my, 24, A.reply.len ? LK_ACCENT : RGBA(170, 160, 255, 255));
+    draw_line(A.frame, sx - 8, my, sx + 8, my, 2.6f, LK_WHITE);
+    draw_line(A.frame, sx + 2, my - 6, sx + 8, my, 2.6f, LK_WHITE);
+    draw_line(A.frame, sx + 2, my + 6, sx + 8, my, 2.6f, LK_WHITE);
+    bool over_send = (A.in.mx - sx) * (A.in.mx - sx) + (A.in.my - my) * (A.in.my - my) < 24 * 24;
+    bool entered = can_type && ui_type(&A.reply);
+    if (can_type && A.reply.len && (entered || (over_send && A.in.clicked))) {
         free_pick(&A.pick);
         n_queued = 0;
         if (choices[0]) { /* picks already made from this message count too */
@@ -1019,11 +1109,32 @@ void onboard_draw(void) {
         A.reply.len = 0;
         A.reply.buf[0] = 0;
     }
-    draw_text_centered(A.frame, small, (rect){0, A.H - 52, A.W, 20},
-                       user_turns() < 2 ? (voice_can_hear() ? "Press Enter to answer, or Ctrl+Space to talk. You can skip anything."
-                                                            : "Press Enter to answer. You can skip anything.")
-                                        : "",
-                       ink(0.32f));
+
+    /* the keys, as little keycaps, for the first few turns */
+    if (user_turns() < 3) {
+        struct {
+            const char *key, *after;
+        } parts[8];
+        int np = 0;
+#define PART(k, s) (parts[np].key = (k), parts[np++].after = (s))
+        PART("ENTER", " to answer");
+        if (voice_can_hear())
+            PART("CTRL", "+"), PART("SPACE", " to talk");
+        if (A.pick.active)
+            PART("1", ""), PART("2", ""), PART("3", " to pick");
+#undef PART
+        const char *tail = "  \xc2\xb7  you can skip anything";
+        int w = text_width(small, tail);
+        for (int i = 0; i < np; i++)
+            w += text_width(lk_label(10), parts[i].key) + 14 + text_width(small, parts[i].after) + 6;
+        int x = A.W / 2 - w / 2, hy = A.H - 52;
+        fill_round(A.frame, (rect){x - 14, hy - 5, w + 28, 32}, 16, RGBA(255, 255, 255, 170));
+        for (int i = 0; i < np; i++) {
+            x += look_keycap(x, hy, parts[i].key, false) + 4;
+            x += draw_text(A.frame, small, x, hy + 3, parts[i].after, LK_SOFT) + 2;
+        }
+        draw_text(A.frame, small, x, hy + 3, tail, LK_FAINT);
+    }
     /* talking instead of typing */
     if (voice_toggle_pressed() && !thinking) {
         if (voice_listening())
@@ -1031,7 +1142,6 @@ void onboard_draw(void) {
         else
             voice_listen_start();
     }
-    voice_indicator(A.W / 2, A.H - 160, a);
     char *heard = voice_poll_heard();
     if (heard && !thinking && !A.onboard_done) {
         free_pick(&A.pick);
@@ -1050,8 +1160,9 @@ void onboard_draw(void) {
             design_begin(NULL);
         }
     } else if (user_turns() >= 8 && !thinking) {
-        rect skip = {A.W - 300, 40, 260, 44};
-        if (ui_button(skip, "That's enough, make it now", small, wash(24), ink(1), 22, true))
+        rect skip = {A.W - 290, 24, 250, 36};
+        look_pill(skip, LK_WHITE, RGBA(124, 108, 255, 40));
+        if (ui_button(skip, "That's enough, make it now", small, 0, LK_ACCENT, 18, true))
             design_begin(NULL);
     }
 }

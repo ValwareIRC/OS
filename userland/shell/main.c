@@ -3,6 +3,7 @@
  * the desktop itself, drawn straight to /dev/fb0 from the AI's design. */
 #include "presence.h"
 #include "app.h"
+#include "emblem.h"
 #include "fm/fm.h"
 #include "wallpaper.h"
 #include "wl/wl.h"
@@ -53,7 +54,7 @@ static void splash_draw(void) {
     float t = (float)(A.now - A.screen_since) / 1000.0f;
     ui_backdrop(RGBA(14, 11, 12, 255), RGBA(120, 46, 40, 255), RGBA(232, 131, 107, 255), RGBA(44, 18, 26, 255));
     float fade = t < 1.2f ? t / 1.2f : 1;
-    ui_orb(A.frame, A.W / 2.0f, A.H / 2.0f - 50, 54 * fade + 1, RGBA(232, 131, 107, 255), RGBA(255, 214, 170, 255), false);
+    emblem_draw(A.frame, A.W / 2.0f, A.H / 2.0f - 50, 54 * fade + 1, RGBA(232, 131, 107, 255), RGBA(255, 214, 170, 255), false);
     font *f = font_get("Fraunces", 52), *s = font_get("Inter", 18);
     draw_text_centered(A.frame, f, (rect){0, A.H / 2 + 50, A.W, 70}, "Operating System", color_alpha(RGBA(242, 233, 226, 255), fade));
     draw_text_centered(A.frame, s, (rect){0, A.H / 2 + 120, A.W, 30}, "a computer that gets to know you",

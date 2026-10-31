@@ -29,6 +29,7 @@
 #include "presence.h"
 #include "voice.h"
 #include "appapi.h"
+#include "emblem.h"
 
 #define D (A.d)
 #define FIGURE "/usr/libexec/os-figure"
@@ -705,6 +706,25 @@ bool presence_avatar(const char *kind, const char *name) {
     return true;
 }
 
+/* [[emblem:gem]] (or a light, an 8-ball, the Earth...), [[emblem:face]]: how it looks, when they ask */
+static void do_emblem(const char *a) {
+    char w[40] = "";
+    sscanf(a, " %39[^]]", w);
+    for (char *p = w + strlen(w); p > w && p[-1] == ' '; )
+        *--p = 0;
+    if (!strcasecmp(w, "face") || !strcasecmp(w, "figure")) {
+        presence_set_body(NULL);
+        return;
+    }
+    int k = emblem_from_name(w);
+    if (k < 0) {
+        LOG("presence: no emblem called %s\n", w);
+        return;
+    }
+    presence_set_mode(PRESENCE_LIGHT);
+    emblem_set(k);
+}
+
 static void do_figure(const char *a) {
     if (strstr(a, "<figure"))
         presence_set_look(a);
@@ -716,14 +736,23 @@ void presence_tags(char *text, bool act) {
     take_tag(text, "[[act:", act, do_act);
     take_tag(text, "[[mood:", act, do_mood);
     take_tag(text, "[[figure:", act && P.mode != PRESENCE_LIGHT, do_figure);
+    take_tag(text, "[[emblem:", act, do_emblem);
 }
 
 const char *presence_prompt(void) {
-    if (P.mode == PRESENCE_LIGHT)
-        return "";
+    if (P.mode == PRESENCE_LIGHT) {
+        static char buf[600];
+        snprintf(buf, sizeof buf,
+                 "\nThey see you on their desktop as %s%s, alive with what you do (it turns while you think, glints as "
+                 "you speak). They chose it; when they ask you to look different, end with [[emblem:gem]] (or orb, "
+                 "8-ball, earth, planet, heart, moon, or face for an anime figure). It changes at once.",
+                 emblem_kind() == EM_ORB ? "" : "a ", emblem_kind() == EM_ORB ? "a light" : emblem_name(emblem_kind()));
+        return buf;
+    }
     return "\nYou have a body: an anime-style figure in a round frame on their desktop, who looks at the pointer, "
            "breathes, blinks and moves her mouth as you speak. [[act:wave]] (or nod, shake, bow, clap, point, shrug, "
            "laugh, cheer, yawn, stretch, tilt) makes a gesture; [[mood:happy]] (or calm, sad, excited, sleepy, curious, "
            "proud, worried) sets your face until you change it. Where the design shows you in an <avatar>, its shot attribute is how close the camera is: [[ui:set #id shot=face]] (head and shoulders, closest), bust, waist or full. Use them now and then, when they fit what you say; never "
-           "describe your own movements in words.";
+           "describe your own movements in words. If they want you to look different, end with [[emblem:gem]] (or "
+           "orb, 8-ball, earth, planet, heart, moon).";
 }

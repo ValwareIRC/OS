@@ -9,6 +9,7 @@
 #include "preview.h"
 #include "../lib/json.h"
 #include "body.h"
+#include "emblem.h"
 #include "browsers.h"
 
 #include <ctype.h>
@@ -24,24 +25,18 @@
  * the only ones the OS draws in its own plain style: dark, warm, quiet. From
  * the conversation onward, everything the person sees is shaped by the AI. */
 
-#define PRE_BG RGBA(14, 11, 12, 255)
-#define PRE_BG2 RGBA(38, 20, 18, 255)
-#define PRE_TEXT RGBA(242, 233, 226, 255)
-#define PRE_MUTED RGBA(168, 150, 142, 255)
-#define PRE_ACCENT RGBA(232, 131, 107, 255)
+#define PRE_BG RGBA(247, 246, 255, 255)
+#define PRE_BG2 RGBA(240, 242, 252, 255)
+#define PRE_TEXT RGBA(31, 34, 64, 255)
+#define PRE_MUTED RGBA(107, 111, 147, 255)
+#define PRE_ACCENT RGBA(124, 108, 255, 255)
 
-/* Glass card for the first-boot screens. */
-static void pre_card(rect r, float radius, bool hover) {
-    if (hover)
-        glow_round(A.frame, r, radius, 22, color_alpha(PRE_ACCENT, 0.35f));
-    blur_fast(A.frame, r, radius, 10);
-    fill_round_vgradient(A.frame, r, radius, RGBA(255, 238, 226, hover ? 40 : 24), RGBA(255, 238, 226, hover ? 22 : 8));
-    stroke_round_vgradient(A.frame, r, radius, 1, RGBA(255, 255, 255, hover ? 110 : 60), RGBA(255, 255, 255, 8));
-}
+#include "onboard_look.inc"
 
-static void pre_background(void) {
-    ui_backdrop(PRE_BG, RGBA(120, 46, 40, 255), RGBA(232, 131, 107, 255), RGBA(44, 18, 26, 255));
-}
+/* A card for the first-boot screens: white, softly lifted. */
+static void pre_card(rect r, float radius, bool hover) { look_card(r, radius, hover, false); }
+
+static void pre_background(void) { look_stage(); }
 
 /* ---------------------------------------------------------------------
  * Conversations: requests run in a child process so the screen stays live.
@@ -246,8 +241,8 @@ static const char *groups[] = {"Big labs", "Aggregators", "On your network", "En
 
 void choose_draw(void) {
     pre_background();
-    font *title = font_get("Fraunces", 46), *sub = font_get("Inter", 18), *name = font_get("Inter", 18),
-         *small = font_get("Inter", 14), *head = font_get("Inter", 13);
+    font *title = lk_head(46), *sub = lk_body(18), *name = lk_body(18),
+         *small = lk_body(14), *head = lk_body(13);
     int x0 = A.W / 2 - 640;
     draw_text(A.frame, title, x0, 70, "Choose a mind", PRE_TEXT);
     draw_text(A.frame, sub, x0, 136,
@@ -328,19 +323,19 @@ static void use_local_model(int i) {
 
 void models_draw(void) {
     pre_background();
-    font *title = font_get("Fraunces", 46), *sub = font_get("Inter", 18), *name = font_get("Inter", 18),
-         *small = font_get("Inter", 14);
+    font *title = lk_head(46), *sub = lk_body(18), *name = lk_body(18),
+         *small = lk_body(14);
     int x0 = A.W / 2 - 520, w = 1040;
     draw_text(A.frame, title, x0, 70, "A mind on this computer", PRE_TEXT);
     draw_text_wrapped(A.frame, sub, (rect){x0, 136, w, 60},
                       "Private, and it works without the internet. One capable model comes with the system; bigger "
                       "ones can be downloaded now, or any time later in Settings.",
                       PRE_MUTED, 1.3f);
-    palette p = {PRE_TEXT, PRE_MUTED, PRE_ACCENT, RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 40), PRE_BG, 1};
+    palette p = {PRE_TEXT, PRE_MUTED, PRE_ACCENT, RGBA(255, 255, 255, 255), RGBA(124, 108, 255, 22), PRE_BG, 1};
     rect area = {x0, 0, w, 0};
     models_list(area, 214, &p, name, small, small, use_local_model);
     rect back = {x0, A.H - 70, 110, 40};
-    if (ui_button(back, "Back", small, RGBA(255, 255, 255, 24), PRE_TEXT, 20, true))
+    if (ui_button(back, "Back", small, RGBA(124, 108, 255, 22), PRE_TEXT, 20, true))
         set_screen(SCR_CHOOSE);
 }
 
@@ -395,8 +390,8 @@ static void begin_onboarding(const char *model) {
 void connect_draw(void) {
     pre_background();
     const struct ai_provider *p = A.provider;
-    font *title = font_get("Fraunces", 40), *label = font_get("Inter", 15), *body = font_get("Inter", 18),
-         *small = font_get("Inter", 14);
+    font *title = lk_head(40), *label = lk_body(15), *body = lk_body(18),
+         *small = lk_body(14);
     rect card = {A.W / 2 - 380, 120, 760, 640};
     pre_card(card, 28, false);
     int x = card.x + 48, y = card.y + 44;
@@ -409,13 +404,13 @@ void connect_draw(void) {
     if (p->url_editable) {
         draw_text(A.frame, label, x, y, "Address", PRE_MUTED);
         url_r = (rect){x, y + 26, card.w - 96, 50};
-        ui_textfield(url_r, &A.url, A.focus == 0, "https://...", body, RGBA(255, 255, 255, 18), PRE_TEXT, PRE_MUTED, 12);
+        ui_textfield(url_r, &A.url, A.focus == 0, "https://...", body, LK_WHITE, PRE_TEXT, PRE_MUTED, 12);
         y += 96;
     }
     if (p->needs_key) {
         draw_text(A.frame, label, x, y, "Key", PRE_MUTED);
         key_r = (rect){x, y + 26, card.w - 96, 50};
-        ui_textfield(key_r, &A.key, A.focus == 1, "Paste or type your API key", body, RGBA(255, 255, 255, 18), PRE_TEXT,
+        ui_textfield(key_r, &A.key, A.focus == 1, "Paste or type your API key", body, LK_WHITE, PRE_TEXT,
                      PRE_MUTED, 12);
         if (clipboard_text()[0])
             draw_text(A.frame, label, key_r.x + key_r.w - 210, y, "Ctrl+V pastes from your PC", PRE_MUTED);
@@ -437,10 +432,10 @@ void connect_draw(void) {
 
     if (!A.models) {
         rect btn = {x, y + 6, 180, 50};
-        bool go = ui_button(btn, A.connect_job ? "Connecting..." : "Connect", body, PRE_ACCENT, RGBA(30, 16, 14, 255), 12,
+        bool go = ui_button(btn, A.connect_job ? "Connecting..." : "Connect", body, PRE_ACCENT, LK_WHITE, 12,
                             !A.connect_job);
         rect back = {x + 196, y + 6, 120, 50};
-        if (ui_button(back, "Back", body, RGBA(255, 255, 255, 20), PRE_TEXT, 12, !A.connect_job))
+        if (ui_button(back, "Back", body, RGBA(124, 108, 255, 22), PRE_TEXT, 12, !A.connect_job))
             set_screen(SCR_CHOOSE);
         /* the mind on this computer has nothing to type or pick: it connects
          * by itself (while the model loads) and carries straight on */
@@ -509,7 +504,7 @@ void connect_draw(void) {
             int m = A.model_scroll + i;
             rect row = {x, y + i * 44, card.w - 96, 40};
             bool sel = m == A.model_sel;
-            fill_round(A.frame, row, 10, sel ? color_alpha(PRE_ACCENT, 0.3f) : ui_hover(row) ? RGBA(255, 255, 255, 16) : 0);
+            fill_round(A.frame, row, 10, sel ? color_alpha(PRE_ACCENT, 0.3f) : ui_hover(row) ? RGBA(124, 108, 255, 14) : 0);
             draw_text(A.frame, body, row.x + 14, row.y + 9, A.models[m], sel ? PRE_TEXT : PRE_MUTED);
             if (ui_hover(row) && A.in.clicked)
                 A.model_sel = m;
@@ -522,7 +517,7 @@ void connect_draw(void) {
         }
         y += rows * 44 + 16;
         rect btn = {x, y, 220, 52};
-        bool go = ui_button(btn, "Begin", body, PRE_ACCENT, RGBA(30, 16, 14, 255), 12, true);
+        bool go = ui_button(btn, "Begin", body, PRE_ACCENT, LK_WHITE, 12, true);
         for (int i = 0; i < A.in.nkeys; i++)
             go |= A.in.keys[i] == K_ENTER;
         if (go)
@@ -798,7 +793,7 @@ void designing_draw(void) {
     companion_tick(); /* once the draft is in, they can talk it over */
 
     font *big = font_get(A.prof.type_font[0] ? A.prof.type_font : "Fraunces", 30 * tscale()),
-         *body = font_get("Inter", 16 * tscale());
+         *body = lk_body(16 * tscale());
     bool ready = !A.design_job;
     draw_text_centered(A.frame, big, (rect){0, 26, A.W, 46}, ready ? "Here it is. Make it yours." : "Making your space",
                        ink(1));

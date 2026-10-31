@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "caption.h"
 #include "app.h"
+#include "emblem.h"
 #include "fm/fm.h"
 #include "theme.h"
 #include "voice.h"
@@ -113,7 +114,7 @@ static int controls(fm_node *n, rect *out, int k, int max, int depth) {
         if (n->kind != FM_ELEM || !n->laid_out || n->st.hidden || (fm_layer_of(n) == 2 && !n->open))
             continue;
         static const char *const live[] = {"volume", "network", "notifications", "quicksettings", "clock", "search",
-                                           "button", "orb", "windowlist", NULL};
+                                           "button", "orb", "ai", "windowlist", NULL};
         bool control = n->generated || fm_attr_get(n, "what");
         for (int i = 0; live[i] && !control; i++)
             control = !strcmp(n->tag, live[i]);
@@ -369,10 +370,10 @@ void caption_draw(void) {
 
     canvas_clip(A.frame, card);
     if (compact) {
-        ui_orb(A.frame, card.x + pad + 6.0f, card.y + h / 2.0f, 6, D->accent, D->accent2, voice_speaking());
+        emblem_draw(A.frame, card.x + pad + 6.0f, card.y + h / 2.0f, 6, D->accent, D->accent2, voice_speaking());
         draw_text(A.frame, f, card.x + pad + 22, card.y + (h - lh) / 2, line, color_alpha(ink, alpha));
     } else {
-        ui_orb(A.frame, card.x + pad + 6.0f, card.y + pad + head / 2.0f - 2, 6.5f, D->accent, D->accent2, voice_speaking());
+        emblem_draw(A.frame, card.x + pad + 6.0f, card.y + pad + head / 2.0f - 2, 6.5f, D->accent, D->accent2, voice_speaking());
         draw_text(A.frame, nf, card.x + pad + 22, card.y + pad + (head - font_line_height(nf)) / 2 - 2,
                   D->ai_name[0] ? D->ai_name : "Your companion", color_alpha(accent, alpha));
         rect tb = {card.x + pad, card.y + pad + head + 6, card.w - pad * 2, th};

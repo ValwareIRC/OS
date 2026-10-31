@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "app.h"
+#include "emblem.h"
 #include "models.h"
 #include "mind.h"
 #include "wallpaper.h"
@@ -856,7 +857,7 @@ static void about_body(rect r) {
     r = rect_inset(r, 6);
     /* who: its light, the name, and for whom */
     int hh = font_line_height(h);
-    ui_orb(A.frame, r.x + 26.0f, r.y + 28.0f, 17, D.accent, D.accent2, false);
+    emblem_draw(A.frame, r.x + 26.0f, r.y + 28.0f, 17, D.accent, D.accent2, false);
     draw_text(A.frame, h, r.x + 66, r.y + 28 - hh / 2 - 8, "Operating System", ink);
     char who[160];
     if (D.user_name[0])
@@ -1389,7 +1390,7 @@ void fm_host_draw_orb(rect r, bool active) {
     color a = D.accent, b = D.accent2;
     active = active || A.companion.pending != NULL;
     alive_orb(&a, &b, &active); /* warmer as the PC heats up, attentive while listening */
-    ui_orb(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, s * 0.36f, a, b, active);
+    emblem_draw(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, s * 0.36f, a, b, active);
 }
 
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover) {

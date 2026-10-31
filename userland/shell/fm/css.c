@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "fm.h"
+#include "fmi.h"
 #include "../../lib/json.h"
 
 #include <ctype.h>
@@ -814,7 +814,7 @@ static bool has_class(const fm_node *n, const char *cls) {
 static bool match_compound(const fm_node *n, const struct compound *c) {
     if (n->kind != FM_ELEM)
         return false;
-    if (c->tag[0] && strcasecmp(c->tag, n->tag))
+    if (c->tag[0] && !same_tag(c->tag, n->tag))
         return false;
     if (c->id[0] && strcmp(c->id, n->id))
         return false;

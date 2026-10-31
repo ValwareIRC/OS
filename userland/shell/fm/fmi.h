@@ -6,7 +6,14 @@
 #include <string.h>
 #include <strings.h>
 
-static inline bool tag_is(const fm_node *n, const char *t) { return n && n->kind == FM_ELEM && !strcasecmp(n->tag, t); }
+/* Two names for one element: <ai> (the companion, however it looks) is what
+ * <orb> was; designs written with either keep working. */
+static inline bool same_tag(const char *a, const char *b) {
+    if (!strcasecmp(a, b))
+        return true;
+    return (!strcasecmp(a, "ai") || !strcasecmp(a, "orb")) && (!strcasecmp(b, "ai") || !strcasecmp(b, "orb"));
+}
+static inline bool tag_is(const fm_node *n, const char *t) { return n && n->kind == FM_ELEM && same_tag(n->tag, t); }
 
 /* Popovers and sheets are not part of the flow: they open over everything. */
 static inline bool is_popover(const fm_node *n) {

@@ -47,7 +47,8 @@ const char *fm_reference(void) {
         "selectors like \"applist item\", \"item:hover\", \"item icon\", \"item label\".\n"
         "  windowlist: one item per open window (like a taskbar); the focused one matches item:open.\n"
         "  search placeholder=\"..\": type to open an app by name, or ask the companion anything.\n"
-        "  orb: your own presence as a living light; clicking it opens your conversation.\n"
+        "  ai: you, as they chose to see you (a gem, a light, the Earth, a face...), alive with what you are doing; "
+        "clicking it opens your conversation. (Older designs call it orb: the same thing.)\n"
         "  view app=\"companion|files|notes|settings|about|terminal\": that app embedded right in the desktop.\n"
         "  spacer (pushes things apart), divider (a hairline).\n"
         "  canvas: for anything the elements can't express, write a small Lua script as its content defining "
@@ -201,7 +202,7 @@ const char *fm_examples(void) {
         "<button id=\"min\" what=\"window:minimize\"/><button id=\"max\" what=\"window:maximize\"/>"
         "<text bind=\"window.title\"/><spacer/></titlebar><slot/></frame></template>\n"
         "\n"
-        "EXAMPLE 3, nothing familiar: their things orbit your light, and the time is written in words (fragment)\n"
+        "EXAMPLE 3, nothing familiar: their things orbit you, and the time is written in words (fragment)\n"
         "<style>\n"
         "#halo { display:stack; size:620; align:center; justify:center; }\n"
         "#ring { display:orbit; orbit:230; }\n"
@@ -215,7 +216,7 @@ const char *fm_examples(void) {
         "<desktop>\n"
         "  <column place=\"top\" style=\"margin:60 0 0 0; align:center; gap:6\"><clock id=\"hour\" format=\"words\"/>"
         "<text bind=\"greeting\"/></column>\n"
-        "  <stack id=\"halo\" place=\"center\"><orb id=\"core\"/><applist id=\"ring\" labels=\"below\"/></stack>\n"
+        "  <stack id=\"halo\" place=\"center\"><ai id=\"core\"/><applist id=\"ring\" labels=\"below\"/></stack>\n"
         "  <search id=\"ask\" place=\"bottom\" placeholder=\"Ask me, or name a thing to open\"/>\n"
         "</desktop>\n";
 }

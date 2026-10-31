@@ -17,6 +17,7 @@
  * written to /etc/os/actions.log and, where it can be, undone. */
 #include "alive.h"
 #include "web.h"
+#include "emblem.h"
 #include "voice.h"
 #include "fm/fm.h"
 #include "../lib/json.h"
@@ -532,6 +533,7 @@ void actions_draw(void) {
 
 void actions_tick(void) {
     web_tick();
+    emblem_busy_hint = emblem_busy_hint || run_job != NULL; /* its light circles while it works */
     char *res = NULL;
     if (run_job && job_poll(run_job, &res)) {
         job_free(run_job);
@@ -612,6 +614,7 @@ static struct {
 static void web_child(void *arg, char **result) { *result = web_lookup(arg); }
 
 static void web_tick(void) {
+    emblem_busy_hint = web.job != NULL;
     char *res = NULL;
     if (web.job && job_poll(web.job, &res)) {
         job_free(web.job);

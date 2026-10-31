@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "settings.h"
 #include "app.h"
+#include "emblem.h"
 #include "fm/fm.h"
 #include "keymap.h"
 #include "mind.h"
@@ -970,43 +971,15 @@ static int page_mind(rect c, int y) {
         name_row(c, &y, f);
     if (mind.step == MIND_SHOW) { /* how I look: a light, the face the OS makes, or a model of theirs */
         y = settings_section(c, y, "How I look");
-        bool own = access(STATE_DIR "/figure.vrm", R_OK) == 0, face = presence_mode() != PRESENCE_LIGHT;
-        static const char *const kinds[] = {"A light", "A face", "My own model"};
-        int sel = !face ? 0 : own ? 2 : 1;
-        int pick = ctl_segmented((rect){c.x, y, 420, 40}, kinds, own ? 3 : 2, sel, f, &P);
-        if (pick != sel) {
-            if (pick == 0)
-                presence_set_mode(PRESENCE_LIGHT);
-            else if (pick == 1)
-                presence_set_body(NULL);
-            else
-                presence_set_mode(PRESENCE_FACE);
-        }
-        y += 52;
-        static char vrms[6][300];
-        static int nvrms;
-        static uint64_t looked;
-        if (!looked || A.now - looked > 3000) {
-            looked = A.now;
-            nvrms = body_find_vrms(vrms, 6);
-        }
-        for (int i = 0; i < nvrms; i++) {
-            const char *name = strrchr(vrms[i], '/');
-            draw_text(A.frame, f, c.x, y + 9, name ? name + 1 : vrms[i], P.ink);
-            if (ctl_button((rect){c.x + c.w - 150, y, 150, 36}, "Use this model", SMALL(), false, true, &P) &&
-                !presence_set_body(vrms[i]))
-                toast("That model couldn't be read.");
-            y += 44;
-        }
-        y += note_text(c, y, nvrms ? "VRM models in your home folders. Each is shown just as it was made."
-                                   : "To use a VRM model of your own (from VRoid Studio, say), put the .vrm file in "
-                                     "your Downloads folder: it shows here.") + 24;
+        y += body_gallery((rect){c.x, y, c.w, 600}, c.w >= 900 ? 5 : 4, true, NULL) + 14;
+        y += note_text(c, y, "A VRM model of yours (from VRoid Studio, say) shows here when its .vrm file is in your "
+                             "Downloads folder. For a picture, a link, a 3D model or anything else, just ask me.") + 24;
     }
     if (mind.step == MIND_SHOW) {
         rect card = {c.x, y, c.w, 112};
         fill_round(A.frame, card, 18, color_alpha(P.ink, 0.05f));
         rect ic = {card.x + 18, card.y + 20, 72, 72};
-        ui_orb(A.frame, ic.x + 36.0f, ic.y + 36.0f, 20, D.accent, D.accent2, A.companion.pending != NULL);
+        emblem_draw(A.frame, ic.x + 36.0f, ic.y + 36.0f, 20, D.accent, D.accent2, A.companion.pending != NULL);
         font *big = settings_font(SF_SECTION);
         const char *name = A.provider ? A.provider->name : A.cfg.provider[0] ? A.cfg.provider : "No mind yet";
         draw_text(A.frame, fm_host_font(D.font_heading, 22), card.x + 108, card.y + 24, name, P.ink);
