@@ -2253,13 +2253,38 @@ static bool data_disk_formatted(void) {
     return ok;
 }
 
+/* "Reset to factory" (the shell, store.c) leaves this mark in the unused gap
+ * before the apps' area: that area is then formatted afresh, so the apps and
+ * their data go too. (Erasing it from the running system wouldn't hold: the
+ * file system is written back, cleanly shut down, as the computer restarts.) */
+#define RESET_MARK_AT (300ull << 20)
+
+static bool factory_reset_asked(void) {
+    char mark[16] = {0};
+    int fd = open("/dev/sda", O_RDWR);
+    if (fd < 0)
+        return false;
+    bool asked = pread(fd, mark, sizeof mark, RESET_MARK_AT) == (ssize_t)sizeof mark && !memcmp(mark, "OSRESET1", 8);
+    if (asked) {
+        static const char zero[16];
+        if (pwrite(fd, zero, sizeof zero, RESET_MARK_AT) != (ssize_t)sizeof zero)
+            asked = false; /* never formatted over and over */
+        fsync(fd);
+    }
+    close(fd);
+    return asked;
+}
+
 static void setup_data_disk(void) {
     if (access(DATA_DEV, F_OK) != 0) {
         printf("init: no disk area for apps (" DATA_DEV "): apps from Flathub won't be kept\n");
         return;
     }
     char out[1024];
-    if (!data_disk_formatted()) {
+    bool reset = factory_reset_asked();
+    if (reset)
+        printf("init: reset to factory: the apps' area is made new\n");
+    if (reset || !data_disk_formatted()) {
         char *mk[] = {"/usr/sbin/mke2fs", "-q", "-F", "-t", "ext2", "-O", "^dir_index,^resize_inode,^ext_attr",
                       "-b", "4096", "-L", "os-data", DATA_DEV, NULL};
         int r = run(mk, out, sizeof out);

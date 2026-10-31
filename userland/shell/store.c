@@ -298,6 +298,17 @@ int store_restore(void) {
 
 bool store_available(void) { return access(dev_path, R_OK | W_OK) == 0; }
 
+/* Asks the next boot to make the apps' area new (userland/init/init.c reads it). */
+bool store_mark_factory_reset(void) {
+    int fd = open(dev_path, O_RDWR);
+    if (fd < 0)
+        return false;
+    char mark[16] = "OSRESET1";
+    bool ok = pwrite(fd, mark, sizeof mark, (off_t)300 << 20) == (ssize_t)sizeof mark && fsync(fd) == 0;
+    close(fd);
+    return ok;
+}
+
 /* Erases what is kept, so "Forget me" also forgets on the disk. */
 bool store_wipe(void) {
     int fd = open(dev_path, O_RDWR);

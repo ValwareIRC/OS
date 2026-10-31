@@ -11,4 +11,6 @@ bool store_available(void);
 int store_restore(void);
 bool store_save(void);
 bool store_wipe(void);
+/* "Reset to factory": the next boot also makes the apps' area (Flathub apps and their data) new. */
+bool store_mark_factory_reset(void);
 void store_set_roots(const char *const *roots); /* for tests: which folders are kept */

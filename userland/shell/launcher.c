@@ -609,7 +609,8 @@ static const struct cmd {
     {"Less movement", "Comfort: calmer animation", "reduce motion animation movement less comfort", "set:motion", G_SPARK, 's'},
     {"Mind", "Settings: the AI behind your companion, and where your words go",
      "mind ai model provider privacy connection settings", "open:settings", G_GEAR, 's'},
-    {"Forget me", "Settings: erase everything and start again", "forget reset erase wipe factory settings", "open:settings", G_GEAR, 's'},
+    {"Forget me", "Settings: erase what I know of you and start again", "forget erase wipe settings", "open:settings", G_GEAR, 's'},
+    {"Reset to factory", "Settings: erase everything, apps too, and start as it came", "factory reset erase wipe restore", "open:settings", G_GEAR, 's'},
     {"About this computer", "Version, and why it looks like this", "about version system info computer", "open:about", G_DESKTOP, 's'},
 };
 
