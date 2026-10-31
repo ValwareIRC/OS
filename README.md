@@ -5,7 +5,7 @@ to it, it gets to know you, and it designs your whole desktop. There is no stock
 theme, start menu or file explorer.
 
 In short: our own x86-64 kernel, whose native system call interface is the Linux
-ABI (so musl, llama.cpp, whisper.cpp, Wayland apps and Firefox can run on it),
+ABI (so musl, llama.cpp, whisper.cpp and Flatpak apps such as Prism and Chromium run on it),
 an AI daemon with on-device voice and a bundled local model, and **Facet**, the UI
 language the AI uses to design every screen.
 
@@ -105,15 +105,20 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
       (byte-granular read/write, lseek/fstat size, BLKGETSIZE64/BLKSSZGET, fsync flushes the drive cache).
       `make run` and the launchers attach `build/os-disk.img` (1 GiB, sparse; `make clean` keeps it)
 - [x] Linux apps: ptys and a terminal app; AF_UNIX sockets with SCM_RIGHTS, epoll, eventfd, timerfd,
-      signalfd, memfd, real MAP_SHARED (page objects); /proc and /sys. Ubuntu's glibc programs run
-      unmodified from the sysroot (`scripts/build-sysroot.sh`): Python 3, Weston's Wayland clients
+      signalfd, memfd, real MAP_SHARED (page objects), copy-on-write fork; /proc and /sys. The base system is the
+      Freedesktop Platform runtime (`scripts/build-base.sh`) with Flatpak, the portals and PulseAudio:
+      Flathub apps install from the launcher and run unmodified (Prism, Chromium, MarkText, AbiWord, DOSBox)
 - [x] the OS's own Wayland compositor in the shell (`userland/shell/wl`): apps' windows are framed by
       the person's design; `tests/wl_os_test.py` checks a live app inside the OS
 - [x] Memory: `/etc/os` (design, portrait, conversation) and `/root` are kept on the disk
       (`shell/store.c`, crash-safe two-slot archive), restored at boot; the companion welcomes them back
 - [x] Sound and voice: Intel HDA driver (`/dev/dsp`, `/dev/mixer`); the companion speaks (Piper) and
       listens (whisper.cpp, Ctrl+Space), on this computer
-- [ ] Next: the offline built-in model, Wi-Fi, GTK/Chromium apps (Prism), copy-on-write fork
+- [x] Minds on this computer: a small built-in model (Qwen3 0.6B, works offline) and bigger ones to download,
+      run by llama.cpp's server
+- [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face,
+      voice and memory, with the person's consent and without ever seeing their keys
+- [ ] Next: Wi-Fi, USB, NVMe and more network cards
 
 ## The experience (userland/shell)
 
@@ -174,11 +179,13 @@ a few commands into it automatically; `tests/debug_boot.sh` boots once with syst
 
 ## Bundled apps
 
-The OS ships **Prism**, Valerie Liu's agentic IDE, as a bundled app. `make` copies the newest
-`Prism-*.AppImage` from the Prism project's `dist` folder into a separate boot module (`apps.cpio`),
-which appears inside the OS as `/apps/prism/`. Running it needs the graphical Linux apps milestone:
-glibc-style dynamic linking, the system calls Chromium uses (threads, futex, epoll, eventfd, memfd) and a
-Wayland display server. Until then the OS lists it as installed but cannot open it yet.
+The OS ships **Prism**, Valerie Liu's agentic IDE, preinstalled as a Flatpak (`com.valware.prism`, built from
+Prism's Linux release by `scripts/build-prism-flatpak.sh` and installed into the base by `scripts/build-base.sh
+prism-app`). It runs in its Flatpak sandbox like any Flathub app, and uses the companion's AI by default
+through the companion API, so it works with no setup.
+
+Other apps, browsers included (Chromium, for one), install from Flathub through the launcher; when
+something asks to open a web link and no browser is installed yet, the OS offers some.
 
 ## License
 

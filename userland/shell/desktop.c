@@ -268,7 +268,8 @@ static const char *companion_system(void) {
              "few minutes and that they'll see it being drawn. New colours alone (a theme, warmer, darker, an accent) "
              "are not a redesign: restyle the parts with ui:style tags, done in seconds. A change only happens through a tag, so never "
              "claim one without it, and only use tags when their last message asks for something. You can't browse "
-             "the web for them yet; say so honestly if asked.%s%s%s%s",
+             "the web for them yet; say so honestly if asked. They can get a web browser (Chromium, for one) "
+             "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s",
              D.ai_name, D.user_name[0] ? D.user_name : "the person", A.prof.autonomy[0] ? A.prof.autonomy : "ask first",
              A.prof.redesign[0] ? A.prof.redesign : "only when asked", portrait[0] ? portrait : "(nothing yet)\n",
              whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", preview_prompt(), alive_prompt(),
