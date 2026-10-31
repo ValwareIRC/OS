@@ -22,13 +22,26 @@
 # QEMU ahead of other programs for the processor. Ctrl+Alt+F leaves and
 # re-enters full screen; Ctrl+Alt+G lets go of the mouse.
 param([string]$Iso = "", [string]$Disk = "", [string]$Facet = "", [switch]$Claude, [string]$Model = "sonnet", [string]$Display = "gtk",
-      [string]$Memory = "", [switch]$Fullscreen, [string]$Vrm = "")
+      [string]$Memory = "", [switch]$Fullscreen, [string]$Vrm = "", [switch]$Fresh)
 $root = Split-Path -Parent $PSScriptRoot
-# The newest finished image in dist\ (not the build in progress), else the build.
+# The newest image: the latest release in dist\ or the latest build, whichever
+# is newer (a build still being written, changed in the last two minutes, waits).
 if (-not $Iso) {
     $done = Get-ChildItem (Join-Path $root "dist\*") -Include "Operating-System-*.iso","Lumen-*.iso" -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    $Iso = if ($done) { $done.FullName } else { Join-Path $root "build\os.iso" }
+    $build = Get-Item (Join-Path $root "build\os.iso") -ErrorAction SilentlyContinue
+    $built = $build -and $build.LastWriteTime -lt (Get-Date).AddMinutes(-2)
+    if ($Fresh -and $build) { $Iso = $build.FullName }
+    elseif ($built -and (-not $done -or $build.LastWriteTime -gt $done.LastWriteTime)) { $Iso = $build.FullName }
+    elseif ($done) { $Iso = $done.FullName }
+    else { $Iso = Join-Path $root "build\os.iso" }
+}
+# -Fresh: a new computer, as far as the OS can tell: a blank disk of its own
+# (made again every time; their usual disk is never touched), so it starts at
+# the very first screen, with Claude on this PC ready to be chosen there.
+if ($Fresh) {
+    $Disk = Join-Path $root "build\fresh-disk.img"
+    if (Test-Path $Disk) { Remove-Item $Disk -Force }
 }
 # Enough memory for the image (an offline-mind build carries a big model).
 $mem = $Memory
@@ -55,7 +68,8 @@ function New-OSDisk([string]$path) {
 }
 
 if (-not $Disk) {
-    $isoDir = Split-Path -Parent (Resolve-Path $Iso).Path
+    # their disk lives beside the releases, whichever image starts (a release or the build)
+    $isoDir = if (Test-Path (Join-Path $root "dist")) { Join-Path $root "dist" } else { Split-Path -Parent (Resolve-Path $Iso).Path }
     $candidates = @((Join-Path $isoDir "os-disk.img"), (Join-Path $env:LOCALAPPDATA "Operating System\os-disk.img"))
     # The disk from before the rename becomes this one (same contents).
     $old = @((Join-Path $isoDir "lumen-disk.img"), (Join-Path $env:LOCALAPPDATA "Lumen\lumen-disk.img"))
@@ -155,7 +169,7 @@ if ($Disk) {
 
 $conf = Join-Path $root "os.conf"
 if (-not (Test-Path $conf) -and (Test-Path (Join-Path $root "lumen.conf"))) { $conf = Join-Path $root "lumen.conf" }
-if ((Test-Path $conf) -and -not $Claude) {
+if ((Test-Path $conf) -and -not $Claude -and -not $Fresh) {
     $kv = @{}
     foreach ($line in Get-Content $conf) {
         if ($line -match '^\s*([a-z]+)=(.*)$') { $kv[$Matches[1]] = $Matches[2].Trim() -replace '["\\]', '' }
@@ -166,12 +180,23 @@ if ((Test-Path $conf) -and -not $Claude) {
     $args += @("-fw_cfg", "name=opt/os/mind.json,file=$mind")
     Write-Host "Using AI settings from os.conf ($($kv["provider"]))"
 }
-if ($Claude) {
+if ($Claude -or $Fresh) {
     $node = Get-Command node -ErrorAction SilentlyContinue
     $claudeExe = Join-Path $env:USERPROFILE ".local\bin\claude.exe"
     if (-not $node -or -not (Test-Path $claudeExe)) {
-        Write-Host "Claude on this PC needs Node.js and Claude Code (claude.exe) installed and signed in."; exit 1
+        Write-Host "Claude on this PC needs Node.js and Claude Code (claude.exe) installed and signed in."
+        if ($Claude) { exit 1 }
     }
+}
+if ($Fresh -and -not $Claude -and $node -and (Test-Path $claudeExe)) {
+    # the bridge only: Claude on this PC is one of the choices on the first screen
+    if (-not (Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 4570 -State Listen -ErrorAction SilentlyContinue)) {
+        Start-Process $node.Source -WindowStyle Hidden -ArgumentList @((Join-Path $PSScriptRoot "claude-bridge.mjs"), "--exit-with-vm") `
+            -RedirectStandardOutput (Join-Path $root "build\claude-bridge.log") -RedirectStandardError (Join-Path $root "build\claude-bridge.err")
+    }
+    Write-Host "A fresh start: onboarding from the first screen. Claude on this PC is ready to be chosen there."
+}
+if ($Claude) {
     $listening = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 4570 -State Listen -ErrorAction SilentlyContinue
     if (-not $listening) {
         Start-Process $node.Source -WindowStyle Hidden -ArgumentList @((Join-Path $PSScriptRoot "claude-bridge.mjs"), "--exit-with-vm") `
