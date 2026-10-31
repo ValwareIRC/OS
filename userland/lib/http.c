@@ -385,6 +385,9 @@ static int do_request(const char *method, const char *url, const char *const *he
         goto done;
     }
     hdr_end[2] = 0; /* terminate the header block after the last CRLF */
+    char *loc = find_header(strchr(resp.p, '\n') + 1, "Location");
+    if (loc)
+        snprintf(out->location, sizeof out->location, "%.*s", (int)strcspn(loc, "\r\n"), loc);
     char *b = hdr_end + 4;
     size_t blen = resp.len - (size_t)(b - resp.p);
     char *te = find_header(strchr(resp.p, '\n') + 1, "Transfer-Encoding");

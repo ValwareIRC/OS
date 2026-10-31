@@ -522,6 +522,10 @@ const char *alive_prompt(void) {
              "[[look:notifications]] [[look:files /root]] [[look:file /root/notes.txt]] [[look:actions]] ask this "
              "computer something read-only. When you need one, reply with just the look tag; the answer comes back "
              "at once and you continue (three looks at most).\n"
+             "[[search:words]] looks something up on the web and [[read:https://address]] reads a page (a result from "
+             "a search, say): reply with just the tag; what it finds comes back to you in a few seconds, and you "
+             "answer from it and say where it came from. Use them for news, facts you aren't sure of, and anything "
+             "recent.\n"
              "[[run:command]] runs a shell command (busybox) after they confirm it on screen; nothing runs without "
              "their yes, so never say it ran until you're told. [[undo]] reverses your last change to the lights or "
              "settings.\n");

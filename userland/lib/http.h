@@ -11,6 +11,7 @@ struct http_response {
     char *body;      /* NUL-terminated, malloc'd */
     size_t body_len;
     char error[256]; /* human-readable reason when status == 0 */
+    char location[512]; /* a redirect's Location header, if it had one */
 };
 
 /* headers: NULL-terminated list of "Name: value" strings (may be NULL). */

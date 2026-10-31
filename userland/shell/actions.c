@@ -16,6 +16,7 @@
  * words it volunteered on its own. Every change to a device or a setting is
  * written to /etc/os/actions.log and, where it can be, undone. */
 #include "alive.h"
+#include "web.h"
 #include "voice.h"
 #include "fm/fm.h"
 #include "../lib/json.h"
@@ -38,6 +39,8 @@
 #define LOG_FILE STATE_DIR "/actions.log"
 #define LOOK_MARK "(What you looked up"
 #define MAX_LOOKS 3
+
+static void web_tick(void);
 
 /* ---- the log ---- */
 
@@ -528,6 +531,7 @@ void actions_draw(void) {
 }
 
 void actions_tick(void) {
+    web_tick();
     char *res = NULL;
     if (run_job && job_poll(run_job, &res)) {
         job_free(run_job);
@@ -593,9 +597,44 @@ static bool blank(const char *s) {
     return true;
 }
 
+static int looks;         /* in a row, for one thing they asked */
+static bool chain_person; /* that thing came from the person */
+
+/* ---- the web ([[search:...]], [[read:...]]) ----
+ * Like a look, but it waits on the network: it runs in a job, and what it
+ * found goes to the companion when it comes back. */
+static struct {
+    job *job;
+    char *requests;
+    char *found;
+} web;
+
+static void web_child(void *arg, char **result) { *result = web_lookup(arg); }
+
+static void web_tick(void) {
+    char *res = NULL;
+    if (web.job && job_poll(web.job, &res)) {
+        job_free(web.job);
+        web.job = NULL;
+        free(web.requests);
+        web.requests = NULL;
+        web.found = res ? res : strdup("Nothing came back.");
+        LOG("web: %.300s\n", web.found);
+    }
+    if (web.found && !A.companion.pending) {
+        sbuf note;
+        sb_init(&note);
+        sb_printf(&note, "%s on the web just now; only you see this):\n%.7000s\n(Now answer them, using this, and say "
+                         "where it came from in a few words. %s)",
+                  LOOK_MARK, web.found, looks >= MAX_LOOKS ? "No more looks this time." : "You may look again if you really need to.");
+        free(web.found);
+        web.found = NULL;
+        companion_prompt(note.p, 900);
+        sb_free(&note);
+    }
+}
+
 bool actions_take(struct conversation *c, bool *from_person) {
-    static int looks;
-    static bool chain_person;
     struct msg *m = &c->msgs[c->n - 1];
     /* The answer to a look continues whatever began it. */
     bool continuing = c->n >= 2 && !strcmp(c->msgs[c->n - 2].role, "hidden") &&
@@ -616,6 +655,34 @@ bool actions_take(struct conversation *c, bool *from_person) {
 
     char arg[700];
     char *t;
+    /* The web: a question too, answered when the network has. */
+    if (strstr(m->text, "[[search") || strstr(m->text, "[[read")) {
+        sbuf req;
+        sb_init(&req);
+        int n = 0;
+        static const char *const kinds[] = {"search", "read"};
+        for (int k = 0; k < 2; k++)
+            while ((t = find_tag(m->text, kinds[k], arg, sizeof arg))) {
+                cut_tag(t);
+                for (char *p = arg; *p; p++)
+                    if (*p == '\t' || *p == '\n')
+                        *p = ' ';
+                if (n < 3 && looks < MAX_LOOKS && arg[0])
+                    sb_printf(&req, "%s\t%s\n", kinds[k], arg), n++;
+            }
+        if (n && !web.job && !web.found) {
+            looks++;
+            chain_person = *from_person;
+            free(m->text); /* the half-reply goes: its answer comes with what was found */
+            c->n--;
+            web.requests = req.p;
+            web.job = job_start(web_child, web.requests);
+            LOG("web: looking up %s", web.requests);
+            toast("Looking it up...");
+            return true;
+        }
+        sb_free(&req);
+    }
     /* Looks first: they're questions, so the reply isn't finished yet. */
     if (strstr(m->text, "[[look")) {
         sbuf answers;
