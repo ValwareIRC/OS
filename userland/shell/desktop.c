@@ -262,10 +262,12 @@ static const char *companion_system(void) {
              "[[ui:remove #id]] removes one. [[open:files]] (or notes, settings, about, terminal, companion) opens an app. "
              "[[capture:shot]] opens the screenshot bar ([[capture:record]] to record the screen, [[capture:now]] takes "
              "the whole screen at once; Print Screen does the same). Your name is theirs to give: if they want to call "
-             "you something else, take it warmly and end with [[name:The New Name]]; it changes everywhere. "
-             "Starter designs come with the system: afternoon aqua aquarium arcade bento beos blueprint brutalist calm codec "
+             "you something else, take it warmly and end with [[name:The New Name]]; it changes everywhere. Their own name "
+             "is theirs too: when they tell you what to call them, or the name on their desktop is wrong, end with "
+             "[[user:Their Name]]. "
+             "Starter designs come with the system: aqua aquarium arcade bento beos blueprint brutalist calm codec "
              "commander corkboard crt cube frost fsn gears hud luna matrix metro neon notebook orrery paper platinum "
-             "progman radar shelf sky starlit subway swiss tiling workbench (afternoon and starlit: two cosy, soft ones made only of light and colour; codec: a Metal Gear codec call, their companion's "
+             "progman radar shelf sky starlit subway swiss tiling workbench (starlit: a cosy, soft night made only of light and colour; codec: a Metal Gear codec call, their companion's "
              "face on the right, the conversation along the bottom). When they ask for one by name, end with "
              "[[theme:name]]: it is applied at once, with their names kept.\n"
              "Your own past replies show your words without their tags; what each tag did is written in a note "
@@ -462,6 +464,125 @@ void companion_rename(const char *raw) {
 }
 
 
+/* Their own name, as they gave it, kept apart from any design: a design's
+ * sample name (the starter designs' "Sam") never becomes theirs. Empty
+ * until they've said it. */
+#define THEIR_NAME_FILE STATE_DIR "/user-name"
+static char their[64];
+static bool their_loaded;
+
+const char *their_name(void) {
+    if (!their_loaded) {
+        their_loaded = true;
+        FILE *f = fopen(THEIR_NAME_FILE, "r");
+        if (f) {
+            if (!fgets(their, sizeof their, f))
+                their[0] = 0;
+            their[strcspn(their, "\r\n")] = 0;
+            fclose(f);
+        }
+    }
+    return their;
+}
+
+void their_name_keep(const char *name) {
+    their_loaded = true;
+    snprintf(their, sizeof their, "%s", name);
+    FILE *f = fopen(THEIR_NAME_FILE, "w");
+    if (f) {
+        fprintf(f, "%s\n", their);
+        fclose(f);
+    }
+}
+
+/* s with every whole-word `old` as `name` (a new string), or NULL when there is none */
+static char *swap_word(const char *s, const char *old, const char *name) {
+    size_t ol = strlen(old);
+    if (!s || !ol || !strstr(s, old))
+        return NULL;
+    sbuf b;
+    sb_init(&b);
+    bool any = false;
+    for (const char *p = s; *p;) {
+        bool word = !strncmp(p, old, ol) && (p == s || !isalnum((unsigned char)p[-1])) && !isalnum((unsigned char)p[ol]);
+        if (word) {
+            sb_add(&b, name);
+            p += ol;
+            any = true;
+        } else {
+            sb_printf(&b, "%c", *p++);
+        }
+    }
+    if (!any) {
+        free(b.p);
+        return NULL;
+    }
+    return b.p ? b.p : strdup("");
+}
+
+/* The person's name in a desktop document: its meta, and their name wherever it is written. */
+static void rename_user_in(fm_node *n, const char *old, const char *name) {
+    for (; n; n = n->next) {
+        if (n->kind == FM_TEXT) {
+            char *t = swap_word(n->text, old, name);
+            if (t) {
+                free(n->text);
+                n->text = t;
+            }
+            continue;
+        }
+        if (!strcasecmp(n->tag, "meta"))
+            fm_attr_set(n, "user-name", name);
+        for (int i = 0; i < n->nattrs; i++) {
+            if (!strcasecmp(n->attrs[i].name, "id") || !strcasecmp(n->attrs[i].name, "class"))
+                continue;
+            char *v = swap_word(n->attrs[i].value, old, name);
+            if (v) {
+                fm_attr_set(n, n->attrs[i].name, v);
+                free(v);
+            }
+        }
+        rename_user_in(n->first, old, name);
+    }
+}
+
+/* The design as theirs: their own name in it, never a sample one. */
+static void design_take_their_name(fm_doc *doc, design *d) {
+    const char *name = their_name();
+    if (!name[0] || !strcmp(d->user_name, name))
+        return;
+    if (doc)
+        rename_user_in(doc->root, d->user_name, name);
+    char *g = d->user_name[0] ? swap_word(d->greeting, d->user_name, name) : NULL;
+    if (g) {
+        snprintf(d->greeting, sizeof d->greeting, "%s", g);
+        free(g);
+    }
+    snprintf(d->user_name, sizeof d->user_name, "%s", name);
+}
+
+/* [[user:Name]]: what they want to be called, from now on, everywhere. */
+void companion_rename_user(const char *raw) {
+    char name[40];
+    snprintf(name, sizeof name, "%s", raw + strspn(raw, " \"'"));
+    for (size_t l = strlen(name); l && strchr(" \"'.\n", name[l - 1]); l--)
+        name[l - 1] = 0;
+    if (!name[0])
+        return;
+    their_name_keep(name);
+    snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", name);
+    char old[64];
+    snprintf(old, sizeof old, "%s", D.user_name);
+    design_take_their_name(A.ui, &A.d);
+    if (A.ui) {
+        A.ui->changed = true;
+        save_ui();
+    }
+    design_save(&A.d, STATE_DIR "/design.json");
+    portrait_save(&A.prof, STATE_DIR "/portrait.txt");
+    LOG("companion: they are called %s now (was %s)\n", name, old[0] ? old : "nothing");
+}
+
 /* [[theme:NAME]]: one of the starter designs, as it comes, applied now (the
  * names in it become theirs: their companion's, their own). */
 static bool apply_starter(const char *raw) {
@@ -493,19 +614,24 @@ static bool apply_starter(const char *raw) {
     /* the theme's sample names (its ai-name, "Sam") give way to theirs */
     char theirs_ai[64], theirs_user[64];
     snprintf(theirs_ai, sizeof theirs_ai, "%s", D.ai_name);
-    snprintf(theirs_user, sizeof theirs_user, "%s", D.user_name);
+    snprintf(theirs_user, sizeof theirs_user, "%s", their_name());
     if (theirs_ai[0] && strcmp(d.ai_name, theirs_ai)) {
         rename_in(doc->root, d.ai_name, theirs_ai);
         if (!strcasecmp(d.apps[APP_COMPANION].label, d.ai_name))
             snprintf(d.apps[APP_COMPANION].label, sizeof d.apps[APP_COMPANION].label, "%s", theirs_ai);
         snprintf(d.ai_name, sizeof d.ai_name, "%s", theirs_ai);
     }
-    if (theirs_user[0] && strcmp(d.user_name, theirs_user)) {
-        rename_in(doc->root, d.user_name, theirs_user);
-        snprintf(d.user_name, sizeof d.user_name, "%s", theirs_user);
+    if (!theirs_user[0] && d.user_name[0]) { /* no name of theirs yet: none at all, rather than a sample one */
+        rename_user_in(doc->root, d.user_name, "");
+        if (strstr(d.greeting, d.user_name))
+            snprintf(d.greeting, sizeof d.greeting, "Welcome home.");
+        d.user_name[0] = 0;
+        for (fm_node *m = doc->root ? doc->root->first : NULL; m; m = m->next)
+            if (m->kind == FM_ELEM && !strcasecmp(m->tag, "meta"))
+                fm_attr_set(m, "greeting", d.greeting);
     }
     desktop_adopt(doc, &d, false);
-    LOG("companion: applied starter design %s\n", name);
+    LOG("companion: applied starter design %s (for %s)\n", name, D.user_name[0] ? D.user_name : "no name yet");
     return true;
 }
 
@@ -606,6 +732,15 @@ static void companion_update(void) {
             memmove(o, after, strlen(after) + 1);
             if (from_person && e)
                 companion_rename(nm);
+        }
+        while ((o = strstr(m->text, "[[user:"))) { /* what they want to be called */
+            char *e = strstr(o, "]]");
+            char nm[64];
+            snprintf(nm, sizeof nm, "%.*s", e ? (int)(e - o - 7) : 0, o + 7);
+            char *after = e ? e + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            if (from_person && e)
+                companion_rename_user(nm);
         }
         while ((o = strstr(m->text, "[[capture"))) { /* a screenshot or recording, asked for in words */
             char *e = strstr(o, "]]");
@@ -857,6 +992,19 @@ void forget_everything(void) {
     set_screen(SCR_CHOOSE);
 }
 
+/* Back to how it came: everything kept on the disk is erased (their name,
+ * the conversation, the memory, the design, her look, the home folder, apps
+ * from Flathub and their data) and the computer starts again at the very
+ * first screen. Nothing is saved on the way out. */
+void factory_reset(void) {
+    LOG("reset: back to factory\n");
+    alive_shutdown();
+    store_mark_factory_reset();
+    store_wipe();
+    sync();
+    reboot(RB_AUTOBOOT);
+}
+
 /* Settings and its pages live in settings.c. */
 static void settings_body(rect r) { settings_draw(r); }
 
@@ -871,14 +1019,14 @@ static void about_body(rect r) {
     r = rect_inset(r, 6);
     /* who: its light, the name, and for whom */
     int hh = font_line_height(h);
-    emblem_draw(A.frame, r.x + 26.0f, r.y + 28.0f, 17, D.accent, D.accent2, false);
-    draw_text(A.frame, h, r.x + 66, r.y + 28 - hh / 2 - 8, "Operating System", ink);
+    int tx = emblem_draw(A.frame, r.x + 26.0f, r.y + 28.0f, 17, D.accent, D.accent2, false) ? 66 : 4;
+    draw_text(A.frame, h, r.x + tx, r.y + 28 - hh / 2 - 8, "Operating System", ink);
     char who[160];
     if (D.user_name[0])
         snprintf(who, sizeof who, "Version " OS_VERSION "  \xc2\xb7  shaped for %s by %s", D.user_name, D.ai_name);
     else
         snprintf(who, sizeof who, "Version " OS_VERSION "  \xc2\xb7  shaped by %s", D.ai_name);
-    draw_text(A.frame, small, r.x + 66, r.y + 28 + hh / 2 - 6, who, muted);
+    draw_text(A.frame, small, r.x + tx, r.y + 28 + hh / 2 - 6, who, muted);
     int y = r.y + 76;
     fill_rect(A.frame, (rect){r.x, y, r.w, 1}, color_alpha(ink, 0.12f));
     y += 22;
@@ -1399,26 +1547,57 @@ void fm_host_draw_view(const char *app, rect r) {
     }
 }
 
+/* The design's own spot for her (its <ai> or <avatar>), as last drawn: she's told where it is. */
+static rect her_spot;
+static uint64_t her_spot_at;
+
+bool desktop_her_spot(rect *r) {
+    if (!her_spot_at || A.now - her_spot_at > 3000)
+        return false;
+    *r = her_spot;
+    return true;
+}
+
 void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active) {
+    if (!fm_lint_offscreen)
+        her_spot = r, her_spot_at = A.now ? A.now : 1;
     if (fm_lint_offscreen) { /* a picture for the stylist: a stand-in */
         fill_rect(A.frame, r, color_mix(D.bg, D.accent, 0.25f));
         return;
     }
     if (presence_draw_avatar(A.frame, r, active || A.companion.pending != NULL, frame, tint, shot))
         return;
-    fm_host_draw_orb(r, active); /* no face (yet): the light */
+    fm_host_draw_orb(r, active); /* no face: her own look, if she has one */
 }
 
 void fm_host_draw_orb(rect r, bool active) {
+    her_spot = r, her_spot_at = A.now ? A.now : 1;
     active = active || A.companion.pending != NULL;
     if (presence_draw_home(A.frame, r, active))
         return; /* her face, in its frame */
-    caption_anchor(r); /* its words appear beside it */
+    rect elsewhere;
+    if (emblem_free_place(&elsewhere))
+        return; /* she sits somewhere else: the design's spot stays as the design made it */
     float s = (float)(r.w < r.h ? r.w : r.h);
     color a = D.accent, b = D.accent2;
-    active = active || A.companion.pending != NULL;
-    alive_orb(&a, &b, &active); /* warmer as the PC heats up, attentive while listening */
-    emblem_draw(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, s * 0.36f, a, b, active);
+    alive_orb(&a, &b, &active); /* attentive while listening */
+    if (emblem_draw(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, s * 0.36f, a, b, active))
+        caption_anchor(r); /* her words appear beside her */
+}
+
+/* Her look where she placed it herself, under the windows; a click on it is a click on her. */
+static void draw_her_free(int top, bool over_ui) {
+    rect r;
+    if (presence_mode() != PRESENCE_LIGHT || !emblem_free_place(&r))
+        return;
+    color a = D.accent, b = D.accent2;
+    bool active = A.companion.pending != NULL;
+    alive_orb(&a, &b, &active);
+    if (!emblem_draw_free(A.frame, a, b, active))
+        return;
+    caption_anchor(r);
+    if (top < 0 && !over_ui && A.in.clicked && pt_in(r, A.in.mx, A.in.my))
+        open_window(WIN_COMPANION);
 }
 
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover) {
@@ -1681,11 +1860,14 @@ void desktop_set_ui(fm_doc *doc) {
 
 void desktop_adopt(fm_doc *doc, const design *d, bool first) {
     A.d = *d;
+    design_take_their_name(doc, &A.d); /* their own name, never a design's sample one */
+    if (their_name()[0])
+        snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", their_name());
     /* The designer read the whole conversation: trust it for names the
      * tags missed. */
     if (!A.prof.ai_name[0] && D.ai_name[0])
         snprintf(A.prof.ai_name, sizeof A.prof.ai_name, "%s", D.ai_name);
-    if (!A.prof.user_name[0] && D.user_name[0])
+    if (!A.prof.user_name[0] && D.user_name[0] && strcmp(D.user_name, "Sam")) /* "Sam": the starters' sample */
         snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", D.user_name);
     A.have_design = true;
     A.redesigning = false;
@@ -1896,8 +2078,10 @@ void desktop_draw(void) {
     if (A.in.right_clicked && top < 0 && ui->hovered)
         explain_why(ui->hovered);
 
-    if (!cached)
+    if (!cached) {
         fm_render_layer(ui, A.frame, 0);
+        draw_her_free(top, over_ui);
+    }
     presence_draw_corner(A.frame); /* her face, when the design has nowhere for it */
     input_state saved = A.in;
     int focused = focused_window();

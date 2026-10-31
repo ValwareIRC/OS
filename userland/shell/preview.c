@@ -710,10 +710,10 @@ void preview_body(rect r, bool focused) {
         int tw = text_width(small, line);
         rect pill = {img.x + 12, img.y + img.h - 44, tw + 52, 32};
         fill_round(A.frame, pill, 16, RGBA(20, 20, 24, 170));
-        if (PV.state == PV_DRAFTING)
-            emblem_draw(A.frame, pill.x + 17.0f, pill.y + 16.0f, 8, accent, RGBA(255, 255, 255, 255), true);
-        else
+        if (PV.state != PV_DRAFTING)
             fill_round(A.frame, (rect){pill.x + 11, pill.y + 10, 12, 12}, 6, RGBA(226, 92, 72, 255));
+        else if (!emblem_draw(A.frame, pill.x + 17.0f, pill.y + 16.0f, 8, accent, RGBA(255, 255, 255, 255), true))
+            fill_circle(A.frame, pill.x + 17.0f, pill.y + 16.0f, 4 + 1.5f * sinf((float)A.now / 180.0f), accent);
         draw_text(A.frame, small, pill.x + 34, pill.y + (32 - font_line_height(small)) / 2, line, RGBA(255, 255, 255, 235));
     }
 

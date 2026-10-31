@@ -433,8 +433,10 @@ static char *apply_tags(const char *text) {
             if (name_ok(arg, false, words))
                 snprintf(A.prof.ai_name, sizeof A.prof.ai_name, "%s", arg);
         } else if (!strcasecmp(tag, "user")) {
-            if (name_ok(arg, true, NULL))
+            if (name_ok(arg, true, NULL)) {
                 snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", arg);
+                their_name_keep(arg);
+            }
         } else if (!strcasecmp(tag, "learn")) {
             char *bar = strchr(arg, '|');
             if (bar) {
@@ -611,6 +613,8 @@ static void record_pick(int i) {
         /* Names offered as a pick: for whoever is being named. */
         bool for_them = !A.prof.user_name[0] && user_turns() < 2;
         snprintf(for_them ? A.prof.user_name : A.prof.ai_name, sizeof A.prof.ai_name, "%s", pk->value[i]);
+        if (for_them)
+            their_name_keep(pk->value[i]);
         snprintf(msg, sizeof msg, for_them ? "Call me %s." : "Call yourself %s.", pk->value[i]);
     } else if (!strcmp(k, "comfort")) {
         const char *v = pk->value[i];
@@ -959,7 +963,7 @@ void onboard_draw(void) {
         look_steps(26, labels, st, 8);
     }
 
-    /* the companion, as it has chosen (or been given) to look; its name on a tag */
+    /* the companion, if it has a look yet (it is made later, to fit their space); its name on a tag */
     emblem_draw(A.frame, A.W / 2.0f, 168, 54, room_set ? a : LK_ACCENT, room_set ? b : LK_ACCENT2,
                 thinking && !A.prof.reduce_motion);
     if (A.prof.ai_name[0]) {

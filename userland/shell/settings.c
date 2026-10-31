@@ -972,22 +972,38 @@ static int page_mind(rect c, int y) {
     font *f = BODY();
     if (mind.step == MIND_SHOW)
         name_row(c, &y, f);
-    if (mind.step == MIND_SHOW) { /* how I look: a light, the face the OS makes, or a model of theirs */
+    if (mind.step == MIND_SHOW) { /* how I look: made in conversation, never picked from a list */
         y = settings_section(c, y, "How I look");
-        y += body_gallery((rect){c.x, y, c.w, 600}, c.w >= 900 ? 5 : 4, true, NULL) + 14;
-        y += note_text(c, y, "A VRM model of yours (from VRoid Studio, say) shows here when its .vrm file is in your "
-                             "Downloads folder. For a picture, a link, a 3D model or anything else, just ask me.") + 24;
+        rect me = {c.x, y, 96, 96};
+        bool shown = presence_mode() != PRESENCE_LIGHT
+                         ? false
+                         : emblem_draw(A.frame, me.x + 48.0f, me.y + 48.0f, 36, D.accent, D.accent2,
+                                       A.companion.pending != NULL);
+        int tx = shown ? me.x + me.w + 20 : c.x;
+        const char *says = presence_mode() != PRESENCE_LIGHT
+                               ? "I have a face now. Tell me if you'd like me to look different: describe it, give me a "
+                                 "picture, a link, a 3D model or a VRM, and I'll take it on."
+                           : shown ? "This is how I look right now. Tell me if you'd like something else: describe it, "
+                                     "give me a picture, a link, a 3D model or a VRM, and I'll take it on."
+                                   : "I don't have a look of my own yet. Tell me what you'd like to see, or ask me to "
+                                     "come up with something that fits your space.";
+        int th = draw_text_wrapped(A.frame, f, (rect){tx, y + 4, c.x + c.w - tx, 120}, says, P.ink, 1.35f);
+        rect b = {tx, y + 4 + th + 12, 180, 40};
+        if (ctl_button(b, "Talk about it", f, true, true, &P)) {
+            desktop_open_window(WIN_COMPANION);
+            body_talk_about_it(false);
+        }
+        int used = th + 12 + 40 + 8;
+        y += (shown && used < me.h ? me.h : used) + 24;
     }
     if (mind.step == MIND_SHOW) {
         rect card = {c.x, y, c.w, 112};
         fill_round(A.frame, card, 18, color_alpha(P.ink, 0.05f));
-        rect ic = {card.x + 18, card.y + 20, 72, 72};
-        emblem_draw(A.frame, ic.x + 36.0f, ic.y + 36.0f, 20, D.accent, D.accent2, A.companion.pending != NULL);
         font *big = settings_font(SF_SECTION);
         const char *name = A.provider ? A.provider->name : A.cfg.provider[0] ? A.cfg.provider : "No mind yet";
-        draw_text(A.frame, fm_host_font(D.font_heading, 22), card.x + 108, card.y + 24, name, P.ink);
+        draw_text(A.frame, fm_host_font(D.font_heading, 22), card.x + 24, card.y + 24, name, P.ink);
         bool here = A.provider && !strcmp(A.provider->id, "builtin");
-        draw_text(A.frame, f, card.x + 108, card.y + 30 + LH(big) + 6,
+        draw_text(A.frame, f, card.x + 24, card.y + 30 + LH(big) + 6,
                   here ? models_selected()->name : A.cfg.model[0] ? A.cfg.model : "No model chosen", P.muted);
         y += card.h + 16;
         y += draw_text_wrapped(A.frame, f, (rect){c.x, y, c.w, 200},
@@ -1241,7 +1257,29 @@ static int page_privacy(rect c, int y) {
         confirm_at = A.now;
     }
     y += 42 + 12;
-    y += note_text(c, y, "Forget me erases the portrait, the design, your notes and the connection, and starts again.");
+    y += note_text(c, y, "Forget me erases the portrait, the design, your notes and the connection, and starts again.") + 18;
+    static uint64_t reset_at;
+    bool resetting = reset_at && A.now - reset_at < 5000;
+    rect rb = {c.x, y, resetting ? 300 : 200, 42};
+    palette red = P;
+    if (resetting) {
+        red.accent = RGBA(200, 70, 60, 255);
+        red.on_accent = RGBA(255, 255, 255, 255);
+    }
+    if (log_now)
+        LOGRECT("settings-factory-reset", rb);
+    if (ctl_button(rb, resetting ? "Click again to erase everything" : "Reset to factory", f, resetting, true, &red)) {
+        if (resetting) {
+            reset_at = 0;
+            factory_reset();
+            return 0;
+        }
+        reset_at = A.now;
+    }
+    y += 42 + 12;
+    y += note_text(c, y, "Reset to factory erases everything this computer keeps: your name, our conversations, what I "
+                         "remember, your design, how I look, your files, and the apps you installed with their data. "
+                         "It restarts at the very first screen, as it came.");
     return y - y0 + 10;
 }
 

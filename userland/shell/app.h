@@ -185,6 +185,13 @@ void desktop_set_ui(struct fm_doc *doc);
  * old one. `first`: the end of onboarding, the desktop arrives. */
 void desktop_adopt(struct fm_doc *doc, const design *d, bool first);
 void desktop_open_window(int w);
+/* Erases everything kept on the disk, apps too, and restarts at the very first screen. */
+void factory_reset(void);
+/* The design's own spot for her on the screen (its <ai> or <avatar>), if it has one showing. */
+bool desktop_her_spot(rect *r);
+/* Their own name as they gave it (empty until then), kept apart from any design; and keeping it. */
+const char *their_name(void);
+void their_name_keep(const char *name);
 /* The companion (desktop.c): their words, sent; a note it should act on
  * (`act`: its ui tags run); and its replies taken in, off the desktop. */
 void companion_tell(const char *text);

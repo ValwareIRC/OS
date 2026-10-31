@@ -1,6 +1,6 @@
-/* The companion's presence: a light, or a face in a round frame drawn by
- * os-figure in a process of its own (a crash there shows the light again
- * and it starts over, a little later each time).
+/* The companion's presence: her own look (emblem.c), or a face drawn by
+ * os-figure in a process of its own (a crash there shows her own look, or
+ * nothing, and it starts over, a little later each time).
  *
  * Frames come through shared memory (three slots): os-figure says which
  * slot holds a new picture, the shell shows it and gives the one before
@@ -157,8 +157,8 @@ bool presence_set_look(const char *markup) {
 
 /* ---- the process ---- */
 
-/* Shown as a light, but the light is a 3D model of theirs: the figure process
- * draws it (a turning object), and the emblem shows its frames. */
+/* Her look is a 3D model of theirs: the figure process draws it (a turning
+ * object), and the emblem shows its frames. */
 static bool model_mode(void) {
     return P.mode == PRESENCE_LIGHT && emblem_kind() == EM_MODEL && access(MODEL_FILE, R_OK) == 0;
 }
@@ -268,7 +268,7 @@ static int read_mode(void) {
 
 void presence_init(void) {
     P.mode = read_mode();
-    LOG("presence: %s\n", P.mode == PRESENCE_LIGHT ? "a light" : P.mode == PRESENCE_FACE ? "a face" : "a face that wanders");
+    LOG("presence: %s\n", P.mode == PRESENCE_LIGHT ? "her own look" : P.mode == PRESENCE_FACE ? "a face" : "a face that wanders");
     if (P.mode != PRESENCE_LIGHT || model_mode())
         P.restart_at = A.now; /* started by the first poll */
 }
@@ -511,7 +511,7 @@ bool presence_draw_home(canvas *c, rect r, bool active) {
         return false;
     int side = r.w < r.h ? r.w : r.h;
     if (side < 64)
-        return false; /* too small for a face: a light */
+        return false; /* too small for a face */
     orb_home_at = A.now;
     return draw_home(c, r, active, HOME_ROUND, TINT_NONE, NULL);
 }
@@ -538,7 +538,9 @@ static struct {
 void presence_draw_corner(canvas *c) {
     if ((P.mode == PRESENCE_LIGHT && !model_mode()) || P.pid < 0 || !P.ready || A.now - orb_home_at < 400)
         return;
-    int side = A.H >= 900 ? 220 : A.H >= 700 ? 180 : 140;
+    rect pl;
+    bool placed = emblem_placed(&pl); /* where she put herself */
+    int side = placed ? pl.w : A.H >= 900 ? 220 : A.H >= 700 ? 180 : 140;
     if (!H.loaded) {
         H.loaded = true;
         FILE *f = fopen(HOME_POS_FILE, "r");
@@ -548,7 +550,9 @@ void presence_draw_corner(canvas *c) {
         }
     }
     rect r = {A.W - side - 28, A.H - side - 72, side, side};
-    if (H.have)
+    if (placed)
+        r = pl;
+    else if (H.have)
         r.x = (int)((long)H.x * A.W / 10000) - side / 2, r.y = (int)((long)H.y * A.H / 10000) - side / 2;
     /* taken hold of: dragged about; a click without moving opens the conversation */
     float cx = r.x + side * 0.5f, cy = r.y + side * 0.5f;
@@ -574,7 +578,11 @@ void presence_draw_corner(canvas *c) {
         if (!A.in.down) {
             H.dragging = false;
             A.in.clicked = false;
-            if (H.moved) {
+            if (H.moved && placed) { /* moved by them: that's where she is now */
+                char how[64];
+                snprintf(how, sizeof how, "%.4f %.4f %d", (r.x + side / 2.0) / A.W, (r.y + side / 2.0) / A.H, side);
+                emblem_set_place(how);
+            } else if (H.moved) {
                 FILE *f = fopen(HOME_POS_FILE, "w");
                 if (f) {
                     fprintf(f, "%d %d\n", H.x, H.y);
@@ -743,32 +751,34 @@ bool presence_avatar(const char *kind, const char *name) {
     return true;
 }
 
-/* [[emblem:gem]] (or a light, an 8-ball, the Earth...), [[emblem:face]]: how it looks, when they ask */
+/* [[emblem:face]], [[emblem:none]], [[emblem:place ...]], or a picture, model or search: how it looks, when they ask */
 static void do_emblem(const char *a) {
+    a += strspn(a, " ");
     char w[40] = "";
-    sscanf(a, " %39[^]]", w);
-    for (char *p = w + strlen(w); p > w && p[-1] == ' '; )
-        *--p = 0;
+    sscanf(a, "%39[^] ]", w);
     if (!strcasecmp(w, "face") || !strcasecmp(w, "figure")) {
         presence_set_body(NULL);
+        return;
+    }
+    if (!strcasecmp(w, "none")) { /* nothing of her shows, until she's given a look */
+        emblem_clear();
+        presence_set_mode(PRESENCE_LIGHT);
+        return;
+    }
+    if (!strcasecmp(w, "place")) {
+        emblem_set_place(a + 5);
         return;
     }
     /* a picture or model (a file or a link), or pictures to find online */
     static const char *const how[] = {"picture", "model", "find"};
     for (int i = 0; i < 3; i++) {
         size_t l = strlen(how[i]);
-        if (!strncasecmp(a + strspn(a, " "), how[i], l) && a[strspn(a, " ") + l] == ' ') {
-            body_use(how[i], a + strspn(a, " ") + l + 1);
+        if (!strncasecmp(a, how[i], l) && a[l] == ' ') {
+            body_use(how[i], a + l + 1);
             return;
         }
     }
-    int k = emblem_from_name(w);
-    if (k < 0) {
-        LOG("presence: no emblem called %s\n", w);
-        return;
-    }
-    presence_set_mode(PRESENCE_LIGHT);
-    emblem_set(k);
+    LOG("presence: no look called %s\n", w);
 }
 
 static void do_figure(const char *a) {
@@ -801,7 +811,7 @@ void presence_tags(char *text, bool act) {
         memmove(dr, after, strlen(after) + 1);
     }
     tags_live = P.mode != PRESENCE_LIGHT && P.pid > 0;
-    /* apps following her face hear them even while she is a light */
+    /* apps following her face hear them even while she has no face */
     take_tag(text, "[[act:", act, do_act);
     take_tag(text, "[[mood:", act, do_mood);
     take_tag(text, "[[figure:", act && P.mode != PRESENCE_LIGHT, do_figure);
@@ -809,27 +819,44 @@ void presence_tags(char *text, bool act) {
 }
 
 const char *presence_prompt(void) {
-    static char buf[2400];
+    static char buf[3200];
+    char now[300], spot[200] = "This design has no spot of its own for you. ";
+    rect r;
+    if (desktop_her_spot(&r))
+        snprintf(spot, sizeof spot, "This design's own spot for you is %dx%d at %d,%d. ", r.w, r.h, r.x, r.y);
+    rect fr;
+    int k = emblem_kind();
+    if (P.mode != PRESENCE_LIGHT)
+        snprintf(now, sizeof now, "Right now you are an anime figure (a face).");
+    else if (k == EM_NONE)
+        snprintf(now, sizeof now, "Right now you have no look: nothing of you shows on their desktop.");
+    else
+        snprintf(now, sizeof now, "Right now you are %s, %s.", k == EM_DRAWN ? "a drawing you made of yourself"
+                                                              : k == EM_PICTURE ? "a picture" : "a 3D model",
+                 emblem_free_place(&fr) ? "placed where you put yourself" : "in the design's spot for you");
     snprintf(buf, sizeof buf,
-             "\nHow you look is theirs to choose. When they ask you to look different, end your reply with one of: "
-             "[[emblem:gem]] (or orb, 8-ball, earth, planet, heart, moon; face for an anime figure); "
-             "[[emblem:picture https://...]] or [[emblem:picture /root/Pictures/x.jpg]] for a picture they give you; "
-             "[[emblem:find steam train]] to search pictures online and let them pick one; "
-             "[[emblem:model https://.../thing.glb]] for a 3D model (a single .glb file); or, for anything they describe, "
-             "draw yourself: [[emblem:draw <canvas>function draw(w, h, t) ... end</canvas>]], a Lua script painting a "
-             "w by h square with g.circle(x,y,r,col), g.glow(x,y,r,col), g.rect(x,y,w,h,col,radius), "
+             "\nHow you look is made, never picked from a list: there are no built-in looks. Shape it with them, in "
+             "conversation: suggest looks that would belong in their design (in a starry night you might be its moon; "
+             "in a garden, a firefly), take their ideas, and refine it as they react. A look should feel part of the "
+             "design, and the design must still look whole without you. To take a look, end your reply with one of: "
+             "[[emblem:draw <canvas>function draw(w, h, t) ... end</canvas>]] to draw yourself, a Lua script painting "
+             "a w by h square with g.circle(x,y,r,col), g.glow(x,y,r,col), g.rect(x,y,w,h,col,radius), "
              "g.gradient(x,y,w,h,top,bottom), g.line(x0,y0,x1,y1,col,width), g.arc(x,y,r,a0,a1,col,width), "
              "g.poly({x0,y0,x1,y1,...},col), g.text(x,y,str,col,size); colours as \"#rrggbb\" or \"#rrggbbaa\". The "
              "globals state (\"idle\", \"thinking\", \"listening\", \"speaking\", \"working\", \"done\", \"error\"), "
-             "level (your voice, 0..1), accent and accent2 (the design's colours) let it come alive: make it move "
-             "while thinking and pulse with level while speaking. Keep it small, cute and clean. "
-             "Right now you are %s%s.",
-             P.mode != PRESENCE_LIGHT ? "" : emblem_kind() == EM_ORB ? "" : "a ",
-             P.mode != PRESENCE_LIGHT ? "an anime figure (a face)" : emblem_kind() == EM_ORB ? "a light"
-                                                                                           : emblem_name(emblem_kind()));
+             "level (your voice, 0..1), accent and accent2 (the design's colours) are yours to show however suits the "
+             "look: nothing is added around it. "
+             "[[emblem:picture https://...]] or [[emblem:picture /root/Pictures/x.jpg]] for a picture they give you; "
+             "[[emblem:find steam train]] to search pictures online and let them pick one; "
+             "[[emblem:model https://.../thing.glb]] for a 3D model or a VRM avatar (a VRM becomes your face); "
+             "[[emblem:face]] for an anime figure; [[emblem:none]] to show nothing. "
+             "Where you sit and how big is yours to decide by what looks good in their design right now, and you may "
+             "move whenever it suits: [[emblem:place slot]] for the design's own spot, or [[emblem:place X Y SIZE]] "
+             "with the centre as fractions of the screen and the size in pixels. The screen is %dx%d. %s%s",
+             A.W, A.H, spot, now);
     if (P.mode == PRESENCE_LIGHT)
         return buf;
-    static char face[3600];
+    static char face[4400];
     snprintf(face, sizeof face, "%s%s",
              "\nYou have a body: an anime-style figure in a round frame on their desktop, who looks at the pointer, "
              "breathes, blinks and moves her mouth as you speak. [[act:wave]] (or nod, shake, bow, clap, point, shrug, "

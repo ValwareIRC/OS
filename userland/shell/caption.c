@@ -370,11 +370,12 @@ void caption_draw(void) {
 
     canvas_clip(A.frame, card);
     if (compact) {
-        emblem_draw(A.frame, card.x + pad + 6.0f, card.y + h / 2.0f, 6, D->accent, D->accent2, voice_speaking());
-        draw_text(A.frame, f, card.x + pad + 22, card.y + (h - lh) / 2, line, color_alpha(ink, alpha));
+        int ix = emblem_draw(A.frame, card.x + pad + 6.0f, card.y + h / 2.0f, 6, D->accent, D->accent2, voice_speaking()) ? 22 : 0;
+        draw_text(A.frame, f, card.x + pad + ix, card.y + (h - lh) / 2, line, color_alpha(ink, alpha));
     } else {
-        emblem_draw(A.frame, card.x + pad + 6.0f, card.y + pad + head / 2.0f - 2, 6.5f, D->accent, D->accent2, voice_speaking());
-        draw_text(A.frame, nf, card.x + pad + 22, card.y + pad + (head - font_line_height(nf)) / 2 - 2,
+        int ix = emblem_draw(A.frame, card.x + pad + 6.0f, card.y + pad + head / 2.0f - 2, 6.5f, D->accent, D->accent2,
+                             voice_speaking()) ? 22 : 0;
+        draw_text(A.frame, nf, card.x + pad + ix, card.y + pad + (head - font_line_height(nf)) / 2 - 2,
                   D->ai_name[0] ? D->ai_name : "Your companion", color_alpha(accent, alpha));
         rect tb = {card.x + pad, card.y + pad + head + 6, card.w - pad * 2, th};
         canvas_clip(A.frame, (rect){card.x, tb.y, card.w, th});

@@ -2,8 +2,9 @@
 sound: tests/fake_ai.py plays the companion (a scripted conversation with a
 learned fact, a room pick and a name), keys go in over QMP, and screenshots
 are kept at each step: the comfort question, the conversation card, the
-pick cards, the designing screen with its questions (how it should look,
-which browser).
+pick cards, the designing screen and its browser question. How the companion
+looks is never asked here: there are no looks to pick from; she brings it up
+in conversation once their space is made.
 
   python tests\\onboard_vm_win.py [OUTDIR]"""
 import json, os, re, socket, subprocess, sys, time
@@ -154,11 +155,9 @@ try:
     q.shot("5-name.png")
     print("designing:", bool(wait_for(r"screen designing", 60)), flush=True)
     time.sleep(8)
-    q.shot("6-designing-look-question.png")
-    print("look asked:", bool(re.search(r"body: asking", log_text())), flush=True)
-    q.click(979, 390)  # the Earth tile
-    print("earth picked:", bool(wait_for(r"emblem: earth", 20)), flush=True)
+    q.shot("6-designing.png")
     print("browser asked:", bool(wait_for(r"browsers: asking", 60)), flush=True)
+    print("no look gallery:", not re.search(r"body: asking", log_text()), flush=True)
     time.sleep(3)
     q.shot("7-browser-question.png")
 finally:
