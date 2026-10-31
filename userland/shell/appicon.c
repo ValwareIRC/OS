@@ -50,6 +50,18 @@ static void exec_name(const char *exec, char *out, size_t n) {
     char tmp[256];
     snprintf(tmp, sizeof tmp, "%.*s", (int)(k < sizeof tmp ? k : sizeof tmp - 1), exec);
     snprintf(out, n, "%s", base(tmp));
+    /* every Flatpak app starts with "flatpak run": the app's own id is what tells them apart (Prism
+     * was shown with Chromium's icon, both being "flatpak") */
+    if (!strcmp(out, "flatpak")) {
+        out[0] = 0;
+        for (const char *p = exec + k; *p;) {
+            p += strspn(p, " \"");
+            size_t w = strcspn(p, " \"");
+            if (w && p[0] != '-' && p[0] != '%' && p[0] != '@' && strncmp(p, "run", w ? w : 1) && memchr(p, '.', w))
+                snprintf(out, n, "%.*s", (int)w, p); /* the last word that looks like an app id */
+            p += w;
+        }
+    }
 }
 
 static bool desktop_icon_in(const char *apps_dir, const char *id, const char *exec, char *icon, size_t n);
