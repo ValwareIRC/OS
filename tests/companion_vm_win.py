@@ -27,7 +27,18 @@ mind = os.path.join(out, "mind.json")
 open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{port}/v1", "api_key": "",
                                   "model": "fake"}) + "\n")
 check = os.path.join(out, "autorun.sh")
-open(check, "w", newline="\n").write(open(os.path.join(ROOT, "tests", "companion_check.sh"), encoding="utf-8").read())
+if os.environ.get("REAL_CJS"):  # Prism's own checks (its run.mjs --real), from inside its Flatpak, then Prism itself
+    import base64
+    b64 = base64.b64encode(open(os.environ["REAL_CJS"], "rb").read()).decode()
+    open(check, "w", newline="\n").write(
+        "#!/bin/sh\nsleep 20\nbase64 -d > /root/real.cjs <<'B64'\n" + b64 + "\nB64\n"
+        "flatpak run --command=sh com.valware.prism -c 'ELECTRON_RUN_AS_NODE=1 /app/prism/prism /root/real.cjs' 2>&1"
+        " | grep -v 'document portal' | sed 's/^/REALCHECK /'\n"
+        "echo 'APPCHECK done'\n"
+        "flatpak run com.valware.prism >/tmp/prism.log 2>&1 &\n"
+        "sleep 90\necho \"PRISMLOG $(tail -c 1500 /tmp/prism.log | tr '\\n' '|')\"\n")
+else:
+    open(check, "w", newline="\n").write(open(os.path.join(ROOT, "tests", "companion_check.sh"), encoding="utf-8").read())
 
 
 def fw(name, path):
@@ -105,9 +116,12 @@ try:
         print("the prompt never came", flush=True)
     wait_for(r"APPCHECK done", 400)
     time.sleep(1)
+    if os.environ.get("REAL_CJS"):  # Prism itself, opened on the desktop
+        wait_for(r"PRISMLOG", 150)
+        q.shot("prism.png")
 finally:
     text = log_text()
-    for line in re.findall(r"APPCHECK [^\n]*|shell: appapi: [^\n]*", text):
+    for line in re.findall(r"APPCHECK [^\n]*|REALCHECK [^\n]*|PRISMLOG [^\n]*|shell: appapi: [^\n]*", text):
         print(line)
     print("--- the mind saw:")
     for line in open(ailog, encoding="utf-8").read().splitlines():
