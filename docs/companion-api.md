@@ -57,7 +57,9 @@ it can change anything inside itself.
 - On `/events`:
   - `mood {"name"}` and `act {"name"}`, using the same names as the companion's `[[mood:]]` and `[[act:]]`;
   - `speaking {"level","f1","f2"}` every 20 ms while the OS speaks;
-  - `gaze {"x","y"}`.
+  - `gaze {"x","y"}`: where she looks, each -1.2..1.2 from the middle of her frame; x grows to the
+    right of the screen and y grows **upwards** (the pointer above her is positive y). Sent while the
+    pointer moves, at most 20 times a second.
 - `POST /avatar {"mood":"happy"}` or `{"act":"wave"}`: the desktop companion does the same.
 - Apps render the VRM themselves; the OS does not send frames.
 
