@@ -95,6 +95,15 @@ class Qmp:
             else:
                 self.key(names.get(ch, ch))
 
+    def click(self, x, y, W=1600, H=900):
+        self.cmd("input-send-event", events=[
+            {"type": "abs", "data": {"axis": "x", "value": int(x * 32767 / (W - 1))}},
+            {"type": "abs", "data": {"axis": "y", "value": int(y * 32767 / (H - 1))}}])
+        time.sleep(0.3)
+        self.cmd("input-send-event", events=[{"type": "btn", "data": {"down": True, "button": "left"}}])
+        time.sleep(0.1)
+        self.cmd("input-send-event", events=[{"type": "btn", "data": {"down": False, "button": "left"}}])
+
 
 def log_text():
     try:
@@ -146,11 +155,12 @@ try:
     print("designing:", bool(wait_for(r"screen designing", 60)), flush=True)
     time.sleep(8)
     q.shot("6-designing-look-question.png")
-    m = len(log_text())
-    q.key("1")  # nothing selected by key in the look question; click the gem instead below
-    time.sleep(2)
     print("look asked:", bool(re.search(r"body: asking", log_text())), flush=True)
-    print("browser asked:", bool(re.search(r"browsers: asking", log_text())), flush=True)
+    q.click(979, 390)  # the Earth tile
+    print("earth picked:", bool(wait_for(r"emblem: earth", 20)), flush=True)
+    print("browser asked:", bool(wait_for(r"browsers: asking", 60)), flush=True)
+    time.sleep(3)
+    q.shot("7-browser-question.png")
 finally:
     text = log_text()
     for line in re.findall(r"shell: (?:screen [^\n]*|picked [^\n]*|pick shown [^\n]*|body: [^\n]*|browsers: [^\n]*|emblem: [^\n]*)", text):
