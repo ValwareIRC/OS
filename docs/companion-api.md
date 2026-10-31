@@ -46,9 +46,11 @@ it can change anything inside itself.
 
       {"name":"Mita","pronouns":"she","persona":"<personality text>",
        "voice":{"id":"en_US-amy","pitch":1.0},
-       "vrm":{"version":17,"sha256":"…"},"version":42}
+       "vrm":{"version":17,"sha256":"…"},"emblem":"gem","version":42}
 
-  `pronouns` is only filled if she set them.
+  `pronouns` is only filled if she set them. `emblem` is how the person chose to see the companion: `face`
+  (the figure, or the VRM when there is one), or one of `gem`, `orb`, `8-ball`, `earth`, `planet`, `heart`,
+  `moon`, `picture`, `drawing`, `model`. An app showing a face keeps it; one that can't may draw a gem.
 - `GET /identity/vrm` returns the VRM file, with its sha256 as the ETag. `vrm` is null when the
   companion has no VRM; the app then keeps its own face.
 - Changes arrive on `/events` as `identity {"version":n}`.

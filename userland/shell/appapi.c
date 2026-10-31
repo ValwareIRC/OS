@@ -15,6 +15,7 @@
 #include "appapi.h"
 #include "app.h"
 #include "presence.h"
+#include "emblem.h"
 #include "theme.h"
 #include "wallpaper.h"
 #include "voice.h"
@@ -942,7 +943,8 @@ static void identity_check(void) {
     if (!vrm)
         I.vrm_size = 0, I.sha[0] = 0;
     char sig[400];
-    snprintf(sig, sizeof sig, "%s|%s|%s|%s", D.ai_name, A.prof.autonomy, I.sha, VOICE_ID);
+    snprintf(sig, sizeof sig, "%s|%s|%s|%s|%s", D.ai_name, A.prof.autonomy, I.sha, VOICE_ID,
+             presence_mode() != PRESENCE_LIGHT ? "face" : emblem_name(emblem_kind()));
     if (!strcmp(sig, I.sig))
         return;
     bool first = !I.sig[0];
@@ -1004,7 +1006,8 @@ static void identity(struct conn *c) {
         sb_printf(&b, "{\"version\":%u,\"sha256\":\"%s\",\"size\":%lld}", I.version, I.sha, I.vrm_size);
     else
         sb_add(&b, "null");
-    sb_printf(&b, ",\"version\":%u}", I.version);
+    /* how they see it on the desktop (the emblem), when it isn't a face */
+    sb_printf(&b, ",\"emblem\":\"%s\",\"version\":%u}", presence_mode() != PRESENCE_LIGHT ? "face" : emblem_name(emblem_kind()), I.version);
     reply(c, 200, b.p);
     sb_free(&b);
     sb_free(&p);
