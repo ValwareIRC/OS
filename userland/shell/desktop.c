@@ -89,7 +89,21 @@ static void panel(rect r, float radius) {
 
 /* ---- windows ---- */
 
+/* Who the keyboard belongs to: a view docked into the design (its app name),
+ * once clicked, or else the front window. Only ever one of them, so typing to
+ * the companion's docked chat never also types into Settings behind it. */
+static char kbd_view[16];
+static int pointer_top = -1; /* the window under the pointer this frame, or -1 */
+
+static bool view_has_keys(const char *app) {
+    if (kbd_view[0])
+        return !strcmp(kbd_view, app);
+    /* nothing clicked yet: the docked companion listens while no window is in front */
+    return !strcmp(app, "companion") && focused_window() < 0;
+}
+
 static void open_window(int w) {
+    kbd_view[0] = 0; /* a window opened: it takes the typing */
     struct window *win = &A.win[w];
     if (!win->open) {
         /* Windows open in the space the design leaves free. */
@@ -1354,12 +1368,22 @@ void fm_host_draw_view(const char *app, rect r) {
         return;
     }
     int a = fm_app_index(app);
+    /* the keyboard: only if this view was clicked last (see kbd_view) */
+    const char *who = a == APP_FILES ? "files" : a == APP_NOTES ? "notes" : a == APP_SETTINGS ? "settings"
+                    : a == APP_ABOUT ? "about" : a == APP_TERMINAL ? "terminal"
+                    : app && !strcasecmp(app, "senses") ? "senses" : "companion";
+    if (A.in.clicked && pointer_top < 0 && ui_hover(r))
+        snprintf(kbd_view, sizeof kbd_view, "%s", who);
+    bool keys = view_has_keys(who);
+    int nkeys = A.in.nkeys, nraw = A.in.nraw;
+    if (!keys)
+        A.in.nkeys = A.in.nraw = 0;
     switch (a) {
     case APP_FILES: files_body(r); break;
     case APP_NOTES: notes_draw(r); break;
     case APP_SETTINGS: settings_body(r); break;
     case APP_ABOUT: about_body(r); break;
-    case APP_TERMINAL: term_draw(r, false, D.surface, D.surface_text, D.body_px - 2 < 13 ? 13 : D.body_px - 2); break;
+    case APP_TERMINAL: term_draw(r, keys, D.surface, D.surface_text, D.body_px - 2 < 13 ? 13 : D.body_px - 2); break;
     default:
         if (app && !strcasecmp(app, "senses")) /* <view app="senses"/>: what it can sense */
             alive_panel(r);
@@ -1368,6 +1392,10 @@ void fm_host_draw_view(const char *app, rect r) {
         else
             companion_body(r);
         break;
+    }
+    if (!keys) { /* hand the keys on to whoever does own them */
+        A.in.nkeys = nkeys;
+        A.in.nraw = nraw;
     }
 }
 
@@ -1851,8 +1879,11 @@ void desktop_draw(void) {
             }
     wm_pointer(order, n, over_ui, &top); /* borders, moving, resizing, snapping */
     route_to_apps(top);
-    if (A.in.pressed && top >= 0)
+    if (A.in.pressed && top >= 0) {
         A.win[top].z = ++A.ztop;
+        kbd_view[0] = 0; /* a window pressed: typing goes to the windows again */
+    }
+    pointer_top = top;
     input_state ui_in = A.in;
     if (top >= 0) {
         ui_in.mx = ui_in.my = -10000;
@@ -1877,7 +1908,7 @@ void desktop_draw(void) {
         /* Typing goes to the front window (the one last clicked or opened). */
         bool typable = w == WIN_COMPANION || w == WIN_NOTES || w == WIN_TERMINAL || w == WIN_FILES || w == WIN_SETTINGS ||
                        w == WIN_PREVIEW;
-        bool keyboard_owner = !keys_to_ui && typable && (w == focused || (focused < 0 && w == WIN_COMPANION));
+        bool keyboard_owner = !keys_to_ui && !kbd_view[0] && typable && (w == focused || (focused < 0 && w == WIN_COMPANION));
         if (!keyboard_owner)
             A.in.nkeys = 0;
         if (w == top) {

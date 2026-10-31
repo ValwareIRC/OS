@@ -951,11 +951,14 @@ static void name_row(rect c, int *y, font *f) {
     draw_text(A.frame, f, c.x, *y, "Name", P.muted);
     *y += LH(f) + 8;
     rect tf = {c.x, *y, c.w - 160 > 260 ? 320 : c.w - 160, 40};
-    ui_textfield(tf, &nm, true, "Their name", f, color_alpha(P.ink, 0.06f), P.ink, P.muted, 12);
+    static bool typing; /* only once the field is clicked: a name is never changed by keys meant elsewhere */
+    if (A.in.clicked)
+        typing = ui_hover(tf);
+    ui_textfield(tf, &nm, typing, "Their name", f, color_alpha(P.ink, 0.06f), P.ink, P.muted, 12);
     rect b = {tf.x + tf.w + 12, *y, 130, 40};
     if (log_now)
         LOGRECT("settings-name", tf);
-    bool enter = ui_type(&nm);
+    bool enter = typing && ui_type(&nm);
     bool changed = nm.len > 0 && strcmp(nm.buf, D.ai_name);
     if ((ctl_button(b, "Rename", f, changed, changed, &P) || (enter && changed)) && nm.len > 0) {
         companion_rename(nm.buf);
