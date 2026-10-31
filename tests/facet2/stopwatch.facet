@@ -1,0 +1,57 @@
+app Stopwatch
+  data now = clock(20)
+  state
+    running = false
+    held = 0
+    started = 0
+    laps = []
+  end
+  derived
+    elapsed = if running then held + now.time - started else held
+    shown = pad(text(floor(elapsed / 60000)), 2, "0") + ":" + pad(text(floor(elapsed % 60000 / 1000)), 2, "0") + "." + pad(text(floor(elapsed % 1000 / 10)), 2, "0")
+  end
+  fn toggle()
+    if running then
+      set held = elapsed
+      set running = false
+    else
+      set started = now.time
+      set running = true
+    end
+  end
+  fn lap()
+    if running then
+      set laps = [{n: len(laps) + 1, t: shown}] + laps
+    end
+  end
+  fn reset()
+    set running = false
+    set held = 0
+    set laps = []
+  end
+  view
+    <column id="main">
+      <text id="time" class="readout">{shown}</text>
+      <row id="controls">
+        <button id="go" class="ctl" on:click="toggle()">{if running then "Stop" else "Start"}</button>
+        <button id="lap" class="ctl" on:click="lap()" disabled={not running}>Lap</button>
+        <button id="reset" class="ctl" on:click="reset()" disabled={running or elapsed == 0}>Reset</button>
+      </row>
+      <each in={laps} as="l" key={l.n}>
+        <row class="lap">
+          <text class="num">Lap {l.n}</text>
+          <text class="val">{l.t}</text>
+        </row>
+      </each>
+    </column>
+  end
+  style
+    #main { padding: 16; gap: 12; align: center; }
+    .readout { font: token(font-body); size: 40; weight: 600; color: token(text); }
+    #controls { gap: 8; justify: center; }
+    .ctl { padding: 8; radius: 8; background: token(surface); color: token(text); }
+    .lap { gap: 8; justify: center; }
+    .num { color: token(muted); width: 64; }
+    .val { color: token(text); }
+  end
+end

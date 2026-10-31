@@ -1,0 +1,63 @@
+app Notes
+  data notes = files("~/Notes", ".txt")
+  state
+    query = ""
+    open = none
+    draft = ""
+  end
+  derived
+    shown = filter(notes, n -> contains(lower(n.name), lower(query)))
+  end
+  fn pick(n)
+    save()
+    cancel("save")
+    set open = n
+    set draft = fs.read(n.path)
+  end
+  fn typed()
+    after("save", 1000, save)
+  end
+  fn save()
+    if open != none then
+      fs.write(open.path, draft)
+    end
+  end
+  fn remove()
+    if ask("Delete {open.name}?") then
+      cancel("save")
+      fs.remove(open.path)
+      set open = none
+    end
+  end
+  view
+    <row>
+      <column id="side">
+        <input id="search" bind="query" placeholder="Search" autofocus/>
+        <each in={shown} as="n" key={n.path}>
+          <NoteRow note={n} selected={open == n} on:picked="pick(value)"/>
+        </each>
+      </column>
+      <if test={open != none}>
+        <column id="editor">
+          <field id="body" multiline bind="draft" on:input="typed()"/>
+          <button id="delete" on:click="remove()">Delete</button>
+        </column>
+      <else/>
+        <text id="empty">Pick a note</text>
+      </if>
+    </row>
+  end
+  style
+    #side { width: 240; gap: 4; }
+    .note.active { background: token(accent); }
+    #delete { color: token(danger); }
+  end
+  component NoteRow(note, selected)
+    fn click()
+      emit "picked" note
+    end
+    view
+      <button class="note" class:active={selected} on:click="click()">{note.name}</button>
+    end
+  end
+end

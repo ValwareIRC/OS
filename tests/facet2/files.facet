@@ -1,0 +1,89 @@
+app Files
+  data items = files(folder)
+  state
+    folder = "~/Documents"
+    query = ""
+    picked = none
+  end
+  derived
+    matching = filter(items, n -> contains(lower(n.name), lower(query)))
+    folders = sort(filter(matching, n -> n.dir), n -> lower(n.name))
+    plain = sort(filter(matching, n -> not n.dir), n -> lower(n.name))
+    shown = folders + plain
+  end
+  fn up()
+    set folder = dirname(folder)
+    set picked = none
+  end
+  fn choose(n)
+    if n.dir then
+      set folder = n.path
+      set query = ""
+      set picked = none
+    else
+      set picked = n
+    end
+  end
+  fn openfile()
+    if picked != none then
+      app.open("notes", picked.path)
+      set picked = none
+    end
+  end
+  fn renamefile()
+    if picked != none then
+      let answer = prompt("Rename {picked.name} to", picked.name)
+      if answer != none then
+        fs.rename(picked.path, dirname(picked.path) + "/" + answer)
+        set picked = none
+      end
+    end
+  end
+  fn removefile()
+    if picked != none then
+      if ask("Delete {picked.name}?") then
+        fs.remove(picked.path)
+        set picked = none
+      end
+    end
+  end
+  fn newfolder()
+    let answer = prompt("New folder name", "")
+    if answer != none then
+      fs.mkdir(folder + "/" + answer)
+    end
+  end
+  view
+    <column id="root">
+      <row id="bar">
+        <button id="up" on:click="up()">Up</button>
+        <input id="search" bind="query" placeholder="Search files" autofocus/>
+      </row>
+      <scroll id="list">
+        <each in={shown} as="n" key={n.path}>
+          <button id="entry" class="item" class:dir={n.dir} on:click="choose(n)">{n.name}</button>
+        </each>
+      </scroll>
+      <if test={picked != none}>
+        <row id="detail">
+          <text id="name">{picked.name} · {text(picked.size)} bytes</text>
+          <button id="open" on:click="openfile()">Open</button>
+          <button id="rename" on:click="renamefile()">Rename</button>
+          <button id="delete" on:click="removefile()">Delete</button>
+        </row>
+      <else/>
+        <button id="new" on:click="newfolder()">New folder</button>
+      </if>
+    </column>
+  end
+  style
+    #root { direction: column; grow: 1; }
+    #bar { gap: 8; padding: 8; }
+    #search { grow: 1; }
+    #list { grow: 1; padding: 8; gap: 4; }
+    .item { align: start; }
+    .dir { weight: 700; }
+    #name { grow: 1; color: token(muted); }
+    #delete { color: token(danger); }
+  end
+end

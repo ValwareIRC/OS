@@ -1,0 +1,45 @@
+app Launcher
+  data apps = apps()
+  state
+    query = ""
+    sel = 0
+  end
+  derived
+    shown = filter(apps, a -> contains(lower(a.name), lower(query)))
+  end
+  fn typed()
+    set sel = 0
+  end
+  fn pressed(k)
+    if k == "down" then
+      set sel = min(sel + 1, len(shown) - 1)
+    elseif k == "up" then
+      set sel = max(sel - 1, 0)
+    elseif k == "enter" then
+      if len(shown) > 0 then
+        app.open(shown[sel].id)
+      end
+    elseif k == "esc" then
+      set query = ""
+      set sel = 0
+    end
+  end
+  fn launch(a)
+    app.open(a.id)
+  end
+  view
+    <column id="launcher">
+      <input id="search" bind="query" placeholder="Search apps" autofocus on:input="typed()" on:key="pressed(value)"/>
+      <each in={shown} as="a" key={a.id} at="i">
+        <button class="app" class:sel={i == sel} on:click="launch(a)">{a.name}</button>
+      </each>
+      <text id="count">{len(shown)} of {len(apps)} apps</text>
+    </column>
+  end
+  style
+    #launcher { width: 360; padding: 12; gap: 8; }
+    .app { radius: 8; padding: 8; }
+    .app.sel { background: token(accent); color: token(text); }
+    #count { color: token(muted); }
+  end
+end
