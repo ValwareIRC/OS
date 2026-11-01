@@ -1,0 +1,22 @@
+# Files: folders first, opening a folder follows it (data that follows state), up, new folder, rename, open in Notes
+write ~/Documents/b.txt bee
+write ~/Documents/a.txt ay
+write ~/Documents/Zeta/inside.txt deep
+expect "Zeta"
+expect "a.txt"
+answer "Alpha"
+click #new
+expect "Alpha"
+click "Zeta"
+expect "inside.txt"
+expectnot "a.txt"
+click #up
+expect "a.txt"
+click "a.txt"
+expect "a.txt · 2 bytes"
+answer "renamed.txt"
+click #rename
+expect "renamed.txt"
+expectnot "a.txt"
+click "b.txt"
+click #open

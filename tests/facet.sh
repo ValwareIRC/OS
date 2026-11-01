@@ -6,5 +6,5 @@ cd "$(dirname "$0")/.."
 mkdir -p build/host
 FX=userland/shell/fx
 gcc -O1 -g -std=gnu17 -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined \
-    -o build/host/facet tests/facet_cli.c $FX/parse.c $FX/check.c
+    -o build/host/facet tests/facet_cli.c $FX/parse.c $FX/check.c $FX/val.c $FX/eval.c -lm
 build/host/facet "$@"

@@ -1,0 +1,30 @@
+# Notes: the list, search, opening, saving a second after typing stops, deleting after asking
+write ~/Notes/shopping.txt eggs, milk
+write ~/Notes/ideas.txt a moon that talks
+expect "shopping.txt"
+expect "ideas.txt"
+expect "Pick a note"
+type #search sho
+expect "shopping.txt"
+expectnot "ideas.txt"
+type #search
+click "shopping.txt"
+expectnot "Pick a note"
+expect "eggs, milk"
+type #body eggs, milk, bread
+tick 400
+file ~/Notes/shopping.txt "eggs, milk"
+type #body eggs, milk, bread, tea
+tick 800
+# still typing: the first save was put off
+file ~/Notes/shopping.txt "eggs, milk"
+tick 300
+file ~/Notes/shopping.txt "eggs, milk, bread, tea"
+answer no
+click #delete
+expect "shopping.txt"
+answer yes
+click #delete
+expectnot "shopping.txt"
+expect "Pick a note"
+show

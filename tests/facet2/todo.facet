@@ -42,7 +42,7 @@ app Todo
       <scroll>
         <each in={items} as="t" at="i" key={i}>
           <row class="todo">
-            <checkbox checked={t.done} on:change="toggle(i)"/>
+            <checkbox id="done" checked={t.done} on:change="toggle(i)"/>
             <text class:done={t.done}>{t.label}</text>
             <button on:click="drop(i)">Delete</button>
           </row>

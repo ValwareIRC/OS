@@ -1,0 +1,19 @@
+# Todo: a missing file is an empty list; add, tick, delete, all written back
+expect "0 left"
+type #new buy bread
+key #new enter
+file ~/Todo.txt "  buy bread"
+expect "buy bread"
+expect "1 left"
+type #new call mum
+click #add
+file ~/Todo.txt "  buy bread\n  call mum"
+expect "2 left"
+check #done
+file ~/Todo.txt "x buy bread\n  call mum"
+expect "1 left"
+answer yes
+click "Delete"
+file ~/Todo.txt "  call mum"
+expectnot "buy bread"
+expect "1 left"

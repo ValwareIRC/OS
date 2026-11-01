@@ -1,0 +1,12 @@
+# Launcher: filter as you type, arrows move the highlight, Enter opens, Esc clears
+expect "6 of 6 apps"
+type #search r
+expect "3 of 6 apps"
+key #search down
+key #search down
+state sel
+key #search enter
+key #search esc
+expect "6 of 6 apps"
+state query
+click "Prism"
