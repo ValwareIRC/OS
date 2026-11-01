@@ -58,15 +58,18 @@ static bool is_data_fn(const char *name, int *mn, int *mx) {
 
 static const char *const elements[] = {"row",   "column", "grid",  "stack",  "panel",  "text",   "button",
                                        "input", "field",  "checkbox", "icon", "image", "spacer", "divider",
-                                       "scroll", "canvas", "popover", "sheet", "each", "if", "else"};
+                                       "scroll", "canvas", "popover", "sheet", "each", "if", "else",
+                                       "ring", "progress", "chart", "avatar", "badge"};
 static const char *const style_props[] = {"background", "color",  "border",  "radius",  "padding",   "margin",
                                           "gap",        "width",  "height",  "grow",    "font",      "size",
                                           "weight",     "shadow", "blur",    "opacity", "align",     "justify",
-                                          "direction",  "transition"};
+                                          "direction",  "transition", "gradient", "glow", "depth", "scale",
+                                          "move",       "text",   "upper",   "line",    "columns",   "outline"};
 const char *const fx_tokens[] = {"accent", "accent2", "background", "surface", "surface2", "text", "muted",
                                  "danger", "success", "border", "font-body", "font-heading", "font-mono", NULL};
 static const char *const attrs_any[] = {"id", "class", "disabled", "autofocus", "placeholder", "multiline", "bind",
-                                        "checked", "name", "src", "value"};
+                                        "checked", "name", "src", "value", "max", "label", "data", "labels", "kind",
+                                        "text"};
 
 static int lev(const char *a, const char *b) {
     int la = (int)strlen(a), lb = (int)strlen(b);
@@ -160,6 +163,9 @@ static const char *suggest(ctx *c, const char *name) {
 
 /* ---- purity: fns a derived value may call ---- */
 
+static fx_stmt **pure_fn_body; /* the fn being judged: its own locals may change */
+static int pure_fn_n;
+
 static bool stmts_pure(const fx_app *a, fx_stmt **s, int n, int depth);
 static bool expr_pure(const fx_app *a, const fx_expr *e, int depth) {
     if (!e)
@@ -168,8 +174,15 @@ static bool expr_pure(const fx_app *a, const fx_expr *e, int depth) {
         if (fx_is_effect(e->s, NULL, NULL))
             return false;
         const fx_fn *f = find_fn(a, e->s);
-        if (f && (depth > 16 || !stmts_pure(a, f->body, f->nbody, depth + 1)))
-            return false;
+        if (f) {
+            fx_stmt **kb = pure_fn_body;
+            int kn = pure_fn_n;
+            pure_fn_body = f->body, pure_fn_n = f->nbody;
+            bool pure = depth <= 16 && stmts_pure(a, f->body, f->nbody, depth + 1);
+            pure_fn_body = kb, pure_fn_n = kn;
+            if (!pure)
+                return false;
+        }
     }
     if (!expr_pure(a, e->a, depth) || !expr_pure(a, e->b, depth) || !expr_pure(a, e->c, depth))
         return false;
@@ -178,9 +191,20 @@ static bool expr_pure(const fx_app *a, const fx_expr *e, int depth) {
             return false;
     return true;
 }
+/* the fn's own locals (let), which it may change freely and stay pure */
+static bool is_local(fx_stmt **s, int n, const char *name) {
+    for (int i = 0; i < n; i++) {
+        if (s[i]->k == S_LET && !strcmp(s[i]->name, name))
+            return true;
+        if ((s[i]->k == S_FOR && !strcmp(s[i]->name, name)) || is_local(s[i]->body, s[i]->nbody, name) ||
+            is_local(s[i]->alt, s[i]->nalt, name))
+            return true;
+    }
+    return false;
+}
 static bool stmts_pure(const fx_app *a, fx_stmt **s, int n, int depth) {
     for (int i = 0; i < n; i++) {
-        if (s[i]->k == S_SET || s[i]->k == S_EMIT)
+        if (s[i]->k == S_EMIT || (s[i]->k == S_SET && !(pure_fn_body && is_local(pure_fn_body, pure_fn_n, s[i]->name))))
             return false;
         if (!expr_pure(a, s[i]->e, depth) || !stmts_pure(a, s[i]->body, s[i]->nbody, depth) ||
             !stmts_pure(a, s[i]->alt, s[i]->nalt, depth))
@@ -251,7 +275,10 @@ static void check_call(ctx *c, const fx_expr *e) {
             if (e->n != f->nparams)
                 fx_err(c->errs, e->line, NULL, "%s takes %d value%s, not %d", f->name, f->nparams,
                        f->nparams == 1 ? "" : "s", e->n);
-            if ((c->in_derived || c->in_view) && !stmts_pure(c->app, f->body, f->nbody, 0))
+            pure_fn_body = f->body, pure_fn_n = f->nbody;
+            bool pure = stmts_pure(c->app, f->body, f->nbody, 0);
+            pure_fn_body = NULL, pure_fn_n = 0;
+            if ((c->in_derived || c->in_view) && !pure)
                 fx_err(c->errs, e->line, NULL, "%s changes things (set, emit or an effect), so %s can't call it", f->name,
                        c->in_view ? "the view" : "derived");
         }
@@ -455,9 +482,9 @@ static void check_node(ctx *c, const fx_node *n, const fx_node *parent) {
                 strncmp(a->name, "class:", 6))
                 fx_err(c->errs, a->line, NULL, "<%s> has no parameter \"%s\"", n->tag, a->name);
         } else if (!attr_known(n->tag, a->name)) {
-            static const char *const all[] = {"id", "class", "disabled", "autofocus", "placeholder", "multiline",
+            static const char *const all[] = {"id",  "class", "disabled", "autofocus", "placeholder", "multiline",
                                               "bind", "checked", "name", "src", "value", "in", "as", "key", "at",
-                                              "test"};
+                                              "test", "max", "label", "data", "labels", "kind", "text"};
             const char *near = fx_nearest(a->name, all, COUNT(all));
             if (!strcmp(a->name, "width") || !strcmp(a->name, "height") || !strcmp(a->name, "gap") ||
                 !strcmp(a->name, "grow") || !strcmp(a->name, "padding")) {

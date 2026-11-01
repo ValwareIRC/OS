@@ -19,6 +19,7 @@
 #include "../lib/json.h"
 
 #include <dirent.h>
+#include <math.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,11 @@ struct fxwin {
     char focus[256];    /* the focused input's key */
     bool autofocused, busy, rebuild;
     int pending;        /* an action clicked this frame, run after the engine is done with the pointer */
+    struct {
+        char key[256];
+        float v;
+        bool used;
+    } anim[48];         /* widgets easing towards their values */
     int w;
 };
 
@@ -442,12 +448,45 @@ static void draw_inputs(struct fxwin *fw, bool focused, bool pointer_here) {
     for (int k = 0; k < fw->nacts; k++) {
         fx_out *o = fw->acts[k];
         bool input = !strcmp(o->tag, "input"), multi = !strcmp(o->tag, "field"), check = !strcmp(o->tag, "checkbox");
-        if (!input && !multi && !check)
+        bool widget = fx_is_widget(o->tag);
+        if (!input && !multi && !check && !widget)
             continue;
         fm_node *n = input_node(fw->doc->root, k);
         if (!n || n->vis.w <= 0)
             continue;
         rect r = n->vis;
+        if (widget) {
+            /* a chart rises from nothing; rings and bars ease from where they were */
+            bool chart = !strcmp(o->tag, "chart");
+            const char *vs = fx_get(o, "value");
+            float target = chart ? 1.0f : vs ? strtof(vs, NULL) : 0;
+            int slot = -1;
+            for (int i = 0; i < 48 && slot < 0; i++)
+                if (fw->anim[i].used && o->key && !strcmp(fw->anim[i].key, o->key))
+                    slot = i;
+            for (int i = 0; i < 48 && slot < 0; i++)
+                if (!fw->anim[i].used) {
+                    slot = i;
+                    fw->anim[i].used = true;
+                    snprintf(fw->anim[i].key, sizeof fw->anim[i].key, "%s", o->key ? o->key : "");
+                    fw->anim[i].v = 0;
+                }
+            float shown = target;
+            if (slot >= 0) {
+                float *v = &fw->anim[slot].v;
+                if (A.prof.reduce_motion || D.motion < 0.05f)
+                    *v = target;
+                else
+                    *v += (target - *v) * (0.12f + 0.18f * D.motion);
+                if (fabsf(target - *v) < 0.002f * (fabsf(target) + 1))
+                    *v = target;
+                shown = *v;
+                if (shown != target)
+                    A.dirty = true; /* keep drawing while it moves */
+            }
+            fx_widget_draw(A.frame, r, o, &D, chart ? (shown < 1 ? shown : -1) : shown);
+            continue;
+        }
         bool over = pointer_here && pt_in(r, A.in.mx, A.in.my);
         bool disabled = fx_get(o, "disabled") != NULL;
         if (check) {

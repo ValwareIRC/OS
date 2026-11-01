@@ -134,7 +134,8 @@ int main(int argc, char **argv) {
         printf("engine: line %d: %s\n", doc->problems[i].line, doc->problems[i].msg);
     /* the desktop's colour behind, a window in the middle */
     fill_vgradient(A.frame, (rect){0, 0, A.W, A.H}, A.d.bg, color_mix(A.d.bg, A.d.accent, 0.25f));
-    rect win = {(A.W - 760) / 2, (A.H - 560) / 2, 760, 560};
+    int ww = getenv("FX_W") ? atoi(getenv("FX_W")) : 760, wh = getenv("FX_H") ? atoi(getenv("FX_H")) : 560;
+    rect win = {(A.W - ww) / 2, (A.H - wh) / 2, ww, wh};
     shadow_round(A.frame, (rect){win.x, win.y + 16, win.w, win.h}, 14, 40, RGBA(0, 0, 0, 110));
     fill_round(A.frame, win, 14, A.d.surface | 0xff000000u);
     font *tf = font_get(A.d.font_heading, 16);
@@ -148,12 +149,16 @@ int main(int argc, char **argv) {
     font *bf = font_get(A.d.font_body, A.d.body_px);
     for (int k = 0; k < nacts; k++) {
         fx_out *o = acts[k];
-        if (strcmp(o->tag, "input") && strcmp(o->tag, "field") && strcmp(o->tag, "checkbox"))
+        if (strcmp(o->tag, "input") && strcmp(o->tag, "field") && strcmp(o->tag, "checkbox") && !fx_is_widget(o->tag))
             continue;
         fm_node *n = by_fxin(doc->root, k);
         if (!n)
             continue;
         rect r = n->vis;
+        if (fx_is_widget(o->tag)) {
+            fx_widget_draw(A.frame, r, o, &A.d, -1);
+            continue;
+        }
         fill_round(A.frame, r, 6, color_mix(A.d.surface, A.d.surface_text, 0.07f));
         stroke_round(A.frame, r, 6, 1, color_alpha(A.d.surface_text, 0.2f));
         const char *v = fx_get(o, "value"), *ph = fx_get(o, "placeholder");

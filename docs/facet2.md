@@ -185,3 +185,38 @@ them unanimously:
 - `(x, i) ->` in `map`, `filter` and `find`. `sort` keeps the one-name form.
 - `slice` clamps at the ends, and negative numbers are an error.
 - `clock()` gives `time` in milliseconds since 1970, so durations don't wrap at midnight.
+
+## Looks (added after 2.1, to put to the council)
+
+Facet 2.1 gave apps only plain style properties, so an app with little style looked plain. These additions give a writer, small models included, beauty with a few words. None of it is a stock look: each class is computed from the person's design. That covers its material (glass, frost, solid or neon), corners, shadows, glow, colours and fonts. So `class="card lift"` is frosted in one design, neon-edged in another and paper in a third.
+
+**Built-in classes** (combine freely: `class="card lift center"`):
+
+| | |
+|---|---|
+| Surfaces | `card` `tile` `glass` `hero` (accent gradient banner) `sunken` `outline` `raised` `floating` |
+| Emphasis | `primary` `soft` `quiet` `danger` `success` `glow` |
+| Shape | `pill` `circle` |
+| Type | `title` `heading` `label` (small, upper case, muted) `subtle` `big` (a number to stand out) `mono` |
+| Layout | `spread` `center` `left` `stack` `wrap` `fill` `grid2` `grid3` `grid4` `tight` `airy` |
+| Motion | `lift` (rises on hover, as fast as the design moves) |
+
+**More style properties:**
+- `gradient: token(accent) token(accent2) 135` paints the background.
+- `glow: token(accent) 14` makes it give off light.
+- `depth: 0..3` sets this design's shadow levels (light on neon).
+- `scale: 1.05` resizes it, and `move: 0 -3` shifts it (both most useful on `:hover`).
+- `text: start|center|end` aligns its text.
+- `upper: true` sets its text in capitals.
+- `line: 1.4` sets the line height.
+- `columns: 3` lays its children out as a grid.
+- `outline: token(border)` draws a border.
+
+**Widgets,** drawn in the design's accent flowing into accent2, easing to new values:
+- `<ring value={done} max={goal} label="water"/>`
+- `<progress value={read} max={pages}/>`
+- `<chart kind="bar|line" data={list} labels={list}/>`
+- `<avatar text="Valerie Liu"/>` (initials)
+- `<badge>3 new</badge>`
+
+`tests/facet2/daybook.facet` shows them all. `tests/facet2/showcase.sh` pictures it in several designs.
