@@ -222,7 +222,7 @@ static void preload_state_from_fwcfg(void) {
         }
     }
     static const char *const names[] = {"mind.json", "design.json", "facet.xml", "app.env", "autorun.sh", "display", "presence",
-                                        "figure.xml"};
+                                        "figure.xml", "alive.conf"};
     static char buf[131072];
     for (size_t i = 0; i < ARRAY_LEN(names); i++) {
         char key[64], path[64];

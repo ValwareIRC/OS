@@ -603,7 +603,7 @@ int fxwin_open(const char *path) {
     memset(win, 0, sizeof *win);
     win->fx = fw;
     rect wk = A.ui && A.ui->work.w > 200 ? A.ui->work : (rect){0, 0, A.W, A.H};
-    int ww = 720 < wk.w - 60 ? 720 : wk.w - 60, wh = 520 < wk.h - 60 ? 520 : wk.h - 60;
+    int ww = 1040 < wk.w - 80 ? 1040 : wk.w - 80, wh = 760 < wk.h - 40 ? 760 : wk.h - 40;
     int off = (w - WIN_COUNT) * 28;
     win->r = (rect){wk.x + (wk.w - ww) / 2 + off, wk.y + (wk.h - wh) / 2 + off / 2, ww, wh};
     win->open = true;

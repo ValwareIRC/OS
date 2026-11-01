@@ -251,7 +251,8 @@ static void base_css(sbuf *b) {
     rgba(glassbg, sizeof glassbg, D.surface, 0.42f);
     float hpx = D.heading_px > 20 ? D.heading_px : 28, bpx = D.body_px > 11 ? D.body_px : 15;
     sb_printf(b,
-              ".fx-root { direction: column; gap: 12; padding: 18; color: %s; font-family: %s; font-size: %.0f; }\n"
+              ".fx-root { direction: column; gap: 12; padding: 18; color: %s; font-family: %s; font-size: %.0f; "
+              "overflow: scroll; }\n"
               "row { direction: row; gap: 10; align: center; }\n"
               "column { direction: column; gap: 8; }\n"
               "text { color: %s; }\n"
