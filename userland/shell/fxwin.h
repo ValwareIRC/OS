@@ -14,6 +14,8 @@ int fxwin_open(const char *path);
 void fxwin_draw(struct fxwin *fw, rect r, bool focused, bool pointer_here);
 const char *fxwin_title(const struct fxwin *fw);
 void fxwin_close(struct fxwin *fw);
+/* Closes the window running this file, if one is (its app was rewritten). */
+void fxwin_close_path(const char *path);
 /* Frees the apps whose windows went (an app may close itself while it runs: freed after). */
 void fxwin_reap(void);
 /* what="fx:N" from one of its elements (desktop.c's fm_host_action passes these on). */

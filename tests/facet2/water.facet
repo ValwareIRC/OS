@@ -1,0 +1,27 @@
+app Water
+  data saved = file("~/.water")
+  state
+    goal = 8
+  end
+  derived
+    glasses = if trim(saved.text) == "" then 0 else number(trim(saved.text))
+  end
+  fn sip(n)
+    fs.write("~/.water", text(max(0, glasses + n)))
+  end
+  view
+    <column class="airy">
+      <row class="hero spread">
+        <column class="tight">
+          <text class="label">today</text>
+          <text class="title">{glasses} of {goal} glasses</text>
+        </column>
+        <ring value={glasses} max={goal} label="water"/>
+      </row>
+      <row class="center">
+        <button class="soft pill" on:click="sip(-1)">One less</button>
+        <button class="primary pill" on:click="sip(1)">A glass</button>
+      </row>
+    </column>
+  end
+end

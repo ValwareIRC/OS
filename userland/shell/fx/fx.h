@@ -171,3 +171,5 @@ void fx_print_errors(const fx_errors *errs, void *FILE_out);
 bool fx_is_stdlib(const char *name, int *min_args, int *max_args);
 bool fx_is_effect(const char *name, int *min_args, int *max_args);
 const char *fx_nearest(const char *word, const char *const *choices, int n);
+/* What the companion is told about writing Facet 2 apps (reference.c). */
+const char *fx_reference(void);

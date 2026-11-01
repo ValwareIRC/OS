@@ -133,6 +133,10 @@ static fx_val h_files(void *c, const char *dir, const char *ending) {
 
 static fx_val h_setting(void *c, const char *k) {
     (void)c;
+    if (!strcmp(k, "person.name")) /* who they are, and who she is */
+        return their_name()[0] ? fx_text(their_name()) : fx_none();
+    if (!strcmp(k, "companion.name"))
+        return fx_text(D.ai_name);
     const char *v = settings_get(k, NULL);
     return v ? fx_text(v) : fx_none();
 }
@@ -149,15 +153,7 @@ static fx_val h_apps(void *c) {
         fx_rec_set(r, "name", fx_text(fm_host_app_label(i)));
         fx_list_push(l, r);
     }
-    char names[32][64], paths[32][300];
-    int n = fxwin_list(names, paths, 32);
-    for (int i = 0; i < n; i++) {
-        fx_val r = fx_rec();
-        fx_rec_set(r, "id", fx_text(names[i]));
-        fx_rec_set(r, "name", fx_text(names[i]));
-        fx_list_push(l, r);
-    }
-    return l;
+    return l; /* (Facet apps are in that list already) */
 }
 
 static double h_now(void *c) {
@@ -668,6 +664,12 @@ bool fxwin_action(fm_doc *d, const char *a) {
 
 const char *fxwin_title(const struct fxwin *fw) { return fw && fw->app ? fw->app->name : "App"; }
 
+void fxwin_close_path(const char *path) {
+    for (int w = WIN_COUNT; w < WIN_MAX; w++)
+        if (A.win[w].fx && !strcmp(A.win[w].fx->path, path))
+            fxwin_close(A.win[w].fx);
+}
+
 void fxwin_reap(void) {
     for (int w = WIN_COUNT; w < WIN_MAX; w++)
         if (A.win[w].fx && !A.win[w].open && !A.win[w].fx->busy)
@@ -696,11 +698,12 @@ void fxwin_close(struct fxwin *fw) {
 }
 
 int fxwin_list(char names[][64], char paths[][300], int max) {
+    int n = 0;
+    for (int pass = 0; pass < 2; pass++) { /* the system's apps, then theirs */
     char dir[300];
-    snprintf(dir, sizeof dir, "%s/Apps", HOME_DIR);
+    snprintf(dir, sizeof dir, "%s", pass ? HOME_DIR "/Apps" : "/usr/share/os/apps");
     DIR *d = opendir(dir);
     struct dirent *e;
-    int n = 0;
     while (d && (e = readdir(d)) && n < max) {
         size_t l = strlen(e->d_name);
         if (l < 7 || strcmp(e->d_name + l - 6, ".facet") || e->d_name[0] == '.')
@@ -711,5 +714,6 @@ int fxwin_list(char names[][64], char paths[][300], int max) {
     }
     if (d)
         closedir(d);
+    }
     return n;
 }

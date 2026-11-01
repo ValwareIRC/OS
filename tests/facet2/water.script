@@ -1,0 +1,8 @@
+# the example in the companion's reference: it must run, not only check
+expect "0 of 8 glasses"
+click "A glass"
+click "A glass"
+expect "2 of 8 glasses"
+file ~/.water "2"
+click "One less"
+expect "1 of 8 glasses"

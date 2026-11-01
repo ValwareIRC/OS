@@ -1,0 +1,128 @@
+app Daybook
+  data now = clock(1000)
+  data me = setting("person.name")
+  state
+    water = 5
+    focus = 95
+    pages = 34
+    mood = "calm"
+    draft = ""
+    tasks = [{label: "Drink some water", done: true}, {label: "Take a walk", done: false}, {label: "Read a little", done: false}]
+  end
+  derived
+    greeting = if now.hour < 12 then "Good morning" else if now.hour < 18 then "Good afternoon" else "Good evening"
+    left = len(filter(tasks, t -> not t.done))
+    week = [40, 75, 60, 110, 95, 30, focus]
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    moods = ["calm", "bright", "tired", "wired"]
+    minutes = total(week)
+  end
+  fn total(list)
+    let sum = 0
+    for x in list do
+      set sum = sum + x
+    end
+    return sum
+  end
+  fn sip(n)
+    set water = max(0, min(8, water + n))
+  end
+  fn more()
+    set focus = min(focus + 15, 120)
+  end
+  fn read(n)
+    set pages = max(0, min(120, pages + n))
+  end
+  fn feel(m)
+    set mood = m
+  end
+  fn tick(i)
+    set tasks = map(tasks, (t, j) -> if j == i then {label: t.label, done: not t.done} else t)
+  end
+  fn add()
+    if trim(draft) != "" then
+      set tasks = tasks + [{label: trim(draft), done: false}]
+      set draft = ""
+    end
+  end
+  fn pressed(k)
+    if k == "enter" then
+      add()
+    end
+  end
+  view
+    <column id="day">
+      <row class="hero spread">
+        <column class="tight">
+          <text class="label">{now.weekday} · {date(now.time, "%H:%M")}</text>
+          <text class="title">{if me != none and me != "" then greeting + ", " + me else greeting}</text>
+          <text>{left} things left today · feeling {mood}</text>
+        </column>
+        <avatar text={if me != none then me else "You"}/>
+      </row>
+      <row class="grid3">
+        <Stat title="Water" value={water} max={8} unit="glasses">
+        </Stat>
+        <column class="card lift center">
+          <ring value={focus} max={120} label="focus"/>
+          <button class="soft pill" on:click="more()">+15 min</button>
+        </column>
+        <column class="card lift">
+          <text class="label">Reading</text>
+          <row class="tight">
+            <text class="big">{pages}</text>
+            <text class="subtle">of 120 pages</text>
+          </row>
+          <progress value={pages} max={120}/>
+          <row class="tight">
+            <button class="quiet pill" on:click="read(-5)">−5</button>
+            <button class="primary pill" on:click="read(5)">+5 pages</button>
+          </row>
+        </column>
+      </row>
+      <row class="grid2">
+        <column class="card">
+          <row class="spread">
+            <text class="heading">This week</text>
+            <badge>{minutes} min</badge>
+          </row>
+          <chart kind="bar" data={week} labels={days}/>
+        </column>
+        <column class="glass">
+          <text class="heading">Today</text>
+          <each in={tasks} as="t" at="i" key={t.label}>
+            <row class="task">
+              <checkbox checked={t.done} on:change="tick(i)"/>
+              <text class:subtle={t.done}>{t.label}</text>
+            </row>
+          </each>
+          <row>
+            <input id="new" bind="draft" placeholder="Add something" on:key="pressed(value)"/>
+            <button class="primary" on:click="add()">Add</button>
+          </row>
+        </column>
+      </row>
+      <row class="spread">
+        <row class="tight">
+          <each in={moods} as="m" key={m}>
+            <button class="pill" class:primary={m == mood} class:soft={m != mood} on:click="feel(m)">{m}</button>
+          </each>
+        </row>
+        <text class="subtle">Made in Facet 2</text>
+      </row>
+    </column>
+  end
+  style
+    #day { gap: 14; }
+    #new { grow: 1; }
+    .task { gap: 10; }
+  end
+  component Stat(title, value, max, unit)
+    view
+      <column class="card lift center">
+        <ring value={value} max={max} label={unit}/>
+        <text class="label">{title}</text>
+      </column>
+    end
+  end
+end

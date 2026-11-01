@@ -1,0 +1,59 @@
+app Todo
+  data store = file("~/Todo.txt")
+  state
+    draft = ""
+  end
+  derived
+    items = if trim(store.text) == "" then [] else map(split(store.text, "\n"), raw -> {label: slice(raw, 2), done: starts(raw, "x ")})
+    left = len(filter(items, it -> not it.done))
+  end
+  fn line(it)
+    return (if it.done then "x " else "  ") + it.label
+  end
+  fn save(list)
+    fs.write(store.path, join(map(list, it -> line(it)), "\n"))
+  end
+  fn add()
+    if trim(draft) != "" then
+      save(items + [{label: trim(draft), done: false}])
+      set draft = ""
+    end
+  end
+  fn toggle(i)
+    save(map(items, (it, j) -> if j == i then {label: it.label, done: not it.done} else it))
+  end
+  fn drop(i)
+    if ask("Delete {items[i].label}?") then
+      save(filter(items, (it, j) -> j != i))
+    end
+  end
+  fn pressed(k)
+    if k == "enter" then
+      add()
+    end
+  end
+  view
+    <column>
+      <row id="bar">
+        <input id="new" bind="draft" placeholder="Add a todo" autofocus on:key="pressed(value)"/>
+        <button id="add" on:click="add()">Add</button>
+      </row>
+      <text id="count">{left} left</text>
+      <scroll>
+        <each in={items} as="t" at="i" key={i}>
+          <row class="todo">
+            <checkbox id="done" checked={t.done} on:change="toggle(i)"/>
+            <text class:done={t.done}>{t.label}</text>
+            <button on:click="drop(i)">Delete</button>
+          </row>
+        </each>
+      </scroll>
+    </column>
+  end
+  style
+    #bar { gap: 8; }
+    #new { grow: 1; }
+    .todo { gap: 8; padding: 6; align: center; }
+    .todo .done { color: token(muted); }
+  end
+end

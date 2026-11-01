@@ -9,6 +9,7 @@
 #include "wl/wl.h"
 #include "store.h"
 #include "fxwin.h"
+#include "fx/fx.h"
 #include "voice.h"
 #include "files.h"
 #include "launcher.h"
@@ -235,8 +236,93 @@ static void collect_whys(char *out, size_t len) {
 static void chat_strip(rect r);
 bool chat_on_desktop(void);
 
+/* Facet 2: the whole reference while apps are being talked about (or one she wrote is being fixed), else a line. */
+static int facet_fixing; /* replies left to correct an app that didn't load */
+
+static const char *facet_prompt(void) {
+    const char *last = NULL;
+    for (int i = A.companion.n - 1; i >= 0 && !last; i--)
+        if (!strcmp(A.companion.msgs[i].role, "user"))
+            last = A.companion.msgs[i].text;
+    static const char *const words[] = {" app",   "apps",  "tool",   "tracker", "widget", "make me", "build me",
+                                        "write me", "counter", "timer", "dashboard", "facet", "program", NULL};
+    char padded[2100];
+    snprintf(padded, sizeof padded, " %s", last ? last : "");
+    if (facet_fixing > 0 || has_any(padded, words)) {
+        static char ref[9000];
+        snprintf(ref, sizeof ref, "\n\n%s", fx_reference());
+        return ref;
+    }
+    return "\n\nYou can write small apps for them in Facet 2 when they ask for one (a tracker, a tool, a timer...): "
+           "the instructions appear when they do.";
+}
+
+/* [[app:Name]] ... [[/app]]: an app she wrote. Checked first: problems go back to her with their fixes (twice at
+ * most); a good one is kept in ~/Apps, joins their apps and opens. */
+static void take_app(const char *raw_name, const char *src) {
+    char name[48];
+    int k = 0;
+    for (const char *p = raw_name; *p && k < 40; p++)
+        if (isalnum((unsigned char)*p) || *p == '-' || *p == '_')
+            name[k++] = *p;
+    name[k] = 0;
+    if (!name[0])
+        snprintf(name, sizeof name, "App");
+    fx_errors errs = {0};
+    errs.file = name;
+    fx_app *app = fx_parse(src, &errs);
+    fx_check(app, &errs);
+    fx_free(app);
+    if (errs.n) {
+        LOG("facet: %s has %d problems\n", name, errs.n);
+        sbuf b;
+        sb_init(&b);
+        if (facet_fixing <= 0)
+            facet_fixing = 2;
+        else
+            facet_fixing--;
+        if (facet_fixing > 0) {
+            sb_printf(&b, "(The app %s has problems, so it wasn't saved or opened. Write the WHOLE file again with "
+                          "[[app:%s]] ... [[/app]], fixing each one:\n", name, name);
+            for (int i = 0; i < errs.n && i < 14; i++)
+                sb_printf(&b, "line %d: %s%s%s\n", errs.e[i].line, errs.e[i].msg, errs.e[i].fix[0] ? " FIX: " : "",
+                          errs.e[i].fix);
+            sb_add(&b, "Don't mention this note; just say briefly that you're fixing it.)");
+            companion_note(b.p, true);
+        } else {
+            sb_printf(&b, "(The app %s still has problems after trying again (line %d: %s), so it wasn't saved. Tell "
+                          "them plainly it didn't work this time.)", name, errs.e[0].line, errs.e[0].msg);
+            convo_add(&A.companion, "hidden", b.p);
+            facet_fixing = 0;
+        }
+        free(b.p);
+        free(errs.e);
+        return;
+    }
+    free(errs.e);
+    facet_fixing = 0;
+    char dir[300], path[400];
+    snprintf(dir, sizeof dir, "%s/Apps", HOME_DIR);
+    mkdir(dir, 0755);
+    snprintf(path, sizeof path, "%s/%s.facet", dir, name);
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        toast("Couldn't save the app %s.", name);
+        return;
+    }
+    fputs(src[0] == '\n' ? src + 1 : src, f);
+    fclose(f);
+    LOG("facet: saved %s\n", path);
+    desktop_apps_changed();
+    fxwin_close_path(path); /* rewritten: it starts again with the new file */
+    fxwin_open(path);
+    char note[300];
+    snprintf(note, sizeof note, "(The app %s was saved as ~/Apps/%s.facet and opened.)", name, name);
+    convo_add(&A.companion, "hidden", note);
+}
+
 static const char *companion_system(void) {
-    static char buf[28000];
+    static char buf[40000];
     /* With a preview open, the document it talks about and edits is that one. */
     fm_doc *seen = preview_doc() ? preview_doc() : A.ui;
     char *tree = seen ? fm_describe(seen) : NULL;
@@ -291,11 +377,11 @@ static const char *companion_system(void) {
              "are not a redesign: restyle the parts with ui:style tags, done in seconds. A change only happens through a tag, so never "
              "claim one without it, and only use tags when their last message asks for something. You can look things "
              "up on the web for them ([[search:...]], below). They can get a web browser (Firefox or Chromium, say) "
-             "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s",
+             "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s%s",
              D.ai_name, D.user_name[0] ? D.user_name : "the person", A.prof.autonomy[0] ? A.prof.autonomy : "ask first",
              A.prof.redesign[0] ? A.prof.redesign : "only when asked", portrait[0] ? portrait : "(nothing yet)\n",
              whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", preview_prompt(), alive_prompt(),
-             presence_prompt(),
+             presence_prompt(), facet_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
     free(tree);
     return buf;
@@ -717,6 +803,19 @@ static void companion_update(void) {
             preview_discard();
         int opened = 0;
         char *o;
+        while ((o = strstr(m->text, "[[app:"))) { /* an app she wrote (its code may hold "]]" of its own) */
+            char *name_end = strstr(o, "]]");
+            char *close = name_end ? strstr(name_end, "[[/app]]") : NULL;
+            char name[64] = "";
+            if (name_end)
+                snprintf(name, sizeof name, "%.*s", (int)(name_end - o - 6) < 63 ? (int)(name_end - o - 6) : 63, o + 6);
+            char *src = name_end && close ? strndup(name_end + 2, (size_t)(close - name_end - 2)) : NULL;
+            char *after = close ? close + 8 : name_end ? name_end + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            if (from_person && src)
+                take_app(name, src);
+            free(src);
+        }
         presence_tags(m->text, from_person); /* her body: [[act:]] [[mood:]] [[figure:]] */
         while ((o = strstr(m->text, "[[theme:"))) { /* one of the starter designs, as it comes */
             char *e = strstr(o, "]]");
@@ -1186,6 +1285,51 @@ static void scan_flatpak_apps(void) {
 
 void desktop_apps_changed(void) { nbundled = -1; }
 
+/* Apps written in Facet 2: the system's (/usr/share/os/apps) and theirs (~/Apps, which win by name). Started
+ * in a window of the shell's own (fxwin.c). Their name is the one after "app" on the file's first line. */
+static void scan_facet_dir(const char *dir) {
+    DIR *d = opendir(dir);
+    struct dirent *de;
+    while (d && (de = readdir(d)) && nbundled < MAX_BUNDLED) {
+        size_t l = strlen(de->d_name);
+        if (de->d_name[0] == '.' || l < 7 || strcmp(de->d_name + l - 6, ".facet"))
+            continue;
+        char id[96], path[400];
+        snprintf(id, sizeof id, "%.*s", (int)(l - 6) < 95 ? (int)(l - 6) : 95, de->d_name);
+        snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
+        struct bundled *b = NULL;
+        for (int i = 0; i < nbundled && !b; i++)
+            if (!strcasecmp(bundled[i].id, id) && !strncmp(bundled[i].exec, "facet:", 6))
+                b = &bundled[i]; /* theirs over the system's */
+        if (!b)
+            b = &bundled[nbundled++];
+        memset(b, 0, sizeof *b);
+        snprintf(b->id, sizeof b->id, "%s", id);
+        snprintf(b->exec, sizeof b->exec, "facet:%s", path);
+        snprintf(b->name, sizeof b->name, "%s", id);
+        FILE *f = fopen(path, "r");
+        char line[200];
+        while (f && fgets(line, sizeof line, f)) {
+            char nm[48];
+            if (sscanf(line, " app %47s", nm) == 1) {
+                snprintf(b->name, sizeof b->name, "%s", nm);
+                break;
+            }
+        }
+        if (f)
+            fclose(f);
+        snprintf(b->about, sizeof b->about, "An app written in Facet");
+    }
+    if (d)
+        closedir(d);
+}
+
+static void scan_facet_apps(void) {
+    scan_facet_dir("/usr/share/os/apps");
+    scan_facet_dir(HOME_DIR "/Apps");
+}
+
+static void scan_facet_apps(void);
 static void scan_bundled(void) {
     if (nbundled >= 0)
         return;
@@ -1223,11 +1367,16 @@ static void scan_bundled(void) {
     if (dir)
         closedir(dir);
     scan_flatpak_apps();
+    scan_facet_apps();
 }
 
 /* ---- Linux apps (Wayland) ---- */
 
 static void launch_bundled(struct bundled *b) {
+    if (!strncmp(b->exec, "facet:", 6)) {
+        fxwin_open(b->exec + 6);
+        return;
+    }
     if (!b->exec[0]) {
         toast("%s is installed, but the system doesn't know how to start it.", b->name);
         return;
