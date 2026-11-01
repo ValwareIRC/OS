@@ -454,7 +454,7 @@ static int h_net_event(void *c, int *id, char **data, size_t *len) {
 
 static struct {
     const char *question;
-    bool prompt, done;
+    bool prompt, secret, done;
     int answer;
     field input;
 } Q;
@@ -574,7 +574,18 @@ static void question_draw(void) {
     int y = r.y + 28 + th + 24;
     if (Q.prompt) {
         field_type(&Q.input, false);
-        draw_field((rect){r.x + 28, y, w - 56, 44}, &Q.input, true, false, NULL);
+        if (Q.secret) {
+            char *real = Q.input.buf, dots[200];
+            size_t n = real ? strlen(real) : 0;
+            n = n < sizeof dots - 1 ? n : sizeof dots - 1;
+            memset(dots, '*', n);
+            dots[n] = 0;
+            Q.input.buf = dots;
+            draw_field((rect){r.x + 28, y, w - 56, 44}, &Q.input, true, false, NULL);
+            Q.input.buf = real;
+        } else {
+            draw_field((rect){r.x + 28, y, w - 56, 44}, &Q.input, true, false, NULL);
+        }
         y += 44 + 18;
     }
     rect yes = {r.x + w - 28 - 130, y, 130, 44}, no = {yes.x - 12 - 130, y, 130, 44};
@@ -597,6 +608,18 @@ static int h_ask(void *c, const char *q) {
     Q.question = q;
     main_modal(question_draw, &Q.done);
     return Q.answer;
+}
+
+char *fxwin_secret(const char *q) {
+    memset(&Q, 0, sizeof Q);
+    Q.question = q;
+    Q.prompt = Q.secret = true;
+    field_set(&Q.input, "");
+    main_modal(question_draw, &Q.done);
+    char *r = Q.answer && Q.input.buf && Q.input.buf[0] ? strdup(Q.input.buf) : NULL;
+    free(Q.input.buf);
+    Q.input.buf = NULL;
+    return r;
 }
 
 static char *h_prompt(void *c, const char *q, const char *def) {

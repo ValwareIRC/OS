@@ -91,14 +91,14 @@ static void html_text(const char *h, size_t len, sbuf *out, size_t max) {
 
 /* A GET that follows up to four redirects. */
 static void get(const char *url, struct http_response *r) {
-    char cur[1024];
+    char cur[4096];
     snprintf(cur, sizeof cur, "%s", url);
     const char *headers[] = {UA, "Accept: text/html,application/json;q=0.9,*/*;q=0.5", NULL};
     for (int hop = 0;; hop++) {
         http_request("GET", cur, headers, NULL, 0, 20, r);
         if (hop >= 4 || r->status < 300 || r->status >= 400 || !r->location[0])
             return;
-        char next[1024];
+        char next[4096];
         if (!strncmp(r->location, "http", 4))
             snprintf(next, sizeof next, "%s", r->location);
         else { /* a path on the same site */

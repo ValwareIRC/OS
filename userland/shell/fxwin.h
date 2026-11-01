@@ -22,3 +22,5 @@ void fxwin_reap(void);
 bool fxwin_action(struct fm_doc *d, const char *a);
 /* Apps in ~/Apps (*.facet): their names, for the app list. */
 int fxwin_list(char names[][64], char paths[][300], int max);
+/* Asks over everything for something secret (a key), typed as dots; malloc'd, or NULL if they didn't. */
+char *fxwin_secret(const char *question);

@@ -38,9 +38,8 @@ const char *fx_reference(void) {
         "net.get(url) / net.post(url, {a: 1}) (a record goes as JSON) gives {ok, status, data, text, error}. "
         "Sockets: set conn = net.connect(\"irc.libera.chat\", 6697, \"tls lines\", heard) (\"tcp\" or "
         "\"tls\", then \"lines\" or \"bytes\"); fn heard(c, kind, data): kind is open, line (data: the text, "
-        "without \r\n), bytes (a list of 0..255), closed or error. net.send(conn, \"PRIVMSG #x :hi\r\n\") "
-        "(or a list of bytes), net.close(conn). json(value) makes JSON text; parse(text) reads it.
-"
+        "without \\r\\n), bytes (a list of 0..255), closed or error. net.send(conn, \"PRIVMSG #x :hi\\r\\n\") "
+        "(or a list of bytes), net.close(conn). json(value) makes JSON text; parse(text) reads it.\n"
         "EXPRESSIONS: \"text {x}\", 12, true, none, [a, b], {name: \"x\"}, a.b, list[0], if c then a else b, "
         "x -> expr (only as an argument). Library: len lower upper trim split join text number pad round floor "
         "ceil min max slice first last sort filter map find contains starts ends date(ms, \"%H:%M\") base "

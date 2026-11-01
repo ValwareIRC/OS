@@ -203,6 +203,13 @@ voice() { # the companion's ears and voice: whisper.cpp (MIT), built here; Piper
     fi
     mkdir -p "$OUT/usr/share/os/voice" "$OUT/opt"
     cp "$v"/ggml-*.bin "$v"/*.onnx "$v"/*.onnx.json "$OUT/usr/share/os/voice/"
+    # Kokoro (ports/build-kokoro.sh): os-speak, sherpa-onnx, the model and a clip of every voice
+    if [ -x "$v/kokoro/os-speak" ]; then
+        find "$OUT/usr/share/os/voice/kokoro" -delete 2>/dev/null || true
+        cp -a "$v/kokoro" "$OUT/usr/share/os/voice/kokoro"
+    else
+        echo "build-base: no Kokoro in $v/kokoro (run ports/build-kokoro.sh)"
+    fi
     # Piper's own release, with its libraries beside it (MIT; espeak-ng is GPL-3: revisit before release)
     rm -rf "$OUT/opt/piper" && cp -a "$v/piper" "$OUT/opt/piper" && rm -rf "$OUT/opt/piper/pkgconfig"
     cat > "$OUT/usr/bin/piper" <<'WRAP'

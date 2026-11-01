@@ -22,4 +22,3 @@ static const char *const persona_traits[] = {
     "Observant", "Forgetful", "Mischievous", "Principled", "Unpredictable",
 };
 #define PERSONA_TRAITS ((int)(sizeof persona_traits / sizeof persona_traits[0]))
-#define PERSONA_WANT 15

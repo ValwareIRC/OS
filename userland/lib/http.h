@@ -11,7 +11,7 @@ struct http_response {
     char *body;      /* NUL-terminated, malloc'd */
     size_t body_len;
     char error[256]; /* human-readable reason when status == 0 */
-    char location[512]; /* a redirect's Location header, if it had one */
+    char location[4096]; /* a redirect's Location header, if it had one (signed CDN links are long) */
 };
 
 /* headers: NULL-terminated list of "Name: value" strings (may be NULL). */

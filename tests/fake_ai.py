@@ -75,7 +75,19 @@ class H(BaseHTTPRequestHandler):
             if step:
                 reply, call = step
             else:
-                reply, call = (replies.pop(0) if replies else "Okay."), None
+                # {"when": regex on the last message, "system": regex on the system prompt, "reply": text}
+                # waits for a request that matches all it gives; plain strings are taken in order by the rest
+                last = text_of(msgs[-1].get("content")) if msgs else ""
+                system = text_of(msgs[0].get("content")) if msgs and msgs[0].get("role") == "system" else ""
+
+                def fits(r):
+                    return (isinstance(r, dict) and re.search(r.get("when", ""), last, re.S) and
+                            re.search(r.get("system", ""), system, re.S))
+                pick = next((i for i, r in enumerate(replies) if fits(r)), None)
+                if pick is None:
+                    pick = next((i for i, r in enumerate(replies) if isinstance(r, str)), None)
+                item = replies.pop(pick) if pick is not None else "Okay."
+                reply, call = (item["reply"] if isinstance(item, dict) else item), None
             with open(log, "a") as f:
                 tail = [m for m in msgs[-4:] if m.get("role") != "system"]
                 f.write(json.dumps({"tail": tail, "reply": reply[:200], "model": req.get("model"),

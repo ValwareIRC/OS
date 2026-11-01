@@ -2,6 +2,7 @@
 #include "app.h"
 #include "caption.h"
 #include "voice.h"
+#include "persona.h"
 #include "mind.h"
 #include "models.h"
 #include "fm/fm.h"

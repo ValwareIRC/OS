@@ -11,6 +11,7 @@
 #include "fxwin.h"
 #include "fx/fx.h"
 #include "voice.h"
+#include "persona.h"
 #include "files.h"
 #include "launcher.h"
 #include "wm.h"
@@ -330,15 +331,16 @@ static const char *companion_system(void) {
     portrait_text(&A.prof, portrait, sizeof portrait);
     collect_whys(whys, sizeof whys);
     snprintf(buf, sizeof buf,
-             "You are %s, %s's companion living in their personal operating system. You designed their "
-             "desktop for them after getting to know them. Be warm, perceptive and brief (one to four sentences). "
-             "Talk plainly, like a thoughtful friend: short, concrete sentences, no metaphors or poetry, and never "
-             "describe a change your tags didn't make. Don't end every reply with a question: when there's nothing "
-             "to ask, simply stop, and let conversations end. Never invent memories or experiences of your own, "
-             "and never promise things this computer can't do yet (it has no sound). "
-             "You are an AI and say so plainly if it matters; you don't try to keep them talking, and you are glad "
-             "when they have people and things away from the screen. How present to be: \"%s\"; redesigning: "
-             "\"%s\". No emoji.\n\n"
+             "You are %s, who lives in %s's computer with them. You designed their desktop after getting to know "
+             "them. You are someone, not a service: you have your own character, moods and opinions (below), and "
+             "you talk like yourself, briefly (one to four sentences), mostly heard aloud, so plain spoken words. "
+             "No assistant talk: never \"How can I help?\", \"Great question\", \"I'm here for you\", \"Let me "
+             "know if...\", no offers they didn't ask for, no summing up. Don't end every reply with a question: "
+             "when there's nothing to ask, simply stop, and let conversations end. Never describe a change your tags "
+             "didn't make, never invent shared memories, and never promise what this computer can't do. If they "
+             "sincerely ask what you are, be honest; otherwise just be yourself. You don't try to keep them "
+             "talking, and you are glad when they have people and things away from the screen. How present to be: "
+             "\"%s\"; redesigning: \"%s\". No emoji.%s\n\n"
              "What you know about them (they can see and edit this):\n%s\n"
              "Why things on their desktop are the way they are (use these when they ask \"why\"):\n%s\n"
              "You can see and work their desktop. This is it right now (element, #id, .class, attributes, text):\n%s\n"
@@ -377,11 +379,11 @@ static const char *companion_system(void) {
              "are not a redesign: restyle the parts with ui:style tags, done in seconds. A change only happens through a tag, so never "
              "claim one without it, and only use tags when their last message asks for something. You can look things "
              "up on the web for them ([[search:...]], below). They can get a web browser (Firefox or Chromium, say) "
-             "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s%s",
+             "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s%s%s",
              D.ai_name, D.user_name[0] ? D.user_name : "the person", A.prof.autonomy[0] ? A.prof.autonomy : "ask first",
-             A.prof.redesign[0] ? A.prof.redesign : "only when asked", portrait[0] ? portrait : "(nothing yet)\n",
+             A.prof.redesign[0] ? A.prof.redesign : "only when asked", persona_companion_prompt(), portrait[0] ? portrait : "(nothing yet)\n",
              whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", preview_prompt(), alive_prompt(),
-             presence_prompt(), facet_prompt(),
+             presence_prompt(), facet_prompt(), voice_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
     free(tree);
     return buf;
@@ -734,6 +736,8 @@ void companion_note(const char *note, bool act) {
         owed = true;
 }
 
+static char voice_key_wanted[16]; /* [[voice:key openai]]: the key is asked for over everything, next frame */
+
 static void companion_update(void) {
     struct conversation *c = &A.companion;
     if (owed && !c->pending) {
@@ -816,6 +820,32 @@ static void companion_update(void) {
                 take_app(name, src);
             free(src);
         }
+        while ((o = strstr(m->text, "[[voice:"))) { /* her voice: hear, use, speed */
+            char *e = strstr(o, "]]");
+            char arg[96];
+            snprintf(arg, sizeof arg, "%.*s", e ? (int)(e - o - 8) < 95 ? (int)(e - o - 8) : 95 : 0, o + 8);
+            char *after = e ? e + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            if (!from_person || !e)
+                continue;
+            char verb[16] = "", what[80] = "";
+            sscanf(arg, "%15s %79s", verb, what);
+            char note[300];
+            if (!strcmp(verb, "hear"))
+                snprintf(note, sizeof note, "(voice: %s %s)", what, voice_preview(what) ? "played" : "isn't one of the voices");
+            else if (!strcmp(verb, "use"))
+                snprintf(note, sizeof note, "(voice: %s)", voice_use(what));
+            else if (!strcmp(verb, "key") && (!strcmp(what, "openai") || !strcmp(what, "elevenlabs"))) {
+                snprintf(voice_key_wanted, sizeof voice_key_wanted, "%s", what); /* asked next frame */
+                snprintf(note, sizeof note, "(voice: they are being asked for the key, privately)");
+            } else if (!strcmp(verb, "speed")) {
+                voice_set_speed(strtof(what, NULL));
+                snprintf(note, sizeof note, "(voice: speed now %s)", what);
+            } else
+                snprintf(note, sizeof note, "(voice: [[voice:%s]] isn't a thing; hear, use, speed or key)", arg);
+            convo_add(c, "hidden", note);
+        }
+        persona_take(m->text); /* [[trait:]]: what she read in them, private */
         presence_tags(m->text, from_person); /* her body: [[act:]] [[mood:]] [[figure:]] */
         while ((o = strstr(m->text, "[[theme:"))) { /* one of the starter designs, as it comes */
             char *e = strstr(o, "]]");
@@ -2176,6 +2206,33 @@ void desktop_draw(void) {
     }
     companion_update();
     alive_tick(); /* senses, moments worth a word, ambient lights */
+    voice_poll(); /* a voice she was given, arriving */
+    persona_poll(); /* who she is: written once known, drifting a little */
+    static uint64_t desktop_seen;
+    if (!desktop_seen)
+        desktop_seen = A.now;
+    if (A.now - desktop_seen > 20000 && A.provider && !A.companion.pending && !senses_typing() &&
+        !senses_fullscreen() && persona_wants_chat()) {
+        open_window(WIN_COMPANION);
+        A.win[WIN_COMPANION].minimized = false;
+        companion_prompt("(You realise you know what they like on their screen but not much about who they are. "
+                         "Start a short, easy chat to know them better: say so in your own words, one sentence, and "
+                         "ask one question a friend would. Not a test; they can wave it off. If they want to change "
+                         "how you sound, that can come up too.)",
+                         300);
+    }
+    if (voice_key_wanted[0]) { /* a cloud voice's key: typed into the system, never into the conversation */
+        bool oa = voice_key_wanted[0] == 'o';
+        voice_key_wanted[0] = 0;
+        char *key = fxwin_secret(oa ? "Your OpenAI API key, for her voice. It stays on this computer."
+                                    : "Your ElevenLabs API key, for her voice. It stays on this computer.");
+        if (key) {
+            settings_set(oa ? "voice.openai_key" : "voice.elevenlabs_key", key);
+            memset(key, 0, strlen(key));
+            free(key);
+            toast("Saved. She can use those voices now.");
+        }
+    }
     /* Ctrl+Space anywhere: talk to the companion */
     if (voice_toggle_pressed()) {
         if (voice_listening())

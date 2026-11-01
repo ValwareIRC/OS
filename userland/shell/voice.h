@@ -26,3 +26,14 @@ bool voice_hearing(void);     /* turning the recording into words */
 char *voice_poll_heard(void); /* malloc'd text, or NULL */
 bool voice_toggle_pressed(void);
 void voice_indicator(int cx, int cy, color accent);
+
+/* Her voice, chosen in conversation (voice.c): Kokoro voices (af_heart, bm_george, pf_dora, zf_xiaoxiao...),
+ * each heard first from a short clip and downloaded once chosen; or a cloud voice ("openai:nova",
+ * "elevenlabs:<voice id>") for people with a key. */
+bool voice_preview(const char *name);       /* plays its clip; false if there is none */
+const char *voice_use(const char *name);    /* chooses it (downloading it first if needed); what happened, in words */
+const char *voice_current(void);            /* "af_heart", "openai:nova", or "" (the stand-in voice) */
+void voice_set_speed(float speed);          /* 0.7 .. 1.4 */
+void voice_poll(void);                      /* a download finishing */
+/* What the companion is told about choosing a voice. */
+const char *voice_prompt(void);

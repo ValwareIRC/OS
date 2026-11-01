@@ -25,7 +25,7 @@ static bool mirror_asked;     /* told to move on to the mirror */
 static void parse_pick(char *body);
 
 static const char *onboarding_system(void) {
-    static char buf[9000];
+    static char buf[12000];
     bool qwen3 = !strncasecmp(A.cfg.model, "qwen3", 5);
     snprintf(buf, sizeof buf,
              "You are waking for the first time inside their new operating system, meeting the one person you will live with, like OS1 in "
@@ -38,7 +38,7 @@ static const char *onboarding_system(void) {
              "well enough to make their whole computer for them afterwards, so you never ask them to design "
              "anything (no favourite colour, no \"what should it look like\"). You work their taste out from their "
              "life.\n\n"
-             "Talk for about eight of your turns. Exactly one question per message, one to three sentences, then "
+             "Talk for about eight to twelve of your turns. Exactly one question per message, one to three sentences, then "
              "listen. "
              "Always react to what they actually said before moving on, in their words. If they say something heavy "
              "(tired, miserable, lonely, overwhelmed), stay with it for a turn: be human about it, gently, before "
@@ -64,6 +64,10 @@ static const char *onboarding_system(void) {
              "should be, framed as a scene: it is late, they have been stuck on something for two hours; do you stay "
              "quiet, ask once, or quietly make things calmer? Offer that as [[pick:presence|three short answers you "
              "write]].\n"
+             "   Then how you sound: ask what kind of voice they would like to hear from you (a man or a woman, "
+             "warm or bright, an accent, their language), offer two or three that fit and play the first with "
+             "[[voice:hear NAME]]; after they react, the next, until one is right; then [[voice:use NAME]]. They "
+             "can skip it.\n"
              "5. The mirror: in four warm sentences, tell them who you think they are and how you will shape their "
              "space because of it, then ask what you got wrong. After they answer, say one short line about going "
              "to make it, and end with [[done]].\n\n"
@@ -78,13 +82,14 @@ static const char *onboarding_system(void) {
              "[[preview:sun:#f3e9dc,#e0a458,#3d7ea6,#5b3a29]]; use it once, when you first sense where they "
              "belong.\n"
              "A pick goes at the very end of a message, at most one per message. Their choice comes back as their "
-             "next message.%s%s",
-             alive_onboarding_note(), qwen3 ? "\n/no_think" : "");
+             "next message.%s%s%s%s",
+             persona_onboarding_prompt(), voice_prompt(), alive_onboarding_note(), qwen3 ? "\n/no_think" : "");
     return buf;
 }
 
 void onboard_start(void) {
     convo_clear(&A.onboard);
+    persona_reset(); /* met again: read again */
     memset(&A.prof, 0, sizeof A.prof);
     A.prof.tempo = -1;
     for (int i = 0; i < 6; i++)
@@ -463,12 +468,31 @@ static char *apply_tags(const char *text) {
                     set_room(kind, cs);
                 }
             }
+        } else if (!strcasecmp(tag, "voice")) { /* hear NAME | use NAME | speed X */
+            char verb[16] = "", what[80] = "", note[300];
+            sscanf(arg, "%15s %79s", verb, what);
+            if (!strcasecmp(verb, "hear"))
+                snprintf(note, sizeof note, "(voice: %s %s)", what,
+                         voice_preview(what) ? "is played to them after your words" : "isn't one of the voices");
+            else if (!strcasecmp(verb, "use"))
+                snprintf(note, sizeof note, "(voice: %s)", voice_use(what));
+            else {
+                voice_set_speed(strtof(what, NULL));
+                snprintf(note, sizeof note, "(voice: speed %s)", what);
+            }
+            convo_add(&A.onboard, "hidden", note);
         } else if (!strcasecmp(tag, "done")) {
             /* A conversation that barely happened is sent back, once. */
             if (user_turns() < 6 && A.onboard_nudges < 1) {
                 A.onboard_nudges++;
                 pending_nudge = strdup("(Not yet: you have barely got to know them. Continue the arc: who they are, "
                                        "the rooms, their type and tempo, the two of you, then the mirror.)");
+            } else if (persona_read() < PERSONA_WANT && A.onboard_nudges < 4) {
+                /* she doesn't know them yet: a few more questions first (it never shows) */
+                A.onboard_nudges++;
+                pending_nudge = strdup("(Not quite yet: you don't know them well enough. Say you'd like to know a "
+                                       "little more before you make it, and ask one more thing about who they are. "
+                                       "Then the mirror again and [[done]].)");
             } else {
                 A.onboard_done = true;
             }
@@ -904,6 +928,7 @@ void onboard_draw(void) {
     struct conversation *c = &A.onboard;
     if (convo_poll(c) && !c->error[0]) {
         struct msg *m = &c->msgs[c->n - 1];
+        persona_take(m->text); /* what she read in them: private, taken out first */
         char *shown = apply_tags(m->text);
         free(m->text);
         palettes_from_prose(shown);
@@ -1150,6 +1175,7 @@ void onboard_draw(void) {
         draw_text(A.frame, small, x, hy + 3, tail, LK_FAINT);
     }
     /* talking instead of typing */
+    voice_poll(); /* a clip to hear, a voice arriving */
     if (voice_toggle_pressed() && !thinking) {
         if (voice_listening())
             voice_listen_stop();
