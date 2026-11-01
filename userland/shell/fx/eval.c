@@ -8,6 +8,7 @@
  * the app as it was: it never takes the desktop down. */
 #define _GNU_SOURCE
 #include "fx_rt.h"
+#include "../../lib/json.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -64,6 +65,15 @@ struct fx_rt {
     fx_out *out;
     jmp_buf *jb;
     int depth;
+    struct sock { /* its sockets (net.connect) */
+        int id;
+        fx_inst *inst;
+        char fn[64];
+        bool bytes, live;
+        char *buf; /* a line not yet ended */
+        size_t len;
+    } socks[16];
+    int net_ok; /* 0 not asked yet, 1 allowed, -1 refused */
 };
 
 typedef struct {
@@ -206,6 +216,83 @@ static int cmp_vals(fx_rt *rt, fx_val a, fx_val b, int line) {
     if (a.t == V_TEXT && b.t == V_TEXT)
         return strcmp(a.o->s, b.o->s);
     fault(rt, line, "can't order %s against %s", fx_type_name(a), fx_type_name(b));
+}
+
+/* ---- JSON ---- */
+
+static fx_val from_json(const json *j) {
+    if (!j)
+        return fx_none();
+    switch (j->type) {
+    case JSON_NULL: return fx_none();
+    case JSON_BOOL: return fx_bool(j->boolean);
+    case JSON_NUMBER: return fx_num(j->num);
+    case JSON_STRING: return fx_text(j->str ? j->str : "");
+    case JSON_ARRAY: {
+        fx_val l = fx_list();
+        for (const json *c = j->child; c; c = c->next)
+            fx_list_push(l, from_json(c));
+        return l;
+    }
+    case JSON_OBJECT: {
+        fx_val r = fx_rec();
+        for (const json *c = j->child; c; c = c->next)
+            fx_rec_set(r, c->key ? c->key : "", from_json(c));
+        return r;
+    }
+    }
+    return fx_none();
+}
+
+fx_val fx_parse_json(const char *text, size_t len) {
+    if (!text)
+        return fx_none();
+    json *j = json_parse(text, len);
+    fx_val v = from_json(j);
+    json_free(j);
+    return v;
+}
+
+static void to_json(sbuf *b, fx_val v) {
+    switch (v.t) {
+    case V_NONE: sb_add(b, "null"); break;
+    case V_BOOL: sb_add(b, v.b ? "true" : "false"); break;
+    case V_NUM: {
+        char *s = fx_show(v);
+        sb_add(b, s);
+        free(s);
+        break;
+    }
+    case V_TEXT: sb_json_str(b, v.o->s); break;
+    case V_LIST:
+        sb_add(b, "[");
+        for (int i = 0; i < v.o->n; i++) {
+            if (i)
+                sb_add(b, ",");
+            to_json(b, v.o->items[i]);
+        }
+        sb_add(b, "]");
+        break;
+    case V_REC:
+        sb_add(b, "{");
+        for (int i = 0; i < v.o->n; i++) {
+            if (i)
+                sb_add(b, ",");
+            sb_json_str(b, v.o->names[i]);
+            sb_add(b, ":");
+            to_json(b, v.o->items[i]);
+        }
+        sb_add(b, "}");
+        break;
+    default: sb_add(b, "null"); break;
+    }
+}
+
+char *fx_json_text(fx_val v) {
+    sbuf b;
+    sb_init(&b);
+    to_json(&b, v);
+    return b.p ? b.p : strdup("null");
 }
 
 /* ---- the standard library ---- */
@@ -392,6 +479,13 @@ static fx_val stdlib_call(ev *e, const fx_expr *x) {
         char buf[128];
         strftime(buf, sizeof buf, fmt, &tm);
         r = fx_text(buf);
+    } else if (!strcmp(f, "json")) {
+        char *s = fx_json_text(a[0]);
+        r = fx_text(s);
+        free(s);
+    } else if (!strcmp(f, "parse")) {
+        const char *s = need_text(rt, a[0], line, f);
+        r = fx_parse_json(s, strlen(s));
     } else if (!strcmp(f, "base") || !strcmp(f, "dirname")) {
         const char *s = need_text(rt, a[0], line, f);
         size_t l = strlen(s);
@@ -441,12 +535,111 @@ static void schedule(fx_inst *in, const char *name, const char *fn, double ms, b
     slot->live = true;
 }
 
+/* The app may use the internet: asked once (the host remembers the answer). */
+static bool net_allowed(fx_rt *rt) {
+    if (!rt->net_ok)
+        rt->net_ok = rt->host.net_allowed && rt->host.net_allowed(rt->host.ctx) ? 1 : -1;
+    return rt->net_ok > 0;
+}
+
+static fx_val net_refused(void) {
+    fx_val r = fx_rec();
+    fx_rec_set(r, "ok", fx_bool(false));
+    fx_rec_set(r, "status", fx_num(0));
+    fx_rec_set(r, "data", fx_none());
+    fx_rec_set(r, "text", fx_text(""));
+    fx_rec_set(r, "error", fx_text("this app isn't allowed to use the internet"));
+    return r;
+}
+
+static fx_val net_call(ev *e, const fx_expr *x) {
+    fx_inst *in = e->in;
+    fx_rt *rt = in->rt;
+    const fx_host *h = &rt->host;
+    const char *f = x->s;
+    int line = x->line;
+    if (!strcmp(f, "net.connect")) {
+        fx_val host = eval(e, x->items[0]), port = eval(e, x->items[1]), mode = eval(e, x->items[2]);
+        const fx_expr *fnx = x->items[3];
+        const char *fn = fnx && fnx->k == E_NAME ? fnx->s : "";
+        const char *hs = need_text(rt, host, line, f), *ms = need_text(rt, mode, line, f);
+        int p = (int)need_num(rt, port, line, f), id = -1;
+        if (!find_fn(in->app, fn))
+            fault(rt, line, "net.connect: no fn \"%s\" to hear it", fn);
+        struct sock *slot = NULL;
+        for (int i = 0; i < 16 && !slot; i++)
+            if (!rt->socks[i].live)
+                slot = &rt->socks[i];
+        if (slot && net_allowed(rt) && h->net_connect)
+            id = h->net_connect(h->ctx, hs, p, strstr(ms, "tls") != NULL);
+        if (id >= 0) {
+            memset(slot, 0, sizeof *slot);
+            slot->id = id, slot->inst = in, slot->live = true, slot->bytes = strstr(ms, "bytes") != NULL;
+            snprintf(slot->fn, sizeof slot->fn, "%s", fn);
+        }
+        fx_unref(host), fx_unref(port), fx_unref(mode);
+        return fx_num(id);
+    }
+    fx_val a[3] = {fx_none(), fx_none(), fx_none()};
+    for (int i = 0; i < x->n && i < 3; i++)
+        a[i] = eval(e, x->items[i]);
+    fx_val r = fx_none();
+    if (!strcmp(f, "net.get") || !strcmp(f, "net.post")) {
+        const char *url = need_text(rt, a[0], line, f);
+        if (!net_allowed(rt) || !h->http) {
+            r = net_refused();
+        } else if (f[4] == 'g') {
+            r = h->http(h->ctx, "GET", url, NULL, NULL);
+        } else {
+            char *body = a[1].t == V_TEXT ? strdup(a[1].o->s) : fx_json_text(a[1]);
+            const char *ct = x->n > 2 ? need_text(rt, a[2], line, f)
+                             : a[1].t == V_TEXT ? "text/plain; charset=utf-8" : "application/json";
+            r = h->http(h->ctx, "POST", url, body, ct);
+            free(body);
+        }
+    } else if (!strcmp(f, "net.send")) {
+        int id = (int)need_num(rt, a[0], line, f);
+        bool ok = false;
+        if (a[1].t == V_TEXT) {
+            ok = h->net_send && h->net_send(h->ctx, id, a[1].o->s, a[1].o->len);
+        } else if (a[1].t == V_LIST) { /* bytes: numbers 0..255 */
+            unsigned char *b = malloc((size_t)a[1].o->n + 1);
+            for (int i = 0; i < a[1].o->n; i++) {
+                fx_val v = a[1].o->items[i];
+                if (v.t != V_NUM || v.n < 0 || v.n > 255)
+                    fault(rt, line, "net.send: a list to send holds numbers 0 to 255 (bytes)");
+                b[i] = (unsigned char)v.n;
+            }
+            ok = h->net_send && h->net_send(h->ctx, id, b, (size_t)a[1].o->n);
+            free(b);
+        } else {
+            fault(rt, line, "net.send sends a text or a list of bytes, not %s", fx_type_name(a[1]));
+        }
+        r = fx_bool(ok);
+    } else if (!strcmp(f, "net.close")) {
+        int id = (int)need_num(rt, a[0], line, f);
+        for (int i = 0; i < 16; i++)
+            if (rt->socks[i].live && rt->socks[i].id == id) {
+                rt->socks[i].live = false;
+                free(rt->socks[i].buf);
+                rt->socks[i].buf = NULL;
+            }
+        if (h->net_close)
+            h->net_close(h->ctx, id);
+    }
+    for (int i = 0; i < 3; i++)
+        fx_unref(a[i]);
+    return r;
+}
+
 static fx_val effect_call(ev *e, const fx_expr *x) {
     fx_inst *in = e->in;
     fx_rt *rt = in->rt;
     const fx_host *h = &rt->host;
     const char *f = x->s;
     int line = x->line;
+    if (!strncmp(f, "net.", 4))
+        return net_call(e, x);
     if (!strcmp(f, "after") || !strcmp(f, "every")) {
         fx_val nm = eval(e, x->items[0]), ms = eval(e, x->items[1]);
         const fx_expr *fnx = x->items[2];
@@ -822,6 +1015,8 @@ static double data_every(const fx_expr *call, fx_val *args) {
         return args[0].t == V_NUM && args[0].n >= 10 ? args[0].n : 1000;
     if (!strcmp(call->s, "apps"))
         return 3000;
+    if (!strcmp(call->s, "web"))
+        return 400; /* the host fetches on its own schedule: this only looks for what has arrived */
     return 1000;
 }
 
@@ -885,6 +1080,10 @@ static bool refresh_data(fx_inst *in, bool force) {
                 v = h->apps ? h->apps(h->ctx) : fx_list();
             } else if (!strcmp(call->s, "clock")) {
                 v = clock_record(now);
+            } else if (!strcmp(call->s, "web")) {
+                double every = args[1].t == V_NUM ? args[1].n : 600000;
+                if (args[0].t == V_TEXT && h->web && net_allowed(rt))
+                    v = h->web(h->ctx, args[0].o->s, every < 1000 ? 1000 : every);
             }
             if (!fx_equal(v, in->data[i])) {
                 fx_unref(in->data[i]);
@@ -1217,6 +1416,12 @@ fx_rt *fx_start(const fx_app *app, const fx_host *host) {
 void fx_stop(fx_rt *rt) {
     if (!rt)
         return;
+    for (int i = 0; i < 16; i++)
+        if (rt->socks[i].live) {
+            if (rt->host.net_close)
+                rt->host.net_close(rt->host.ctx, rt->socks[i].id);
+            free(rt->socks[i].buf);
+        }
     out_free(rt->out);
     while (rt->comps) {
         fx_inst *n = rt->comps->next;
@@ -1227,11 +1432,84 @@ void fx_stop(fx_rt *rt) {
     free(rt);
 }
 
+static struct sock *sock_of(fx_rt *rt, int id) {
+    for (int i = 0; i < 16; i++)
+        if (rt->socks[i].live && rt->socks[i].id == id)
+            return &rt->socks[i];
+    return NULL;
+}
+
+static void sock_tell(struct sock *s, const char *kind, fx_val data) {
+    const fx_fn *fn = find_fn(s->inst->app, s->fn);
+    if (!fn)
+        return;
+    fx_val args[3] = {fx_num(s->id), fx_text(kind), data};
+    fx_val r = call_fn(s->inst, fn, args, fn->nparams < 3 ? fn->nparams : 3, fn->line);
+    fx_unref(r);
+    fx_unref(args[1]);
+}
+
+/* everything that happened on its sockets since the last frame */
+static void net_events(fx_rt *rt) {
+    const fx_host *h = &rt->host;
+    if (!h->net_event)
+        return;
+    int id, kind, guard = 0;
+    char *data;
+    size_t len;
+    while (guard++ < 256 && (kind = h->net_event(h->ctx, &id, &data, &len)) > 0) {
+        struct sock *s = sock_of(rt, id);
+        if (!s) {
+            free(data);
+            continue;
+        }
+        if (kind == 1) {
+            sock_tell(s, "open", fx_none());
+        } else if (kind == 2 && s->bytes) {
+            fx_val l = fx_list();
+            for (size_t i = 0; i < len; i++)
+                fx_list_push(l, fx_num((unsigned char)data[i]));
+            sock_tell(s, "bytes", l);
+            fx_unref(l);
+        } else if (kind == 2) { /* lines: whole ones only, without their \r\n */
+            s->buf = realloc(s->buf, s->len + len + 1);
+            memcpy(s->buf + s->len, data, len);
+            s->len += len;
+            size_t start = 0;
+            for (size_t i = 0; i < s->len; i++)
+                if (s->buf[i] == '\n') {
+                    size_t end = i;
+                    if (end > start && s->buf[end - 1] == '\r')
+                        end--;
+                    fx_val t = fx_textn(s->buf + start, end - start);
+                    sock_tell(s, "line", t);
+                    fx_unref(t);
+                    start = i + 1;
+                    if (!s->live) /* it closed itself while hearing */
+                        break;
+                }
+            if (s->live && s->buf) {
+                memmove(s->buf, s->buf + start, s->len - start);
+                s->len -= start;
+            }
+        } else if (kind == 3 || kind == 4) {
+            fx_val why = kind == 4 ? fx_text(data ? data : "") : fx_none();
+            s->live = false;
+            sock_tell(s, kind == 3 ? "closed" : "error", why);
+            fx_unref(why);
+            free(s->buf);
+            s->buf = NULL;
+        }
+        free(data);
+    }
+}
+
 bool fx_tick(fx_rt *rt) {
     bool before = rt->dirty;
     jmp_buf jb, *outer = rt->jb;
     rt->jb = &jb;
     if (!setjmp(jb)) {
+        net_events(rt);
         refresh_data(rt->root, rt->refetch);
         rt->refetch = false;
         double now = rt->host.now_ms ? rt->host.now_ms(rt->host.ctx) : 0;

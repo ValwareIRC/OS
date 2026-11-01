@@ -220,3 +220,17 @@ Facet 2.1 gave apps only plain style properties, so an app with little style loo
 - `<badge>3 new</badge>`
 
 `tests/facet2/daybook.facet` shows them all. `tests/facet2/showcase.sh` pictures it in several designs.
+
+## The network (added after 2.1, agreed with Valerie)
+
+An app asks once for the internet, as a single permission for the whole app, and the answer is remembered. After that:
+
+- **Live web data:** `data weather = web("https://...", 600000)` gives the reply's JSON (records and lists), or `none` until it arrives. It is fetched again every 600000 ms. It may follow state, like other data.
+- **Requests in a fn:** `let r = net.get(url)` and `let r = net.post(url, body)`. A record or list body is sent as JSON, a text as text. Both give `{ok, status, data, text, error}`. The fn waits, and the OS goes on meanwhile.
+- **Sockets:** `set conn = net.connect(host, port, mode, heard)`.
+  - `mode` is `"tcp"` or `"tls"`, then `"lines"` (text a line at a time, without `\r\n`) or `"bytes"` (lists of numbers 0..255).
+  - `fn heard(conn, kind, data)` hears each event: `open`, `line`, `bytes`, `closed` or `error`.
+  - `net.send(conn, text or bytes)` and `net.close(conn)`.
+- **JSON both ways:** `json(value)` and `parse(text)`.
+
+`tests/facet2/chat.facet` is an IRC-style client and `tests/facet2/weather.facet` uses live JSON. Both run in `facet run` against a local server and canned replies.

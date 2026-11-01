@@ -222,7 +222,7 @@ static fx_expr *template_of(const char *raw, int line, fx_errors *errs) {
     for (const char *p = raw; *p;) {
         if (*p == '\\' && p[1]) {
             char c = p[1];
-            buf[bl++] = c == 'n' ? '\n' : c == 't' ? '\t' : c;
+            buf[bl++] = c == 'n' ? '\n' : c == 't' ? '\t' : c == 'r' ? '\r' : c;
             p += 2;
             continue;
         }
@@ -322,7 +322,7 @@ static fx_expr *parse_primary(toks *t) {
             e->a = parse_expr(t);
             return e;
         }
-        if (is_keyword(k->s) && !is_name(k, "not") && !(is_name(k, "app") && is_op(peek2(t), "."))) {
+        if (is_keyword(k->s) && !is_name(k, "not") && !is_name(k, "data") && !(is_name(k, "app") && is_op(peek2(t), "."))) {
             fx_err(t->errs, line, NULL, "\"%s\" can't start a value here", k->s);
             next(t);
             return E(E_NONE, line);

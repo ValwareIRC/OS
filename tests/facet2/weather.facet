@@ -1,0 +1,30 @@
+app Weather
+  data now = web("https://api.example.test/weather?city=Lisbon", 600000)
+  state
+    sent = ""
+  end
+  derived
+    ready = now != none
+  end
+  fn share()
+    let r = net.post("https://api.example.test/share", {city: "Lisbon", temp: now.temp})
+    set sent = if r.ok then "shared" else "couldn't share: " + r.error
+  end
+  view
+    <column class="airy">
+      <if test={ready}>
+        <column class="hero">
+          <text class="label">{now.city}</text>
+          <text class="big">{now.temp}°</text>
+          <text>{now.sky}</text>
+        </column>
+        <row>
+          <button class="primary pill" on:click="share()">Share</button>
+          <text class="subtle">{sent}</text>
+        </row>
+      <else/>
+        <text class="subtle">Asking the sky...</text>
+      </if>
+    </column>
+  end
+end

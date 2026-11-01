@@ -1,0 +1,77 @@
+app Chat
+  state
+    server = "127.0.0.1"
+    port = 6667
+    nick = "facet"
+    conn = -1
+    connected = false
+    lines = []
+    draft = ""
+  end
+  derived
+    recent = slice(lines, max(0, len(lines) - 200))
+  end
+  fn connect()
+    set conn = net.connect(server, port, "tcp lines", heard)
+    if conn < 0 then
+      set lines = lines + ["couldn't reach " + server]
+    end
+  end
+  fn heard(c, kind, data)
+    if kind == "open" then
+      set connected = true
+      net.send(c, "NICK {nick}\r\nUSER {nick} 0 * :{nick}\r\n")
+    elseif kind == "line" then
+      if starts(data, "PING") then
+        net.send(c, "PONG" + slice(data, 4) + "\r\n")
+      else
+        set lines = lines + [data]
+      end
+    elseif kind == "closed" or kind == "error" then
+      set connected = false
+      set lines = lines + ["(disconnected)"]
+    end
+  end
+  fn say()
+    if trim(draft) != "" and connected then
+      net.send(conn, trim(draft) + "\r\n")
+      set lines = lines + ["> " + trim(draft)]
+      set draft = ""
+    end
+  end
+  fn pressed(k)
+    if k == "enter" then
+      say()
+    end
+  end
+  fn leave()
+    net.send(conn, "QUIT\r\n")
+  end
+  view
+    <column class="airy">
+      <row class="hero spread">
+        <column class="tight">
+          <text class="label">chat</text>
+          <text class="title">{server}</text>
+        </column>
+        <if test={connected}>
+          <button class="quiet pill" on:click="leave()">Leave</button>
+        <else/>
+          <button class="primary pill" on:click="connect()">Connect</button>
+        </if>
+      </row>
+      <scroll class="card">
+        <each in={recent} as="l" at="i" key={i}>
+          <text class="mono">{l}</text>
+        </each>
+      </scroll>
+      <row>
+        <input id="say" bind="draft" placeholder="Say something" on:key="pressed(value)"/>
+        <button class="primary" on:click="say()">Send</button>
+      </row>
+    </column>
+  end
+  style
+    #say { grow: 1; }
+  end
+end

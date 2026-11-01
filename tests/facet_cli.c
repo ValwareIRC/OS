@@ -25,6 +25,13 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <pthread.h>
+#include <sys/socket.h>
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -128,6 +135,174 @@ static void h_error(void *c, const char *m) {
     faults++;
 }
 
+/* ---- the network, for tests: canned web replies, and real local sockets ---- */
+
+static struct { char url[300]; char *text; } canned[16];
+static int ncanned;
+static int net_refused_by_script;
+
+static bool h_net_allowed(void *c) {
+    (void)c;
+    printf("  -> asks to use the internet: %s\n", net_refused_by_script ? "no" : "yes");
+    return !net_refused_by_script;
+}
+
+static fx_val reply_for(const char *url) {
+    fx_val r = fx_rec();
+    for (int i = 0; i < ncanned; i++)
+        if (!strcmp(canned[i].url, url)) {
+            fx_rec_set(r, "ok", fx_bool(true));
+            fx_rec_set(r, "status", fx_num(200));
+            fx_rec_set(r, "data", fx_parse_json(canned[i].text, strlen(canned[i].text)));
+            fx_rec_set(r, "text", fx_text(canned[i].text));
+            fx_rec_set(r, "error", fx_none());
+            return r;
+        }
+    fx_rec_set(r, "ok", fx_bool(false));
+    fx_rec_set(r, "status", fx_num(404));
+    fx_rec_set(r, "data", fx_none());
+    fx_rec_set(r, "text", fx_text(""));
+    fx_rec_set(r, "error", fx_text("not found"));
+    return r;
+}
+
+static fx_val h_http(void *c, const char *method, const char *url, const char *body, const char *ct) {
+    (void)c;
+    printf("  -> %s %s%s%s\n", method, url, body ? " " : "", body ? body : "");
+    (void)ct;
+    return reply_for(url);
+}
+
+static fx_val h_web(void *c, const char *url, double every) {
+    (void)c, (void)every;
+    fx_val r = reply_for(url);
+    fx_val d = fx_ref(fx_rec_get(r, "data"));
+    fx_unref(r);
+    return d;
+}
+
+static struct { int fd; bool open_told, live; } socks[16];
+static int sock_queue_closed[16];
+
+static int h_net_connect(void *c, const char *host, int port, bool tls) {
+    (void)c;
+    printf("  -> connects to %s:%d%s\n", host, port, tls ? " (tls: not in tests, plain)" : "");
+    struct addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM}, *res;
+    char ports[8];
+    snprintf(ports, sizeof ports, "%d", port);
+    if (getaddrinfo(host, ports, &hints, &res))
+        return -1;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
+        close(fd);
+        freeaddrinfo(res);
+        return -1;
+    }
+    freeaddrinfo(res);
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    for (int i = 0; i < 16; i++)
+        if (!socks[i].live) {
+            socks[i].fd = fd, socks[i].live = true, socks[i].open_told = false;
+            return i;
+        }
+    close(fd);
+    return -1;
+}
+
+static bool h_net_send(void *c, int id, const void *d, size_t n) {
+    (void)c;
+    if (id < 0 || id >= 16 || !socks[id].live)
+        return false;
+    return send(socks[id].fd, d, n, MSG_NOSIGNAL) == (ssize_t)n;
+}
+
+static void h_net_close(void *c, int id) {
+    (void)c;
+    if (id >= 0 && id < 16 && socks[id].live) {
+        close(socks[id].fd);
+        socks[id].live = false;
+    }
+}
+
+static int h_net_event(void *c, int *id, char **data, size_t *len) {
+    (void)c;
+    *data = NULL, *len = 0;
+    for (int i = 0; i < 16; i++) {
+        if (!socks[i].live)
+            continue;
+        *id = i;
+        if (!socks[i].open_told) {
+            socks[i].open_told = true;
+            return 1;
+        }
+        char buf[4096];
+        /* a moment for the server's words to arrive (the script runs faster than a network) */
+        struct pollfd pf = {socks[i].fd, POLLIN, 0};
+        poll(&pf, 1, 30);
+        ssize_t n = recv(socks[i].fd, buf, sizeof buf, 0);
+        if (n > 0) {
+            *data = malloc((size_t)n);
+            memcpy(*data, buf, (size_t)n);
+            *len = (size_t)n;
+            return 2;
+        }
+        if (n == 0) {
+            close(socks[i].fd);
+            socks[i].live = false;
+            return 3;
+        }
+    }
+    (void)sock_queue_closed;
+    return 0;
+}
+
+/* `serve PORT`: a tiny line server like an IRC one: a welcome, then every line back */
+static void *serve_one(void *arg) {
+    int lfd = (int)(intptr_t)arg;
+    int fd = accept(lfd, NULL, NULL);
+    if (fd < 0)
+        return NULL;
+    const char *hello = ":test.server 001 you :Welcome to the test server\r\n";
+    send(fd, hello, strlen(hello), MSG_NOSIGNAL);
+    char buf[2048], line[2048];
+    size_t ll = 0;
+    ssize_t n;
+    while ((n = recv(fd, buf, sizeof buf, 0)) > 0)
+        for (ssize_t i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                line[ll] = 0;
+                if (ll && line[ll - 1] == '\r')
+                    line[--ll] = 0;
+                if (!strcmp(line, "QUIT")) {
+                    close(fd);
+                    return NULL;
+                }
+                char out[2100];
+                snprintf(out, sizeof out, ":test.server NOTICE you :heard %s\r\n", line);
+                send(fd, out, strlen(out), MSG_NOSIGNAL);
+                ll = 0;
+            } else if (ll < sizeof line - 1) {
+                line[ll++] = buf[i];
+            }
+        }
+    close(fd);
+    return NULL;
+}
+
+static void serve(int port) {
+    int lfd = socket(AF_INET, SOCK_STREAM, 0), one = 1;
+    setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    struct sockaddr_in a = {.sin_family = AF_INET, .sin_port = htons((uint16_t)port)};
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(lfd, (struct sockaddr *)&a, sizeof a) || listen(lfd, 4)) {
+        printf("  !! couldn't serve on %d\n", port);
+        return;
+    }
+    pthread_t t;
+    pthread_create(&t, NULL, serve_one, (void *)(intptr_t)lfd);
+    pthread_detach(t);
+}
+
 /* ---- the view, as text ---- */
 
 static void show(const fx_out *o, int depth) {
@@ -212,8 +387,12 @@ static int run(const char *file, const char *script) {
     if (!mkdtemp(home))
         return 2;
     setenv("HOME", home, 1);
-    fx_host h = {NULL,     h_read, h_write, h_remove, h_rename, h_mkdir, h_files, h_setting,
-                 h_apps,   h_now,  h_open,  NULL,     h_notify, h_ask,   h_prompt, h_error};
+    fx_host h = {0};
+    h.read = h_read, h.write = h_write, h.remove = h_remove, h.rename = h_rename, h.mkdir = h_mkdir;
+    h.files = h_files, h.setting = h_setting, h.apps = h_apps, h.now_ms = h_now, h.open_app = h_open;
+    h.notify = h_notify, h.ask = h_ask, h.prompt = h_prompt, h.error = h_error;
+    h.net_allowed = h_net_allowed, h.http = h_http, h.web = h_web, h.net_connect = h_net_connect;
+    h.net_send = h_net_send, h.net_close = h_net_close, h.net_event = h_net_event;
     fx_rt *rt = NULL;
     fx_out *view = NULL;
     int failed = 0, lineno = 0;
@@ -225,6 +404,24 @@ static int run(const char *file, const char *script) {
             continue;
         char cmd[32] = "", arg[400] = "";
         sscanf(line, "%31s %399[^\n]", cmd, arg);
+        if (!strcmp(cmd, "respond")) { /* respond URL TEXT: what the web gives for that address */
+            char url[300];
+            sscanf(arg, "%299s", url);
+            snprintf(canned[ncanned].url, sizeof canned[0].url, "%s", url);
+            canned[ncanned++].text = strdup(unquote(arg + strlen(url)));
+            printf("> %s\n", line);
+            continue;
+        }
+        if (!strcmp(cmd, "serve")) {
+            serve(atoi(arg));
+            printf("> %s\n", line);
+            continue;
+        }
+        if (!strcmp(cmd, "offline")) { /* they refuse the app the internet */
+            net_refused_by_script = 1;
+            printf("> %s\n", line);
+            continue;
+        }
         if (!rt && strcmp(cmd, "write") && strcmp(cmd, "answer")) { /* starts at the first thing that needs it */
             rt = fx_start(app, &h);
             view = fx_render(rt);

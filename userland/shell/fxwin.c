@@ -17,6 +17,7 @@
 #include "fx/markup.h"
 #include "alive.h"
 #include "../lib/json.h"
+#include "../lib/http.h"
 
 #include <dirent.h>
 #include <math.h>
@@ -28,6 +29,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define D (A.d)
 #define MAX_FIELDS 32
@@ -58,6 +60,14 @@ struct fxwin {
         bool used;
     } anim[48];         /* widgets easing towards their values */
     int w;
+    /* the network: web() data it keeps fresh, its sockets */
+    struct {
+        char url[512];
+        fx_val value;
+        double at, every;
+        job *fetch;
+    } web[8];
+    struct fxsock *socks[16];
 };
 
 /* ---- files and the world, for the interpreter ---- */
@@ -194,6 +204,250 @@ static void h_notify(void *c, const char *t) { (void)c; toast("%s", t); }
 static void h_error(void *c, const char *m) {
     (void)c;
     LOG("facet: %s\n", m);
+}
+
+/* ---- the network ---- */
+
+/* One permission for the whole app, asked the first time it reaches out and remembered (facet.net.<App>). */
+static int h_ask(void *c, const char *q);
+static bool h_net_allowed(void *c) {
+    struct fxwin *fw = c;
+    char key[96];
+    snprintf(key, sizeof key, "facet.net.%s", fw->app->name);
+    const char *v = settings_get(key, NULL);
+    if (v)
+        return !strcmp(v, "yes");
+    char q[200];
+    snprintf(q, sizeof q, "%s wants to use the internet. Let it?", fw->app->name);
+    bool yes = h_ask(c, q) == 1;
+    settings_set(key, yes ? "yes" : "no");
+    LOG("facet: %s may%s use the internet\n", fw->app->name, yes ? "" : " not");
+    return yes;
+}
+
+struct http_job {
+    char method[8], url[1024], ctype[96];
+    char *body;
+};
+
+/* in a child: the request; its result as "status\x1ferror\x1fbody" */
+static void http_child(void *arg, char **result) {
+    struct http_job *j = arg;
+    const char *hdr[3] = {NULL, NULL, NULL};
+    char ct[128];
+    if (j->ctype[0]) {
+        snprintf(ct, sizeof ct, "Content-Type: %s", j->ctype);
+        hdr[0] = ct;
+    }
+    struct http_response r;
+    http_request(j->method, j->url, hdr, j->body, j->body ? strlen(j->body) : 0, 30, &r);
+    sbuf b;
+    sb_init(&b);
+    sb_printf(&b, "%d\x1f%s\x1f", r.status, r.error);
+    if (r.body)
+        sb_addn(&b, r.body, r.body_len);
+    http_response_free(&r);
+    *result = b.p ? b.p : strdup("0\x1fno answer\x1f");
+}
+
+static fx_val response_value(char *res) {
+    fx_val r = fx_rec();
+    int status = res ? atoi(res) : 0;
+    char *e = res ? strchr(res, '\x1f') : NULL, *body = e ? strchr(e + 1, '\x1f') : NULL;
+    if (body)
+        *body++ = 0;
+    const char *err = e ? e + 1 : "no answer";
+    bool ok = status >= 200 && status < 300;
+    fx_rec_set(r, "ok", fx_bool(ok));
+    fx_rec_set(r, "status", fx_num(status));
+    fx_rec_set(r, "data", body ? fx_parse_json(body, strlen(body)) : fx_none());
+    fx_rec_set(r, "text", fx_text(body ? body : ""));
+    fx_rec_set(r, "error", ok ? fx_none() : fx_text(status ? "the server said no" : err));
+    if (!ok && status)
+        fx_rec_set(r, "error", fx_text(err[0] ? err : "the server said no"));
+    return r;
+}
+
+static struct {
+    job *j;
+    bool done;
+    char *res;
+    char host[128];
+} REQ;
+
+static void waiting_draw(void) { /* the request is on its way: a word at the bottom, the OS goes on */
+    font *f = fm_host_font(D.font_body, D.body_px - 2);
+    char t[200];
+    snprintf(t, sizeof t, "Reaching %s...", REQ.host);
+    int w = text_width(f, t) + 32, h = 34;
+    rect r = {(A.W - w) / 2, A.H - h - 24, w, h};
+    fill_round(A.frame, r, h / 2.0f, color_alpha(D.surface | 0xff000000u, 0.92f));
+    draw_text_centered(A.frame, f, r, t, D.surface_text);
+    if (REQ.j && job_poll(REQ.j, &REQ.res)) {
+        job_free(REQ.j);
+        REQ.j = NULL;
+        REQ.done = true;
+    }
+    A.in.clicked = A.in.pressed = false; /* (the app is waiting: not now) */
+}
+
+static fx_val h_http(void *c, const char *method, const char *url, const char *body, const char *ctype) {
+    (void)c;
+    struct http_job j = {0};
+    snprintf(j.method, sizeof j.method, "%s", method);
+    snprintf(j.url, sizeof j.url, "%s", url);
+    snprintf(j.ctype, sizeof j.ctype, "%s", ctype ? ctype : "");
+    j.body = body ? strdup(body) : NULL;
+    memset(&REQ, 0, sizeof REQ);
+    const char *h = strstr(url, "://");
+    snprintf(REQ.host, sizeof REQ.host, "%.*s", (int)strcspn(h ? h + 3 : url, "/:?"), h ? h + 3 : url);
+    REQ.j = job_start(http_child, &j);
+    main_modal(waiting_draw, &REQ.done);
+    fx_val r = response_value(REQ.res);
+    free(REQ.res);
+    free(j.body);
+    LOG("facet: %s %s: %s\n", method, url, fx_truthy(fx_rec_get(r, "ok")) ? "ok" : "failed");
+    return r;
+}
+
+/* web(url, every): what came last; a fetch in the background when it's due */
+static fx_val h_web(void *c, const char *url, double every) {
+    struct fxwin *fw = c;
+    double now = A.now;
+    int slot = -1;
+    for (int i = 0; i < 8 && slot < 0; i++)
+        if (fw->web[i].url[0] && !strcmp(fw->web[i].url, url))
+            slot = i;
+    for (int i = 0; i < 8 && slot < 0; i++)
+        if (!fw->web[i].url[0]) {
+            slot = i;
+            snprintf(fw->web[i].url, sizeof fw->web[i].url, "%s", url);
+            fw->web[i].value = fx_none();
+            fw->web[i].at = -1e18;
+        }
+    if (slot < 0)
+        return fx_none();
+    typeof(fw->web[0]) *w = &fw->web[slot];
+    w->every = every;
+    char *res;
+    if (w->fetch && job_poll(w->fetch, &res)) {
+        job_free(w->fetch);
+        w->fetch = NULL;
+        fx_val r = response_value(res);
+        free(res);
+        if (fx_truthy(fx_rec_get(r, "ok"))) {
+            fx_val d = fx_rec_get(r, "data");
+            fx_unref(w->value);
+            w->value = d.t != V_NONE ? fx_ref(d) : fx_ref(fx_rec_get(r, "text"));
+        }
+        fx_unref(r);
+    }
+    if (!w->fetch && now - w->at >= every) {
+        static struct http_job j; /* the child has its copy as soon as it starts */
+        memset(&j, 0, sizeof j);
+        snprintf(j.method, sizeof j.method, "GET");
+        snprintf(j.url, sizeof j.url, "%s", url);
+        w->fetch = job_start(http_child, &j);
+        w->at = now;
+    }
+    return fx_ref(w->value);
+}
+
+/* Sockets: opened on a thread of their own (finding the server and the secure handshake wait on the
+ * network), then read every frame without waiting. */
+struct fxsock {
+    int id;
+    char host[256];
+    int port;
+    bool tls;
+    tcp_stream *s;
+    volatile int state; /* 0 opening, 1 open (not yet told), 2 open, 3 failed (not yet told), 4 done */
+    char err[200];
+    pthread_t t;
+};
+
+static void *sock_open(void *arg) {
+    struct fxsock *k = arg;
+    k->s = tcp_open(k->host, k->port, k->tls, k->err, sizeof k->err);
+    k->state = k->s ? 1 : 3;
+    return NULL;
+}
+
+static int h_net_connect(void *c, const char *host, int port, bool tls) {
+    struct fxwin *fw = c;
+    for (int i = 0; i < 16; i++)
+        if (!fw->socks[i]) {
+            struct fxsock *k = calloc(1, sizeof *k);
+            k->id = i;
+            snprintf(k->host, sizeof k->host, "%s", host);
+            k->port = port;
+            k->tls = tls;
+            if (pthread_create(&k->t, NULL, sock_open, k)) {
+                free(k);
+                return -1;
+            }
+            fw->socks[i] = k;
+            LOG("facet: %s connects to %s:%d%s\n", fw->app->name, host, port, tls ? " (tls)" : "");
+            return i;
+        }
+    return -1;
+}
+
+static bool h_net_send(void *c, int id, const void *data, size_t len) {
+    struct fxwin *fw = c;
+    struct fxsock *k = id >= 0 && id < 16 ? fw->socks[id] : NULL;
+    return k && k->state == 2 && tcp_write(k->s, data, len);
+}
+
+static void sock_free(struct fxwin *fw, int id) {
+    struct fxsock *k = fw->socks[id];
+    if (!k)
+        return;
+    pthread_join(k->t, NULL); /* (an opening one finishes first) */
+    tcp_close(k->s);
+    free(k);
+    fw->socks[id] = NULL;
+}
+
+static void h_net_close(void *c, int id) {
+    struct fxwin *fw = c;
+    if (id >= 0 && id < 16)
+        sock_free(fw, id);
+}
+
+static int h_net_event(void *c, int *id, char **data, size_t *len) {
+    struct fxwin *fw = c;
+    *data = NULL, *len = 0;
+    for (int i = 0; i < 16; i++) {
+        struct fxsock *k = fw->socks[i];
+        if (!k)
+            continue;
+        *id = i;
+        if (k->state == 1) {
+            k->state = 2;
+            return 1;
+        }
+        if (k->state == 3) {
+            k->state = 4;
+            *data = strdup(k->err[0] ? k->err : "couldn't connect");
+            return 4;
+        }
+        if (k->state != 2)
+            continue;
+        char buf[16384];
+        int n = tcp_read(k->s, buf, sizeof buf);
+        if (n > 0) {
+            *data = malloc((size_t)n);
+            memcpy(*data, buf, (size_t)n);
+            *len = (size_t)n;
+            return 2;
+        }
+        if (n < 0) {
+            k->state = 4;
+            return 3;
+        }
+    }
+    return 0;
 }
 
 /* ---- a question over everything ---- */
@@ -595,6 +849,8 @@ int fxwin_open(const char *path) {
     free(errs.e);
     fx_host h = {fw,       h_read, h_write, h_remove, h_rename, h_mkdir,  h_files,  h_setting,
                  h_apps,   h_now,  h_open,  h_close,  h_notify, h_ask,    h_prompt, h_error};
+    h.net_allowed = h_net_allowed, h.http = h_http, h.web = h_web, h.net_connect = h_net_connect;
+    h.net_send = h_net_send, h.net_close = h_net_close, h.net_event = h_net_event;
     fw->rt = fx_start(fw->app, &h);
     fw->rebuild = true;
     fw->pending = -1;
@@ -686,7 +942,15 @@ void fxwin_close(struct fxwin *fw) {
     }
     if (fw->w >= 0 && A.win[fw->w].fx == fw)
         A.win[fw->w].fx = NULL, A.win[fw->w].open = false;
-    fx_stop(fw->rt);
+    fx_stop(fw->rt); /* (closes its sockets through h_net_close) */
+    for (int i = 0; i < 16; i++)
+        sock_free(fw, i);
+    for (int i = 0; i < 8; i++) {
+        if (fw->web[i].fetch)
+            job_free(fw->web[i].fetch);
+        if (fw->web[i].url[0])
+            fx_unref(fw->web[i].value);
+    }
     fx_free(fw->app);
     if (fw->doc)
         fm_free(fw->doc);

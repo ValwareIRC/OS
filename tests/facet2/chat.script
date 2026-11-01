@@ -1,0 +1,18 @@
+# Chat: a socket of its own, lines in and out (an IRC-like test server on 6667)
+serve 6667
+expect "Connect"
+click "Connect"
+tick 100
+tick 100
+expect "Welcome to the test server"
+expect "Leave"
+type #say PRIVMSG #facet :hello
+key #say enter
+tick 100
+tick 100
+expect "heard PRIVMSG #facet :hello"
+click "Leave"
+tick 100
+tick 100
+expect "(disconnected)"
+expect "Connect"

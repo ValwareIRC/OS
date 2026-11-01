@@ -22,6 +22,19 @@ typedef struct fx_host {
     int (*ask)(void *ctx, const char *question);                  /* 1 yes, 0 no */
     char *(*prompt)(void *ctx, const char *question, const char *def); /* malloc'd, or NULL */
     void (*error)(void *ctx, const char *msg);                    /* a fault while running */
+    /* The network. One permission for the whole app: asked the first time it reaches out, remembered. */
+    bool (*net_allowed)(void *ctx);
+    /* A request, waited for (the OS goes on meanwhile): {ok, status, data (its JSON, parsed), text, error}. */
+    fx_val (*http)(void *ctx, const char *method, const char *url, const char *body, const char *content_type);
+    /* web(url, every) data: what was fetched last (none until it arrives), fetched again every `every_ms`. */
+    fx_val (*web)(void *ctx, const char *url, double every_ms);
+    /* Sockets: opened in the background (an event says when); an id, or -1. */
+    int (*net_connect)(void *ctx, const char *host, int port, bool tls);
+    bool (*net_send)(void *ctx, int id, const void *data, size_t len);
+    void (*net_close)(void *ctx, int id);
+    /* The next thing that happened on a socket: kind 1 open, 2 data (*data malloc'd, *len), 3 closed, 4 error
+     * (*data the reason). 0 when nothing more. */
+    int (*net_event)(void *ctx, int *id, char **data, size_t *len);
 } fx_host;
 
 typedef struct fx_inst fx_inst;
@@ -69,3 +82,7 @@ const char *fx_fault(fx_rt *rt);
 const char *fx_get(const fx_out *el, const char *name); /* NULL if absent */
 fx_out *fx_find(fx_out *root, const char *id);             /* first element with this id */
 fx_val fx_state_get(fx_rt *rt, const char *name);          /* borrowed (tests) */
+/* JSON text as Facet values (objects are records, arrays lists, null none), or none if it isn't JSON. */
+fx_val fx_parse_json(const char *text, size_t len);
+/* A value as JSON text (malloc'd). */
+char *fx_json_text(fx_val v);

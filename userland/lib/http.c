@@ -421,3 +421,119 @@ void http_response_free(struct http_response *r) {
     free(r->body);
     r->body = NULL;
 }
+
+/* ---- sockets of an app's own (Facet 2) ---- */
+
+#include <fcntl.h>
+#include <pthread.h>
+
+static pthread_mutex_t tls_lock = PTHREAD_MUTEX_INITIALIZER; /* the random generator is shared */
+
+struct tcp_stream {
+    struct conn c;
+    bool closed;
+};
+
+tcp_stream *tcp_open(const char *host, int port, bool use_tls, char *err, size_t errlen) {
+    char ports[8];
+    snprintf(ports, sizeof ports, "%d", port);
+    tcp_stream *s = calloc(1, sizeof *s);
+    s->c.fd = -1;
+    s->c.use_tls = use_tls;
+    s->c.timeout_ms = 20000;
+    pthread_mutex_lock(&tls_lock);
+    int ok = !use_tls || tls_global_init(err, errlen) == 0;
+    pthread_mutex_unlock(&tls_lock);
+    if (!ok) {
+        free(s);
+        return NULL;
+    }
+    s->c.fd = dial(host, ports, s->c.timeout_ms, err, errlen);
+    if (s->c.fd < 0) {
+        free(s);
+        return NULL;
+    }
+    if (use_tls) {
+        pthread_mutex_lock(&tls_lock);
+        mbedtls_ssl_init(&s->c.ssl);
+        mbedtls_ssl_setup(&s->c.ssl, &tls.conf);
+        mbedtls_ssl_set_hostname(&s->c.ssl, host);
+        mbedtls_ssl_set_bio(&s->c.ssl, &s->c, bio_send, bio_recv, NULL);
+        int r;
+        while ((r = mbedtls_ssl_handshake(&s->c.ssl)) != 0) {
+            if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE)
+                continue;
+            uint32_t flags = mbedtls_ssl_get_verify_result(&s->c.ssl);
+            if (flags && flags != (uint32_t)-1)
+                snprintf(err, errlen, "%s's certificate was not trusted", host);
+            else {
+                char why[120];
+                mbedtls_strerror(r, why, sizeof why);
+                snprintf(err, errlen, "secure connection to %s failed: %s", host, why);
+            }
+            mbedtls_ssl_free(&s->c.ssl);
+            pthread_mutex_unlock(&tls_lock);
+            close(s->c.fd);
+            free(s);
+            return NULL;
+        }
+        pthread_mutex_unlock(&tls_lock);
+    }
+    s->c.timeout_ms = 0; /* from now on, reading never waits */
+    return s;
+}
+
+int tcp_read(tcp_stream *s, void *buf, size_t len) {
+    if (!s || s->closed)
+        return -1;
+    if (!s->c.use_tls) {
+        if (wait_fd(s->c.fd, POLLIN, 0) < 0)
+            return 0;
+        ssize_t n = recv(s->c.fd, buf, len, 0);
+        if (n > 0)
+            return (int)n;
+        if (n < 0 && (errno == EAGAIN || errno == EINTR))
+            return 0;
+        s->closed = true;
+        return -1;
+    }
+    pthread_mutex_lock(&tls_lock);
+    int n = mbedtls_ssl_read(&s->c.ssl, (unsigned char *)buf, len);
+    pthread_mutex_unlock(&tls_lock);
+    if (n > 0)
+        return n;
+    if (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE || n == MBEDTLS_ERR_SSL_TIMEOUT ||
+        n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+        return 0;
+    s->closed = true;
+    return -1;
+}
+
+bool tcp_write(tcp_stream *s, const void *data, size_t len) {
+    if (!s || s->closed)
+        return false;
+    s->c.timeout_ms = 5000;
+    pthread_mutex_lock(&tls_lock);
+    bool ok = conn_write(&s->c, data, len) == 0;
+    pthread_mutex_unlock(&tls_lock);
+    s->c.timeout_ms = 0;
+    if (!ok)
+        s->closed = true;
+    return ok;
+}
+
+int tcp_fd(const tcp_stream *s) { return s ? s->c.fd : -1; }
+
+void tcp_close(tcp_stream *s) {
+    if (!s)
+        return;
+    if (s->c.use_tls) {
+        pthread_mutex_lock(&tls_lock);
+        mbedtls_ssl_close_notify(&s->c.ssl);
+        mbedtls_ssl_free(&s->c.ssl);
+        pthread_mutex_unlock(&tls_lock);
+    }
+    if (s->c.fd >= 0)
+        close(s->c.fd);
+    free(s);
+}

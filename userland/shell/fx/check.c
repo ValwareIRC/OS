@@ -17,15 +17,16 @@ static const struct { const char *name; int min, max; } stdlib_fns[] = {
     {"text", 1, 1},   {"number", 1, 1},  {"pad", 3, 3},     {"round", 1, 1},    {"floor", 1, 1},  {"ceil", 1, 1},
     {"min", 2, 2},    {"max", 2, 2},     {"slice", 2, 3},   {"first", 1, 1},    {"last", 1, 1},   {"sort", 2, 2},
     {"filter", 2, 2}, {"map", 2, 2},     {"find", 2, 2},    {"contains", 2, 2}, {"starts", 2, 2}, {"ends", 2, 2},
-    {"date", 2, 2},   {"base", 1, 1},    {"dirname", 1, 1},
+    {"date", 2, 2},   {"base", 1, 1},    {"dirname", 1, 1}, {"json", 1, 1},     {"parse", 1, 1},
 };
 static const struct { const char *name; int min, max; } effect_fns[] = {
     {"fs.read", 1, 1},   {"fs.write", 2, 2}, {"fs.remove", 1, 1}, {"fs.rename", 2, 2}, {"fs.mkdir", 1, 1},
     {"app.open", 1, 2},  {"app.close", 0, 0}, {"app.notify", 1, 1}, {"ask", 1, 1},     {"prompt", 2, 2},
     {"after", 3, 3},     {"every", 3, 3},    {"cancel", 1, 1},
+    {"net.get", 1, 1},   {"net.post", 2, 3}, {"net.connect", 4, 4}, {"net.send", 2, 2}, {"net.close", 1, 1},
 };
 static const struct { const char *name; int min, max; } data_fns[] = {
-    {"files", 1, 2}, {"file", 1, 1}, {"setting", 1, 1}, {"apps", 0, 0}, {"clock", 1, 1},
+    {"files", 1, 2}, {"file", 1, 1}, {"setting", 1, 1}, {"apps", 0, 0}, {"clock", 1, 1}, {"web", 1, 2},
 };
 #define COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
@@ -103,6 +104,13 @@ const char *fx_nearest(const char *word, const char *const *choices, int n) {
     }
     int len = (int)strlen(word);
     return best && bd <= (len <= 4 ? 1 : len <= 8 ? 2 : 3) ? best : NULL;
+}
+
+static void arity_err(fx_errors *errs, int line, const char *name, int mn, int mx, int got) {
+    if (mn == mx)
+        fx_err(errs, line, NULL, "%s takes %d value%s, not %d", name, mn, mn == 1 ? "" : "s", got);
+    else
+        fx_err(errs, line, NULL, "%s takes %d to %d values, not %d", name, mn, mx, got);
 }
 
 /* ---- scopes ---- */
@@ -222,8 +230,7 @@ static void check_call(ctx *c, const fx_expr *e) {
     const char *where = c->in_data ? "a data line" : c->in_derived ? "derived" : c->in_view ? "the view" : NULL;
     if (fx_is_stdlib(e->s, &mn, &mx)) {
         if (e->n < mn || e->n > mx)
-            fx_err(c->errs, e->line, NULL, "%s takes %d%s%d value%s, not %d", e->s, mn, mx > mn ? " to " : "",
-                   mx > mn ? mx : mn, mx == 1 ? "" : "s", e->n), (void)0;
+            arity_err(c->errs, e->line, e->s, mn, mx, e->n), (void)0;
         /* lambdas: map/filter/find take one or two names, sort one */
         if ((!strcmp(e->s, "map") || !strcmp(e->s, "filter") || !strcmp(e->s, "find") || !strcmp(e->s, "sort")) &&
             e->n == 2) {
@@ -238,8 +245,7 @@ static void check_call(ctx *c, const fx_expr *e) {
             fx_err(c->errs, e->line, NULL, "%s changes things, so it belongs in a fn, not in %s", e->s,
                    where ? where : "here");
         if (e->n < mn || e->n > mx)
-            fx_err(c->errs, e->line, NULL, "%s takes %d%s%d value%s, not %d", e->s, mn, mx > mn ? " to " : "",
-                   mx > mn ? mx : mn, mx == 1 ? "" : "s", e->n);
+            arity_err(c->errs, e->line, e->s, mn, mx, e->n);
         if ((!strcmp(e->s, "after") || !strcmp(e->s, "every")) && e->n == 3) {
             const fx_expr *f = e->items[2];
             if (f && f->k == E_CALL) {
@@ -253,14 +259,27 @@ static void check_call(ctx *c, const fx_expr *e) {
                 fx_err(c->errs, e->line, NULL, "%s's first value is the timer's name in quotes: %s(\"save\", ...)", e->s,
                        e->s);
         }
+        if (!strcmp(e->s, "net.connect") && e->n == 4) {
+            const fx_expr *f = e->items[3];
+            const fx_fn *hf = f && f->k == E_NAME ? find_fn(c->app, f->s) : NULL;
+            if (f && f->k == E_CALL) {
+                char fix[120];
+                snprintf(fix, sizeof fix, "net.connect(host, port, \"tls lines\", %s)", f->s);
+                fx_err(c->errs, e->line, fix, "net.connect's fourth value is the name of the fn that hears it, not a call");
+            } else if (!hf) {
+                fx_err(c->errs, e->line, NULL, "net.connect: there is no fn \"%s\" (write fn %s(conn, kind, data))",
+                       f && f->s ? f->s : "?", f && f->s ? f->s : "heard");
+            } else if (hf->nparams != 3) {
+                fx_err(c->errs, e->line, NULL, "%s hears a socket: it takes (conn, kind, data)", hf->name);
+            }
+        }
         if (!strcmp(e->s, "cancel") && e->n == 1 && e->items[0] && e->items[0]->k != E_TEXT)
             fx_err(c->errs, e->line, NULL, "cancel takes the timer's name in quotes: cancel(\"save\")");
     } else if (is_data_fn(e->s, &mn, &mx)) {
         if (!c->in_data)
             fx_err(c->errs, e->line, NULL, "%s() is live data: declare it as data name = %s(...) at the top", e->s, e->s);
         else if (e->n < mn || e->n > mx)
-            fx_err(c->errs, e->line, NULL, "%s takes %d%s%d value%s, not %d", e->s, mn, mx > mn ? " to " : "",
-                   mx > mn ? mx : mn, mx == 1 ? "" : "s", e->n);
+            arity_err(c->errs, e->line, e->s, mn, mx, e->n);
     } else {
         const fx_fn *f = find_fn(c->app, e->s);
         if (!f && !strcmp(e->s, "?")) {
@@ -284,7 +303,7 @@ static void check_call(ctx *c, const fx_expr *e) {
         }
     }
     for (int i = 0; i < e->n; i++)
-        if (!((!strcmp(e->s, "after") || !strcmp(e->s, "every")) && i == 2))
+        if (!((!strcmp(e->s, "after") || !strcmp(e->s, "every")) && i == 2) && !(!strcmp(e->s, "net.connect") && i == 3))
             check_expr(c, e->items[i]);
 }
 
@@ -724,6 +743,13 @@ static void check_unit(ctx *c, const fx_app *a) {
         for (int j = 0; j < i; j++)
             if (!strcmp(a->fns[i].name, a->fns[j].name))
                 fx_err(c->errs, a->fns[i].line, NULL, "fn %s is written twice", a->fns[i].name);
+    for (int i = 0; i < a->nfns; i++)
+        if (fx_is_stdlib(a->fns[i].name, NULL, NULL) || fx_is_effect(a->fns[i].name, NULL, NULL)) {
+            char fix[120];
+            snprintf(fix, sizeof fix, "fn %s_now(...)", a->fns[i].name);
+            fx_err(c->errs, a->fns[i].line, fix, "%s is already the library's %s: give your fn another name",
+                   a->fns[i].name, a->fns[i].name);
+        }
     for (int i = 0; i < a->nparams; i++)
         push(c, a->params[i], N_PARAM);
     /* data lines may read state (and each other) */

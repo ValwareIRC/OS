@@ -1,0 +1,8 @@
+# Weather: live JSON from the web, and a POST with a record as JSON
+respond https://api.example.test/weather?city=Lisbon {"city": "Lisbon", "temp": 21, "sky": "clear"}
+respond https://api.example.test/share {"ok": true}
+expect "Lisbon"
+expect "21°"
+expect "clear"
+click "Share"
+expect "shared"
