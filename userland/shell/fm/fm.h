@@ -95,6 +95,8 @@ typedef struct fm_style {
     float font_size;
     enum fm_textalign text_align;
     short text_rot;           /* text turned: 90 reads top to bottom, -90 bottom to top, 180 upside down (inherited) */
+    bool crisp_text;          /* font-smooth: none: every pixel of a letter on or off (inherited) */
+    bool pixelated;           /* image-rendering: pixelated: pictures scaled by whole pixels, never blurred */
     float line_height;        /* multiple of the font's line */
     bool uppercase;
     /* typography (fm/type.c): all inherited, like CSS */

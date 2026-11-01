@@ -644,7 +644,7 @@ void fmi_measure(fm_doc *d, fm_node *n, float aw, float ah) {
         cw = ch = 1;
     } else if (tag_is(n, "canvas")) {
         cw = 240, ch = 160;
-    } else if (tag_is(n, "image") || tag_is(n, "svg")) {
+    } else if (tag_is(n, "image") || tag_is(n, "svg") || tag_is(n, "pixels")) {
         float nw = 0, nh = 0;
         if (!fmi_media_size(n, &nw, &nh) || nw <= 0 || nh <= 0)
             nw = nh = 48;

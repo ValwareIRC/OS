@@ -763,6 +763,13 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
         st->line_height = lh > 4 ? lh / 16 : lh;
     } else if (IS("text-transform")) {
         st->uppercase = strstr(v, "upper") != NULL;
+    } else if (IS("font-smooth") || IS("-webkit-font-smoothing") || IS("font-smoothing")) {
+        v = skip_ws(v);
+        st->crisp_text = !strncasecmp(v, "none", 4) || !strncasecmp(v, "never", 5) || !strncasecmp(v, "crisp", 5) ||
+                         !strncasecmp(v, "pixel", 5);
+    } else if (IS("image-rendering")) {
+        v = skip_ws(v);
+        st->pixelated = !strncasecmp(v, "pixel", 5) || !strncasecmp(v, "crisp", 5) || !strncasecmp(v, "optimizespeed", 13);
     } else if (IS("writing-mode")) {
         v = skip_ws(v);
         if (!strncasecmp(v, "sideways-lr", 11))
@@ -1401,6 +1408,7 @@ static void initial(fm_style *st, const fm_style *parent) {
         st->font_size = parent->font_size;
         st->text_align = parent->text_align;
         st->text_rot = parent->text_rot;
+        st->crisp_text = parent->crisp_text;
         st->uppercase = parent->uppercase;
         memcpy(st->icon_style, parent->icon_style, sizeof st->icon_style);
         memcpy(st->icon_shape, parent->icon_shape, sizeof st->icon_shape);

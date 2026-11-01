@@ -68,7 +68,7 @@ for spec in "inter/Inter[opsz,wght].ttf:Inter.ttf" "lora/Lora[wght].ttf:Lora.ttf
             "playfairdisplay/PlayfairDisplay[wght].ttf:PlayfairDisplay.ttf" \
             "fraunces/Fraunces[SOFT,WONK,opsz,wght].ttf:Fraunces.ttf" \
             "sora/Sora[wght].ttf:Sora.ttf" "unbounded/Unbounded[wght].ttf:Unbounded.ttf" \
-            "manrope/Manrope[wght].ttf:Manrope.ttf" "syne/Syne[wght].ttf:Syne.ttf"; do
+            "manrope/Manrope[wght].ttf:Manrope.ttf" "syne/Syne[wght].ttf:Syne.ttf"             "pixelifysans/PixelifySans[wght].ttf:PixelifySans.ttf" "silkscreen/Silkscreen-Regular.ttf:Silkscreen.ttf"             "silkscreen/Silkscreen-Bold.ttf:Silkscreen-Bold.ttf" "pressstart2p/PressStart2P-Regular.ttf:PressStart2P.ttf"             "vt323/VT323-Regular.ttf:VT323.ttf" "jersey10/Jersey10-Regular.ttf:Jersey10.ttf"             "micro5/Micro5-Regular.ttf:Micro5.ttf"; do # the last seven: pixel faces, drawn crisp
     src=${spec%%:*}; dst=${spec##*:}
     [ -f "$FONTS/$dst" ] && continue
     url="$base/$(echo "$src" | sed 's/\[/%5B/g; s/\]/%5D/g; s/,/%2C/g')"

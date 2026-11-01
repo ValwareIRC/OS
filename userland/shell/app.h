@@ -46,7 +46,7 @@ struct conversation {
     uint64_t pending_since;
     char error[300];
     int errors; /* consecutive failures; reset by a successful reply */
-    char *picture[2]; /* the newest pictures (JPEG, base64), sent with message picture_at to a model that sees */
+    char *picture[3]; /* the newest pictures (JPEG, base64), sent with message picture_at to a model that sees */
     int picture_at;   /* -1: none */
 };
 
@@ -154,6 +154,7 @@ void convo_send(struct conversation *c, const char *system, int max_tokens);
 bool convo_poll(struct conversation *c);
 /* Puts pictures on the newest message (they replace any before; NULLs are fine; it takes them). */
 void convo_picture(struct conversation *c, char *a, char *b);
+void convo_picture3(struct conversation *c, char *a, char *b, char *z);
 void convo_clear(struct conversation *c);
 void convo_save(const struct conversation *c, const char *path);
 int convo_load(struct conversation *c, const char *path); /* returns messages read */

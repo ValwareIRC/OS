@@ -424,6 +424,8 @@ static char tag_report[3000];
 static int tag_failed;
 
 /* Runs and removes every [[ui:...]] tag in a reply. Returns how many ran. */
+static char last_look_target[128];
+
 static int run_ui_tags(char *text, bool act) {
     int ran = 0;
     char *t;
@@ -465,6 +467,11 @@ static int run_ui_tags(char *text, bool act) {
             preview_edited();
         }
         fm_flash(touched);
+        if (look) { /* its target, shown close up when she is shown the change */
+            const char *v = c + strcspn(c, " ");
+            v += strspn(v, " ");
+            snprintf(last_look_target, sizeof last_look_target, "%.*s", (int)strcspn(v, " {<"), v);
+        }
         LOG("ui command \"%.300s\"%s: %s\n", cmd, look ? " (preview)" : "", res);
         size_t tl = strlen(tag_report);
         snprintf(tag_report + tl, sizeof tag_report - tl, "- %.70s%s -> %s\n", cmd, strlen(cmd) > 70 ? "..." : "", res);
@@ -988,24 +995,29 @@ static void companion_update(void) {
                      broke, show ? " The pictures show it as it is now." : "");
             convo_add(c, "hidden", note);
             if (show) {
-                char *a, *b;
-                stylist_pictures(preview_doc(), &a, &b);
-                convo_picture(c, a, b);
+                char *a, *b, *z;
+                stylist_pictures_focus(preview_doc(), last_look_target, &a, &b, &z);
+                convo_picture3(c, a, b, z);
                 look_rounds++;
             }
             convo_send(c, companion_system(), 1600);
             repairing = true;
             free(broke);
         } else if (show) {
-            char *a, *b;
-            stylist_pictures(preview_doc(), &a, &b);
+            char *a, *b, *z;
+            stylist_pictures_focus(preview_doc(), last_look_target, &a, &b, &z);
             if (a || b) {
-                convo_add(c, "hidden", "(Here is how it looks now, after your change: the desktop, and its menu "
-                                       "open over a window. Look closely: colours, spacing, edges and bevels, text "
-                                       "that is hard to read, things that spill out or overlap. If something is "
-                                       "off, fix it with ui tags alone, no words. If it is right, answer [[ok]] "
-                                       "and nothing else.)");
-                convo_picture(c, a, b);
+                char note[700];
+                snprintf(note, sizeof note,
+                         "(Here is how it looks now, after your change: the desktop, its menu open over a window%s. "
+                         "Look closely: colours, spacing, edges and bevels pixel by pixel, the type, text that is "
+                         "hard to read, things that spill out or overlap; compare it with what it should look like. "
+                         "If something is off, fix it with ui tags alone, no words. If it is right, answer [[ok]] "
+                         "and nothing else.)",
+                         z ? ", and a close-up of what you just changed at its real pixels, enlarged without "
+                             "smoothing" : "");
+                convo_add(c, "hidden", note);
+                convo_picture3(c, a, b, z);
                 look_rounds++;
                 convo_send(c, companion_system(), 1600);
                 repairing = true;

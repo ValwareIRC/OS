@@ -20,7 +20,7 @@ typedef struct stylist_look {
     bool ok;               /* it parsed and makes a usable desktop */
     char problems[600];    /* why not, when !ok */
     fm_lint lint;
-    char *jpeg_b64[2];     /* pictures (when asked): the desktop; its menu open over a window */
+    char *jpeg_b64[3];     /* pictures (when asked): the desktop; its menu open over a window; a close-up */
     char shows[2][160];    /* what each picture shows, for the prompt */
     int npictures;
 } stylist_look;
@@ -63,6 +63,9 @@ char *stylist_check_edit(const char *before, struct fm_doc *after);
 /* Pictures of a document as it would look (its desktop at rest; its main menu open over a window), for a model
  * that sees: JPEG base64, malloc'd, either may be NULL. */
 void stylist_pictures(struct fm_doc *doc, char **rest, char **open);
+/* The same, and a close-up of what `focus` (a selector) matches: its real pixels, enlarged without smoothing,
+ * so 1px edges and bevels can be judged. *zoom may come back NULL. */
+void stylist_pictures_focus(struct fm_doc *doc, const char *focus, char **rest, char **open, char **zoom);
 
 /* The design as it is being written, for the preview to show as it grows.
  * Set in the design job: `whole` false for the reply so far, true for a

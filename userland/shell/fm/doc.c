@@ -518,13 +518,14 @@ static void describe_rec(fm_doc *d, sbuf *b, fm_node *n, int depth) {
                 sb_printf(b, " %s=\"%s\"", keys[i], v);
         }
         char *t = NULL;
-        if ((tag_is(n, "image") || tag_is(n, "svg")) && n->laid_out) {
+        if ((tag_is(n, "image") || tag_is(n, "svg") || tag_is(n, "pixels")) && n->laid_out) {
             float iw, ih;
             if (!fmi_media_size(n, &iw, &ih))
                 sb_add(b, tag_is(n, "svg") ? " [the drawing can't be read]"
                                            : " [can't be shown: no such picture here, or not a PNG, JPEG, GIF, BMP or SVG]");
         }
-        for (fm_node *c = tag_is(n, "canvas") || tag_is(n, "svg") ? NULL : n->first; c; c = c->next)
+        for (fm_node *c = tag_is(n, "canvas") || tag_is(n, "svg") || tag_is(n, "pixels") ? NULL : n->first; c;
+             c = c->next)
             if (c->kind == FM_TEXT && !c->generated && !is_blank_text(c)) {
                 t = fm_text_of(n);
                 break;

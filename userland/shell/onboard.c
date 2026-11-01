@@ -54,10 +54,10 @@ static void chat_child(void *arg, char **result) {
     struct chat_job *j = arg;
     struct ai_message m[MAX_MSGS] = {0};
     /* pictures: only the newest, only while recent, only to a model that sees */
-    static struct ai_image pics[2];
+    static struct ai_image pics[3];
     int npics = 0, pic_at = -1;
     if (j->c->picture[0] && j->c->picture_at >= j->c->n - 4 && ai_sees_images(&j->cfg)) {
-        for (int k = 0; k < 2; k++)
+        for (int k = 0; k < 3; k++)
             if (j->c->picture[k])
                 pics[npics++] = (struct ai_image){"image/jpeg", j->c->picture[k]};
         pic_at = j->c->picture_at;
@@ -136,10 +136,21 @@ void strip_markdown(char *s) {
 }
 
 static void drop_pictures(struct conversation *c) {
-    free(c->picture[0]);
-    free(c->picture[1]);
-    c->picture[0] = c->picture[1] = NULL;
+    for (int k = 0; k < 3; k++) {
+        free(c->picture[k]);
+        c->picture[k] = NULL;
+    }
     c->picture_at = -1;
+}
+
+void convo_picture3(struct conversation *c, char *a, char *b, char *z) {
+    convo_picture(c, a, b);
+    if (z && c->picture[0] && !c->picture[1])
+        c->picture[1] = z;
+    else if (z && c->picture[0])
+        c->picture[2] = z;
+    else
+        free(z);
 }
 
 void convo_picture(struct conversation *c, char *a, char *b) {

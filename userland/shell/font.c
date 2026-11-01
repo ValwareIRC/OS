@@ -7,6 +7,7 @@
 #include "font.h"
 #include <dirent.h>
 #include <math.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,6 +52,7 @@ struct font {
     float bold;     /* synthetic emboldening: extra stem width in px */
     float slant;    /* synthetic oblique shear (0 or SLANT) */
     float tracking; /* letter-spacing in px, between characters */
+    bool crisp;     /* no smoothing: every pixel of a glyph on or off (bitmap and pixel faces, retro looks) */
     int ascent, descent, line_gap;
     unsigned used;  /* for least-recently-used reuse */
     size_t bytes;   /* glyph bitmaps held */
@@ -169,18 +171,32 @@ const char *const *font_families(int *count) {
 /* The face of `family` nearest to the weight and slant asked for (CSS's
  * matching, simplified): a real italic beats a slanted roman, then the
  * closest weight, heavier first for bold asks and lighter first otherwise. */
+/* "Press Start 2P" is PressStart2P.ttf: names compared without spaces or case */
+static bool same_family(const char *a, const char *b) {
+    for (;; a++, b++) {
+        while (*a == ' ' || *a == '-' || *a == '_')
+            a++;
+        while (*b == ' ' || *b == '-' || *b == '_')
+            b++;
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+            return false;
+        if (!*a)
+            return true;
+    }
+}
+
 static struct face *find_face(const char *family, int weight, bool italic) {
     const char *fam = family;
     bool any = false;
     for (int i = 0; i < nfaces && !any; i++)
-        any = !strcasecmp(faces[i].family, fam);
+        any = same_family(faces[i].family, fam);
     if (!any)
         fam = "Inter";
     struct face *best = NULL;
     int best_score = 1 << 30;
     for (int i = 0; i < nfaces; i++) {
         struct face *fc = &faces[i];
-        if (strcasecmp(fc->family, fam) || (!fc->data && !fc->path))
+        if (!same_family(fc->family, fam) || (!fc->data && !fc->path))
             continue;
         int dw = fc->weight - weight;
         int score = abs(dw) * 2 + (dw < 0 ? (weight > 500 ? 1 : 0) : (weight > 500 ? 0 : 1));
@@ -207,7 +223,13 @@ static void font_drop_glyphs(font *f) {
     f->bytes = 0;
 }
 
+static font *get(const char *family, float px, int weight, bool italic, float tracking, bool crisp);
+
 font *font_get_styled(const char *family, float px, int weight, bool italic, float tracking) {
+    return get(family, px, weight, italic, tracking, false);
+}
+
+static font *get(const char *family, float px, int weight, bool italic, float tracking, bool crisp) {
     if (weight <= 0)
         weight = 400;
     if (weight > 1000)
@@ -219,7 +241,8 @@ font *font_get_styled(const char *family, float px, int weight, bool italic, flo
     tracking = roundf(tracking * 4) / 4;
     for (int i = 0; i < nfonts; i++) {
         font *f = &fonts[i];
-        if (f->face == face && f->px == px && f->weight == weight && f->italic == italic && f->tracking == tracking) {
+        if (f->face == face && f->px == px && f->weight == weight && f->italic == italic && f->tracking == tracking &&
+            f->crisp == crisp) {
             f->used = ++tick;
             return f;
         }
@@ -240,6 +263,7 @@ font *font_get_styled(const char *family, float px, int weight, bool italic, flo
     f->weight = weight;
     f->italic = italic;
     f->tracking = tracking;
+    f->crisp = crisp;
     f->used = ++tick;
     f->scale = stbtt_ScaleForPixelHeight(&face->info, px);
     stbtt_GetFontVMetrics(&face->info, &f->ascent, &f->descent, &f->line_gap);
@@ -259,7 +283,13 @@ font *font_with(font *base, int weight, bool italic, float tracking) {
         return NULL;
     if ((weight <= 0 || weight == base->weight) && italic == base->italic && tracking == base->tracking)
         return base;
-    return font_get_styled(base->face->family, base->px, weight > 0 ? weight : base->weight, italic, tracking);
+    return get(base->face->family, base->px, weight > 0 ? weight : base->weight, italic, tracking, base->crisp);
+}
+
+font *font_crisp(font *base, bool crisp) {
+    if (!base || base->crisp == crisp)
+        return base;
+    return get(base->face->family, base->px, base->weight, base->italic, base->tracking, crisp);
 }
 
 float font_px(font *f) { return f ? f->px : 0; }
@@ -438,6 +468,9 @@ static struct glyph *glyph(font *f, int cp) {
     if (!g->bitmap) {
         g->bitmap = calloc(1, 1);
         g->w = g->h = 0;
+    } else if (f->crisp) { /* on or off, like the screens these faces were drawn for */
+        for (int i = 0; i < g->w * g->h; i++)
+            g->bitmap[i] = g->bitmap[i] >= 110 ? 255 : 0;
     }
     size_t sz = (size_t)g->w * (size_t)g->h;
     f->bytes += sz, glyph_bytes += sz;

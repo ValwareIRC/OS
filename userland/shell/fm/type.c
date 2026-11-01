@@ -1,6 +1,7 @@
 #include "fmi.h"
 
 #include <ctype.h>
+#include <strings.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -188,10 +189,21 @@ void fm_type_inherit(fm_style *st, const fm_style *parent) {
     st->line_clamp = parent->line_clamp;
 }
 
+/* Faces drawn as pixels: smoothing would only blur them */
+static bool pixel_face(const char *family) {
+    static const char *const px[] = {"Silkscreen", "Press Start 2P", "PressStart2P", "VT323", "Tiny5", "Jersey 10",
+                                     "Jersey10", "Pixelify Sans", "PixelifySans", "Micro 5", "Micro5", NULL};
+    for (int i = 0; px[i]; i++)
+        if (!strncasecmp(family, px[i], strlen(px[i])))
+            return true;
+    return false;
+}
+
 font *fmi_text_font(const fm_style *st, float scale) {
     font *base = fm_host_font(st->font, st->font_size * scale);
     float track = (st->letter_spacing + st->letter_spacing_em * st->font_size) * scale;
-    return font_with(base, st->font_weight ? st->font_weight : 400, st->italic, track);
+    font *f = font_with(base, st->font_weight ? st->font_weight : 400, st->italic, track);
+    return st->crisp_text || pixel_face(st->font) ? font_crisp(f, true) : f;
 }
 
 void fmi_text_case(const fm_style *st, char *s) {

@@ -45,6 +45,46 @@ void stylist_placeholder_view(const char *app, rect r) {
 
 /* ---- pictures ---- */
 
+static const char *look_focus; /* a selector to show close up (stylist_pictures_focus) */
+static char *last_zoom;
+void stylist_look_focus(const char *sel) { look_focus = sel; }
+void stylist_keep_zoom(char *z) {
+    free(last_zoom);
+    last_zoom = z;
+}
+char *stylist_last_zoom(void) {
+    char *z = last_zoom;
+    last_zoom = NULL;
+    return z;
+}
+
+/* r of src, enlarged by whole pixels (nearest), as JPEG base64 */
+static char *closeup_of(const canvas *src, rect r) {
+    if (r.x < 0) r.w += r.x, r.x = 0;
+    if (r.y < 0) r.h += r.y, r.y = 0;
+    if (r.x + r.w > src->w) r.w = src->w - r.x;
+    if (r.y + r.h > src->h) r.h = src->h - r.y;
+    if (r.w < 4 || r.h < 4)
+        return NULL;
+    int z = 1200 / r.w < 675 / r.h ? 1200 / r.w : 675 / r.h;
+    z = z < 1 ? 1 : z > 6 ? 6 : z;
+    canvas *s = canvas_new(r.w * z, r.h * z);
+    if (!s)
+        return NULL;
+    for (int y = 0; y < s->h; y++)
+        for (int x = 0; x < s->w; x++)
+            s->px[(size_t)y * (size_t)s->w + (size_t)x] =
+                src->px[(size_t)(r.y + y / z) * (size_t)src->w + (size_t)(r.x + x / z)] | 0xff000000u;
+    size_t len = 0;
+    unsigned char *jpg = jpeg_encode(s->px, s->w, s->h, s->w, 95, &len);
+    canvas_free(s);
+    if (!jpg)
+        return NULL;
+    char *b64 = base64_encode(jpg, len);
+    free(jpg);
+    return b64;
+}
+
 static char *picture_of(const canvas *src) {
     canvas *s = canvas_new(SHOT_W, SHOT_H);
     if (!s)
@@ -130,6 +170,14 @@ void stylist_look_at(const char *text, bool pictures, stylist_look *out) {
         fm_lint_paint(doc, &o, NULL, false);
         out->jpeg_b64[0] = picture_of(work);
         snprintf(out->shows[0], sizeof out->shows[0], "the desktop at rest, nothing open");
+        fm_node *f = look_focus ? fm_find(doc, look_focus) : NULL;
+        if (f && f->vis.w > 0 && f->vis.h > 0) { /* a close-up, around it, at its real pixels */
+            int padx = f->vis.w / 3 + 12, pady = f->vis.h / 3 + 12;
+            rect cr = {f->vis.x - padx, f->vis.y - pady, f->vis.w + 2 * padx, f->vis.h + 2 * pady};
+            if (cr.w > 600) cr.x += (cr.w - 600) / 2, cr.w = 600;
+            if (cr.h > 340) cr.y += (cr.h - 340) / 2, cr.h = 340;
+            out->jpeg_b64[2] = closeup_of(work, cr);
+        }
         fm_node *pop = fm_lint_main_popover(doc);
         fm_lint_paint(doc, &o, pop, true);
         out->jpeg_b64[1] = picture_of(work);
@@ -151,7 +199,7 @@ void stylist_look_at(const char *text, bool pictures, stylist_look *out) {
 }
 
 void stylist_look_free(stylist_look *l) {
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         free(l->jpeg_b64[i]);
         l->jpeg_b64[i] = NULL;
     }

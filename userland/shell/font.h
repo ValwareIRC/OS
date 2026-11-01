@@ -17,6 +17,8 @@ font *font_get_styled(const char *family, float px, int weight, bool italic, flo
 /* The same family and size with another weight, slant or tracking
  * (weight 0 keeps the base font's). */
 font *font_with(font *base, int weight, bool italic, float tracking);
+/* The same face drawn without smoothing (every pixel on or off), or with it again. */
+font *font_crisp(font *base, bool crisp);
 float font_px(font *f);
 const char *const *font_families(int *count);
 

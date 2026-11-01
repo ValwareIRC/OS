@@ -114,6 +114,8 @@ int main(int argc, char **argv) {
     A.frame = canvas_new(A.W, A.H);
     char *doc = stylist_expand_base(buf);
     stylist_look look;
+    extern void stylist_look_focus(const char *sel);
+    stylist_look_focus(getenv("FOCUS")); /* FOCUS="#start": a close-up of it, as a seeing model is shown */
     stylist_look_at(doc ? doc : buf, outdir != NULL, &look);
     if (!look.ok) {
         printf("DOES NOT HOLD TOGETHER: %s\n", look.problems);
@@ -130,6 +132,11 @@ int main(int argc, char **argv) {
         snprintf(p, sizeof p, "%s/2-open.jpg", outdir);
         stylist_write_jpeg(p, look.jpeg_b64[1]);
         printf("pictures: %s/1-desktop.jpg (%s), %s/2-open.jpg (%s)\n", outdir, look.shows[0], outdir, look.shows[1]);
+        if (look.jpeg_b64[2]) {
+            snprintf(p, sizeof p, "%s/3-closeup.jpg", outdir);
+            stylist_write_jpeg(p, look.jpeg_b64[2]);
+            printf("close-up: %s\n", p);
+        }
     }
     return look.lint.score > 0;
 }

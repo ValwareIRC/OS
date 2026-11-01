@@ -99,9 +99,98 @@ static NSVGimage *svg_parse(const fm_node *n, const char *path) {
     return im;
 }
 
+/* ---- <pixels>: pixel art written as rows of letters ----
+ *   <pixels palette="k #000, w #fff, r #f03c24" scale="2">
+ *   ..kkkk..
+ *   .krrrrk.
+ *   </pixels>
+ * Each letter is a pixel of its colour; "." and spaces are clear. Drawn by whole pixels, never blurred. */
+typedef struct {
+    int cols, rows;
+    const char *row[256];
+    int len[256];
+    color pal[128];
+    bool has[128];
+} grid;
+
+static bool pixels_read(const fm_node *n, grid *g) {
+    memset(g, 0, sizeof *g);
+    const char *pal = fm_attr_get(n, "palette");
+    for (const char *p = pal ? pal : ""; *p;) {
+        while (*p == ' ' || *p == ',' || *p == ';' || *p == '\n')
+            p++;
+        if (!*p)
+            break;
+        unsigned char key = (unsigned char)*p++;
+        while (*p == ' ' || *p == ':' || *p == '=')
+            p++;
+        char val[64];
+        int k = 0;
+        while (*p && *p != ',' && *p != ';' && !(*p == ' ' && k && val[0] == '#') && k < 63)
+            val[k++] = *p++;
+        val[k] = 0;
+        while (k && val[k - 1] == ' ')
+            val[--k] = 0;
+        color c;
+        if (key < 128 && fm_parse_color(val, &c))
+            g->pal[key] = c, g->has[key] = true;
+    }
+    const char *t = NULL;
+    for (const fm_node *c = n->first; c; c = c->next)
+        if (c->kind == FM_TEXT && c->text)
+            t = c->text;
+    for (const char *p = t ? t : ""; *p && g->rows < 256;) {
+        const char *e = strchr(p, '\n');
+        size_t l = e ? (size_t)(e - p) : strlen(p);
+        const char *s = p;
+        size_t m = l;
+        while (m && (*s == ' ' || *s == '\t'))
+            s++, m--; /* the indentation of the markup isn't part of the picture */
+        while (m && (s[m - 1] == ' ' || s[m - 1] == '\r' || s[m - 1] == '\t'))
+            m--;
+        if (m) {
+            g->row[g->rows] = s;
+            g->len[g->rows] = (int)m;
+            if ((int)m > g->cols)
+                g->cols = (int)m;
+            g->rows++;
+        }
+        p = e ? e + 1 : p + l;
+    }
+    return g->rows > 0 && g->cols > 0;
+}
+
+static void pixels_draw(canvas *c, const fm_node *n, rect r, float op) {
+    static grid g;
+    if (!pixels_read(n, &g))
+        return;
+    int sx = r.w / g.cols, sy = r.h / g.rows, s = sx < sy ? sx : sy;
+    if (s < 1)
+        s = 1;
+    int ox = r.x + (r.w - g.cols * s) / 2, oy = r.y + (r.h - g.rows * s) / 2;
+    for (int y = 0; y < g.rows; y++)
+        for (int x = 0; x < g.len[y]; x++) {
+            unsigned char k = (unsigned char)g.row[y][x];
+            if (k >= 128 || !g.has[k])
+                continue;
+            fill_rect(c, (rect){ox + x * s, oy + y * s, s, s}, color_alpha(g.pal[k], op));
+        }
+}
+
 /* The picture's own size, for laying it out when the design gives none. */
 bool fmi_media_size(const fm_node *n, float *w, float *h) {
     char buf[600];
+    if (tag_is(n, "pixels")) {
+        static grid g;
+        if (!pixels_read(n, &g))
+            return false;
+        const char *sc = fm_attr_get(n, "scale");
+        int s = sc ? atoi(sc) : 2;
+        s = s < 1 ? 1 : s > 32 ? 32 : s;
+        *w = (float)(g.cols * s);
+        *h = (float)(g.rows * s);
+        return true;
+    }
     bool svg = tag_is(n, "svg");
     const char *src = svg ? NULL : fm_attr_get(n, "src");
     if (!svg && !path_ok(src))
@@ -140,7 +229,7 @@ static struct pic *render(const fm_node *n, int w, int h) {
         snprintf(key, sizeof key, "inline:%lx %dx%d %s", hash_of(t ? t : ""), w, h, fit ? fit : "");
         free(t);
     } else {
-        snprintf(key, sizeof key, "%.260s %dx%d %s", src, w, h, fit ? fit : "");
+        snprintf(key, sizeof key, "%.260s %dx%d %s%s", src, w, h, fit ? fit : "", n->st.pixelated ? " px" : "");
     }
     struct pic *slot = &cache[0];
     for (int i = 0; i < CACHED; i++) {
@@ -196,7 +285,18 @@ static struct pic *render(const fm_node *n, int w, int h) {
         int dw = fill ? w : (int)lroundf(im->w * s), dh = fill ? h : (int)lroundf(im->h * s);
         if (dw < 1) dw = 1;
         if (dh < 1) dh = 1;
-        image *sized = image_resized(im, dw, dh);
+        image *sized = n->st.pixelated ? NULL : image_resized(im, dw, dh);
+        if (n->st.pixelated) { /* nearest pixel: hard edges kept */
+            sized = calloc(1, sizeof *sized);
+            if (sized) {
+                sized->w = dw, sized->h = dh, sized->src_w = im->src_w, sized->src_h = im->src_h;
+                sized->px = malloc((size_t)dw * (size_t)dh * 4);
+                for (int y = 0; sized->px && y < dh; y++)
+                    for (int x = 0; x < dw; x++)
+                        sized->px[(size_t)y * (size_t)dw + (size_t)x] =
+                            im->px[(size_t)(y * im->h / dh) * (size_t)im->w + (size_t)(x * im->w / dw)];
+            }
+        }
         if (sized) {
             int ox = (w - dw) / 2, oy = (h - dh) / 2;
             for (int y = 0; y < dh; y++)
@@ -220,6 +320,10 @@ static struct pic *render(const fm_node *n, int w, int h) {
 
 /* Draws it in r; false if it couldn't be (missing, not a picture, not allowed). */
 bool fmi_media_draw(canvas *c, const fm_node *n, rect r, float op) {
+    if (tag_is(n, "pixels")) {
+        pixels_draw(c, n, r, op);
+        return true;
+    }
     struct pic *p = render(n, r.w, r.h);
     if (!p)
         return false;

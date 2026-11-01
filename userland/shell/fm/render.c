@@ -869,7 +869,7 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
         clipbox cc = clip_push(c, r);
         fmi_canvas_draw(d, c, n, r, op);
         clip_pop(c, cc);
-    } else if (tag_is(n, "image") || tag_is(n, "svg")) {
+    } else if (tag_is(n, "image") || tag_is(n, "svg") || tag_is(n, "pixels")) {
         float pl = s->pad[3] + FM_BW(s, 3), pt = s->pad[0] + FM_BW(s, 0);
         rect in = {r.x + (int)(pl * sc), r.y + (int)(pt * sc), r.w - (int)((pl + s->pad[1] + FM_BW(s, 1)) * sc),
                    r.h - (int)((pt + s->pad[2] + FM_BW(s, 2)) * sc)};

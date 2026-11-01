@@ -239,6 +239,16 @@ static bool line_known(const char *text, const char *line) {
     return strstr(text, head) != NULL;
 }
 
+void stylist_pictures_focus(struct fm_doc *doc, const char *focus, char **rest, char **open, char **zoom) {
+    extern void stylist_look_focus(const char *sel);
+    *zoom = NULL;
+    stylist_look_focus(focus);
+    stylist_pictures(doc, rest, open);
+    stylist_look_focus(NULL);
+    extern char *stylist_last_zoom(void);
+    *zoom = stylist_last_zoom();
+}
+
 void stylist_pictures(struct fm_doc *doc, char **rest, char **open) {
     *rest = *open = NULL;
     char *text = fm_serialize(doc);
@@ -249,7 +259,9 @@ void stylist_pictures(struct fm_doc *doc, char **rest, char **open) {
     free(text);
     *rest = l.jpeg_b64[0];
     *open = l.jpeg_b64[1];
-    l.jpeg_b64[0] = l.jpeg_b64[1] = NULL;
+    extern void stylist_keep_zoom(char *z);
+    stylist_keep_zoom(l.jpeg_b64[2]);
+    l.jpeg_b64[0] = l.jpeg_b64[1] = l.jpeg_b64[2] = NULL;
     stylist_look_free(&l);
 }
 
