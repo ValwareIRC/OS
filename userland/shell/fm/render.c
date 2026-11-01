@@ -92,6 +92,18 @@ static void animate_node(fm_node *n, float dt, bool morphing) {
             n->av.bg.a = color_mix(n->av.bg.a, s->bg.a, k);
             n->av.bg.b = color_mix(n->av.bg.b, s->bg.b, k);
             n->av.bg.angle = s->bg.angle;
+            if (n->av.bg.nstops == s->bg.nstops) { /* the stops ease too */
+                for (int i = 0; i < s->bg.nstops; i++) {
+                    n->av.bg.stop_c[i] = color_mix(n->av.bg.stop_c[i], s->bg.stop_c[i], k);
+                    n->av.bg.stop_p[i] = approach(n->av.bg.stop_p[i], s->bg.stop_p[i], k);
+                }
+            } else {
+                n->av.bg.nstops = s->bg.nstops;
+                memcpy(n->av.bg.stop_c, s->bg.stop_c, sizeof s->bg.stop_c);
+                memcpy(n->av.bg.stop_p, s->bg.stop_p, sizeof s->bg.stop_p);
+            }
+            n->av.bg.repeating = s->bg.repeating, n->av.bg.circle = s->bg.circle;
+            n->av.bg.cx = s->bg.cx, n->av.bg.cy = s->bg.cy;
         rest:
             n->av.color = color_mix(n->av.color, s->color, k);
             n->av.border = color_mix(n->av.border, s->border, k);
@@ -213,20 +225,63 @@ struct grad {
     float dx, dy, len;
 };
 
+/* The colour t of the way along a gradient's stops (repeating ones wrap round their last stop) */
+static color stop_at(const fm_bg *bg, float t) {
+    if (bg->nstops < 2)
+        return bg->nstops ? bg->stop_c[0] : color_mix(bg->a, bg->b, t);
+    if (bg->repeating) {
+        float span = bg->stop_p[bg->nstops - 1] - bg->stop_p[0];
+        if (span > 1e-4f) {
+            t = fmodf(t - bg->stop_p[0], span);
+            if (t < 0)
+                t += span;
+            t += bg->stop_p[0];
+        }
+    }
+    if (t <= bg->stop_p[0])
+        return bg->stop_c[0];
+    for (int i = 1; i < bg->nstops; i++)
+        if (t <= bg->stop_p[i]) {
+            float d = bg->stop_p[i] - bg->stop_p[i - 1];
+            return d < 1e-5f ? bg->stop_c[i] : color_mix(bg->stop_c[i - 1], bg->stop_c[i], (t - bg->stop_p[i - 1]) / d);
+        }
+    return bg->stop_c[bg->nstops - 1];
+}
+
 static color shade_grad(void *ctx, int x, int y) {
     struct grad *g = ctx;
     float t;
+    float cx = g->r.x + g->r.w * (g->bg.nstops ? g->bg.cx : 0.5f), cy = g->r.y + g->r.h * (g->bg.nstops ? g->bg.cy : 0.5f);
     if (g->bg.kind == FM_BG_RADIAL) {
-        float cx = g->r.x + g->r.w / 2.0f, cy = g->r.y + g->r.h / 2.0f;
-        float rx = (x + 0.5f - cx) / (g->r.w / 2.0f), ry = (y + 0.5f - cy) / (g->r.h / 2.0f);
-        t = sqrtf(rx * rx + ry * ry);
+        /* the farthest corner is the end, as CSS's default */
+        float fx = fmaxf(cx - g->r.x, g->r.x + g->r.w - cx), fy = fmaxf(cy - g->r.y, g->r.y + g->r.h - cy);
+        if (!g->bg.nstops)
+            fx = g->r.w / 2.0f, fy = g->r.h / 2.0f;
+        float rx = (x + 0.5f - cx), ry = (y + 0.5f - cy);
+        if (g->bg.circle) {
+            float R = sqrtf(fx * fx + fy * fy);
+            t = sqrtf(rx * rx + ry * ry) / (R > 0 ? R : 1);
+        } else {
+            rx /= fx > 0 ? fx * 1.41421f : 1, ry /= fy > 0 ? fy * 1.41421f : 1;
+            if (!g->bg.nstops)
+                rx *= 1.41421f, ry *= 1.41421f;
+            t = sqrtf(rx * rx + ry * ry);
+        }
+    } else if (g->bg.kind == FM_BG_CONIC) {
+        float a = atan2f(x + 0.5f - cx, -(y + 0.5f - cy)) * 57.29578f - g->bg.angle; /* 0 = up, clockwise */
+        a = fmodf(a, 360);
+        if (a < 0)
+            a += 360;
+        t = a / 360;
     } else {
         float px = x + 0.5f - (g->r.x + g->r.w / 2.0f), py = y + 0.5f - (g->r.y + g->r.h / 2.0f);
         t = 0.5f + (px * g->dx + py * g->dy) / g->len;
     }
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    return color_alpha(color_mix(g->bg.a, g->bg.b, t), g->op);
+    if (!g->bg.repeating) {
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+    }
+    return color_alpha(stop_at(&g->bg, t), g->op);
 }
 
 static color shade_one(void *ctx, int x, int y) {
@@ -282,6 +337,66 @@ static void fill_rr(canvas *c, rect r, const float rad_in[4], shade_fn shade, vo
     }
 }
 
+/* ---- a background picture ---- */
+
+struct bgpic {
+    const uint32_t *px;
+    int iw, ih;
+    float x0, y0, w, h; /* where one copy of it lands */
+    char repeat;
+    bool pixelated;
+    float op;
+};
+
+static color shade_pic(void *ctx, int x, int y) {
+    struct bgpic *p = ctx;
+    float u = (x + 0.5f - p->x0) / p->w, v = (y + 0.5f - p->y0) / p->h;
+    if (p->repeat == 'r' || p->repeat == 'x') u -= floorf(u);
+    if (p->repeat == 'r' || p->repeat == 'y') v -= floorf(v);
+    if (u < 0 || v < 0 || u >= 1 || v >= 1)
+        return 0;
+    float fx = u * p->iw - 0.5f, fy = v * p->ih - 0.5f;
+    if (p->pixelated || (p->w >= p->iw * 0.98f && p->w <= p->iw * 1.02f)) {
+        int ix = (int)(u * p->iw), iy = (int)(v * p->ih);
+        uint32_t c = p->px[(size_t)(iy < p->ih ? iy : p->ih - 1) * (size_t)p->iw + (size_t)(ix < p->iw ? ix : p->iw - 1)];
+        return color_alpha(c, p->op);
+    }
+    int ix = (int)floorf(fx), iy = (int)floorf(fy);
+    float tx = fx - ix, ty = fy - iy, acc[4] = {0};
+    for (int q = 0; q < 4; q++) {
+        int qx = ix + (q & 1), qy = iy + (q >> 1);
+        if (p->repeat == 'r' || p->repeat == 'x') qx = (qx % p->iw + p->iw) % p->iw;
+        if (p->repeat == 'r' || p->repeat == 'y') qy = (qy % p->ih + p->ih) % p->ih;
+        qx = qx < 0 ? 0 : qx >= p->iw ? p->iw - 1 : qx;
+        qy = qy < 0 ? 0 : qy >= p->ih ? p->ih - 1 : qy;
+        uint32_t c = p->px[(size_t)qy * (size_t)p->iw + (size_t)qx];
+        float w = ((q & 1) ? tx : 1 - tx) * ((q >> 1) ? ty : 1 - ty), a = C_A(c) / 255.0f * w;
+        acc[0] += a, acc[1] += C_R(c) * a, acc[2] += C_G(c) * a, acc[3] += C_B(c) * a;
+    }
+    if (acc[0] < 0.002f)
+        return 0;
+    return RGBA((int)(acc[1] / acc[0]), (int)(acc[2] / acc[0]), (int)(acc[3] / acc[0]), (int)(acc[0] * 255 * p->op));
+}
+
+static void paint_pic(canvas *c, rect r, const float rad[4], const fm_style *s, float op) {
+    int iw, ih;
+    const uint32_t *px = fmi_picture(s->bg_img, r.w, r.h, &iw, &ih);
+    if (!px || iw <= 0 || ih <= 0)
+        return;
+    float w = (float)iw, h = (float)ih;
+    switch (s->bg_size) {
+    case 'c': { float k = fmaxf((float)r.w / iw, (float)r.h / ih); w = iw * k, h = ih * k; break; }
+    case 'C': { float k = fminf((float)r.w / iw, (float)r.h / ih); w = iw * k, h = ih * k; break; }
+    case 'p': w = s->bg_sw, h = s->bg_sh > 0 ? s->bg_sh : ih * s->bg_sw / iw; break;
+    case 'f': w = r.w * s->bg_sw, h = s->bg_sh > 0 ? r.h * s->bg_sh : ih * w / iw; break;
+    }
+    if (w < 1 || h < 1)
+        return;
+    struct bgpic p = {px, iw, ih, r.x + (r.w - w) * s->bg_px, r.y + (r.h - h) * s->bg_py, w, h,
+                      s->bg_size == 'c' || s->bg_size == 'C' ? 'n' : s->bg_repeat, s->pixelated, op};
+    fill_rr(c, r, rad, shade_pic, &p);
+}
+
 static void paint_bg(canvas *c, rect r, const float rad[4], fm_bg bg, float op) {
     if (bg.kind == FM_BG_NONE || r.w <= 0 || r.h <= 0)
         return;
@@ -297,7 +412,8 @@ static void paint_bg(canvas *c, rect r, const float rad[4], fm_bg bg, float op) 
     float a = (bg.angle - 90) * (float)M_PI / 180; /* CSS: 180deg = downwards */
     g.dx = cosf(a);
     g.dy = sinf(a);
-    if (bg.kind == FM_BG_LINEAR && fabsf(g.dx) < 1e-3f && same_radii(rad)) { /* straight down or up: one colour a row */
+    if (bg.kind == FM_BG_LINEAR && fabsf(g.dx) < 1e-3f && same_radii(rad) && bg.nstops <= 2 && !bg.repeating &&
+        (bg.nstops < 2 || (bg.stop_p[0] <= 0 && bg.stop_p[1] >= 1))) { /* straight down or up: one colour a row */
         color top = color_alpha(bg.a, op), bottom = color_alpha(bg.b, op);
         fill_round_vgradient(c, r, corner_r(rad, r), g.dy > 0 ? top : bottom, g.dy > 0 ? bottom : top);
         return;
@@ -715,6 +831,10 @@ static void draw_sides(canvas *c, rect r, const fm_style *s, float sc, float op)
 static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha);
 
 static void draw_children(fm_doc *d, canvas *c, fm_node *n, float op) {
+    if (n->rich_on && n->rich) { /* a paragraph: its words, whoever they belong to */
+        fmi_rich_draw(c, n, op);
+        return;
+    }
     fm_node *kids[256];
     int nk = 0;
     for (fm_node *k = n->first; k && nk < 256; k = k->next) {
@@ -749,7 +869,306 @@ static void draw_children(fm_doc *d, canvas *c, fm_node *n, float op) {
 
 double fm_pacc[8]; /* PROFILE */
 static double pnow(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; }
+/* ---- layers: an element drawn on its own, then laid down turned, filtered, clipped, masked or blended ----
+ * The canvas blends as if what is under is opaque, so the element is drawn twice, over black and over
+ * white: where the two differ is how see-through it is, and what it is made of. */
+
+#define LAYER_DEPTH 3
+static canvas *layer_black[LAYER_DEPTH], *layer_white[LAYER_DEPTH];
+static int layer_depth;
+static fm_node *layer_root[LAYER_DEPTH];
+
+static bool needs_layer(const fm_node *n) {
+    const fm_style *s = &n->st;
+    return fabsf(s->rotate) > 0.05f || fabsf(s->skew_x) > 0.05f || fabsf(s->skew_y) > 0.05f || s->has_filter ||
+           s->blend || s->clip || s->mask.kind != FM_BG_NONE;
+}
+
+static canvas *layer_canvas(canvas **slot, const canvas *like) {
+    if (*slot && ((*slot)->w != like->w || (*slot)->h != like->h)) {
+        canvas_free(*slot);
+        *slot = NULL;
+    }
+    if (!*slot)
+        *slot = canvas_new(like->w, like->h);
+    return *slot;
+}
+
+static float lum(float r, float g, float b) { return 0.2126f * r + 0.7152f * g + 0.0722f * b; }
+
+static void filter_px(const fm_style *s, float *r, float *g, float *b, float *a) {
+    if (s->f_bright != 1) *r *= s->f_bright, *g *= s->f_bright, *b *= s->f_bright;
+    if (s->f_contrast != 1) {
+        *r = (*r - 0.5f) * s->f_contrast + 0.5f, *g = (*g - 0.5f) * s->f_contrast + 0.5f;
+        *b = (*b - 0.5f) * s->f_contrast + 0.5f;
+    }
+    if (s->f_gray > 0) {
+        float l = lum(*r, *g, *b), k = fminf(s->f_gray, 1);
+        *r += (l - *r) * k, *g += (l - *g) * k, *b += (l - *b) * k;
+    }
+    if (s->f_sepia > 0) {
+        float k = fminf(s->f_sepia, 1);
+        float sr = *r * 0.393f + *g * 0.769f + *b * 0.189f, sg = *r * 0.349f + *g * 0.686f + *b * 0.168f,
+              sb = *r * 0.272f + *g * 0.534f + *b * 0.131f;
+        *r += (sr - *r) * k, *g += (sg - *g) * k, *b += (sb - *b) * k;
+    }
+    if (s->f_sat != 1) {
+        float l = lum(*r, *g, *b);
+        *r = l + (*r - l) * s->f_sat, *g = l + (*g - l) * s->f_sat, *b = l + (*b - l) * s->f_sat;
+    }
+    if (s->f_hue != 0) { /* rotation about the grey axis (CSS's matrix) */
+        float a = s->f_hue * (float)M_PI / 180, cs = cosf(a), sn = sinf(a);
+        float R = *r, G = *g, B = *b;
+        *r = R * (0.213f + cs * 0.787f - sn * 0.213f) + G * (0.715f - cs * 0.715f - sn * 0.715f) +
+             B * (0.072f - cs * 0.072f + sn * 0.928f);
+        *g = R * (0.213f - cs * 0.213f + sn * 0.143f) + G * (0.715f + cs * 0.285f + sn * 0.140f) +
+             B * (0.072f - cs * 0.072f - sn * 0.283f);
+        *b = R * (0.213f - cs * 0.213f - sn * 0.787f) + G * (0.715f - cs * 0.715f + sn * 0.715f) +
+             B * (0.072f + cs * 0.928f + sn * 0.072f);
+    }
+    if (s->f_invert > 0) {
+        float k = fminf(s->f_invert, 1);
+        *r += (1 - 2 * *r) * k, *g += (1 - 2 * *g) * k, *b += (1 - 2 * *b) * k;
+    }
+    *a *= s->f_opacity;
+}
+
+static float blend_ch(char m, float b, float s) { /* backdrop b, source s, 0..1 */
+    switch (m) {
+    case 'm': return b * s;
+    case 's': return b + s - b * s;
+    case 'o': return b < 0.5f ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s);
+    case 'h': return s < 0.5f ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s);
+    case 'd': return fminf(b, s);
+    case 'l': return fmaxf(b, s);
+    case 'D': return fabsf(b - s);
+    case 'x': return b + s - 2 * b * s;
+    case 'c': return s >= 1 ? 1 : fminf(1, b / (1 - s));
+    case 'b': return s <= 0 ? 0 : 1 - fminf(1, (1 - b) / s);
+    case 'S': return s <= 0.5f ? b - (1 - 2 * s) * b * (1 - b) : b + (2 * s - 1) * ((b <= 0.25f ? ((16 * b - 12) * b + 4) * b : sqrtf(b)) - b);
+    default: return s;
+    }
+}
+
+/* how much of point (px, py) of box b the clip path lets through, 0..1 (soft by a pixel) */
+static float clip_cover(const fm_style *s, rect b, float px, float py) {
+    float W = (float)b.w, H = (float)b.h, x = px - b.x, y = py - b.y;
+    switch (s->clip) {
+    case 'c':
+    case 'e': {
+        float rx = s->clip_v[0] * (s->clip == 'c' ? sqrtf(W * W + H * H) / 1.41421f : W);
+        float ry = s->clip == 'c' ? rx : s->clip_v[1] * H;
+        float dx = (x - s->clip_v[2] * W) / (rx > 0 ? rx : 1), dy = (y - s->clip_v[3] * H) / (ry > 0 ? ry : 1);
+        float d = (sqrtf(dx * dx + dy * dy) - 1) * fminf(rx, ry);
+        return d <= -0.5f ? 1 : d >= 0.5f ? 0 : 0.5f - d;
+    }
+    case 'i': {
+        float t[4];
+        for (int k = 0; k < 4; k++)
+            t[k] = s->clip_v[k] < 0 ? -s->clip_v[k] : s->clip_v[k] * ((k % 2) ? W : H);
+        float x0 = t[3], y0 = t[0], x1 = W - t[1], y1 = H - t[2], rr = s->clip_v[4];
+        float qx = fmaxf(fmaxf(x0 + rr - x, x - (x1 - rr)), 0), qy = fmaxf(fmaxf(y0 + rr - y, y - (y1 - rr)), 0);
+        float d = sqrtf(qx * qx + qy * qy) - rr;
+        if (x < x0 || x > x1 || y < y0 || y > y1)
+            d = fmaxf(d, 0.5f);
+        return d <= -0.5f ? 1 : d >= 0.5f ? 0 : 0.5f - d;
+    }
+    case 'p': { /* even-odd, a point sampled at the pixel centre */
+        int n = s->clip_n / 2;
+        bool in = false;
+        for (int i = 0, j = n - 1; i < n; j = i++) {
+            float xi = s->clip_v[2 * i] < 0 ? -s->clip_v[2 * i] : s->clip_v[2 * i] * W;
+            float yi = s->clip_v[2 * i + 1] < 0 ? -s->clip_v[2 * i + 1] : s->clip_v[2 * i + 1] * H;
+            float xj = s->clip_v[2 * j] < 0 ? -s->clip_v[2 * j] : s->clip_v[2 * j] * W;
+            float yj = s->clip_v[2 * j + 1] < 0 ? -s->clip_v[2 * j + 1] : s->clip_v[2 * j + 1] * H;
+            if (((yi > y) != (yj > y)) && x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+                in = !in;
+        }
+        return in ? 1 : 0;
+    }
+    }
+    return 1;
+}
+
+/* one box blur of region R of a straight-alpha layer, rows then columns, by running sums */
+static void blur_layer(canvas *L, rect R, int rad) {
+    if (rad < 1)
+        return;
+    static float buf[4][8192];
+    for (int dir = 0; dir < 2; dir++) {
+        int lines = dir ? R.w : R.h, len = dir ? R.h : R.w;
+        if (len > 8192)
+            return;
+        for (int l = 0; l < lines; l++) {
+            for (int t = 0; t < len; t++) {
+                int x = dir ? R.x + l : R.x + t, y = dir ? R.y + t : R.y + l;
+                uint32_t p = L->px[(size_t)y * (size_t)L->w + (size_t)x];
+                float a = C_A(p) / 255.0f;
+                buf[0][t] = a, buf[1][t] = C_R(p) * a, buf[2][t] = C_G(p) * a, buf[3][t] = C_B(p) * a;
+            }
+            float sum[4] = {0};
+            int n = 0;
+            for (int t = 0; t < rad && t < len; t++, n++)
+                for (int ch = 0; ch < 4; ch++)
+                    sum[ch] += buf[ch][t];
+            for (int t = 0; t < len; t++) {
+                int add = t + rad, sub = t - rad - 1;
+                if (add < len) {
+                    for (int ch = 0; ch < 4; ch++)
+                        sum[ch] += buf[ch][add];
+                    n++;
+                }
+                if (sub >= 0) {
+                    for (int ch = 0; ch < 4; ch++)
+                        sum[ch] -= buf[ch][sub];
+                    n--;
+                }
+                float a = sum[0] / n;
+                int x = dir ? R.x + l : R.x + t, y = dir ? R.y + t : R.y + l;
+                L->px[(size_t)y * (size_t)L->w + (size_t)x] =
+                    a > 0.002f ? (uint32_t)(fminf(1, a) * 255) << 24 | (uint32_t)fminf(255, sum[1] / n / a) << 16 |
+                                     (uint32_t)fminf(255, sum[2] / n / a) << 8 | (uint32_t)fminf(255, sum[3] / n / a)
+                               : 0;
+            }
+        }
+    }
+}
+
+static color shade_grad(void *ctx, int x, int y);
+static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha);
+
+static void draw_layered(fm_doc *d, canvas *c, fm_node *n, float alpha) {
+    const fm_style *s = &n->st;
+    int depth = layer_depth;
+    canvas *B = layer_canvas(&layer_black[depth], c), *W = layer_canvas(&layer_white[depth], c);
+    if (!B || !W) {
+        draw_node_now(d, c, n, alpha);
+        return;
+    }
+    /* the region it may cover: its box, its shadows and glow, room to turn */
+    rect v = n->vis;
+    float sc = n->vscale > 0 ? n->vscale : 1;
+    int m = (int)(fmaxf(s->shadow_blur + fmaxf(fabsf(s->shadow_x), fabsf(s->shadow_y)), s->glow_size) * sc) + 4;
+    for (int i = 0; i < s->nshadow; i++)
+        m = (int)fmaxf((float)m, (s->sh_blur[i] + fmaxf(fabsf(s->sh_x[i]), fabsf(s->sh_y[i])) + s->sh_spread[i]) * sc + 4);
+    rect R = {v.x - m, v.y - m, v.w + 2 * m, v.h + 2 * m};
+    if (R.x < 0) R.w += R.x, R.x = 0;
+    if (R.y < 0) R.h += R.y, R.y = 0;
+    if (R.x + R.w > c->w) R.w = c->w - R.x;
+    if (R.y + R.h > c->h) R.h = c->h - R.y;
+    if (R.w <= 0 || R.h <= 0)
+        return;
+    canvas *both[2] = {B, W};
+    for (int k = 0; k < 2; k++) {
+        canvas *L = both[k];
+        L->cx0 = R.x, L->cy0 = R.y, L->cx1 = R.x + R.w, L->cy1 = R.y + R.h;
+        for (int y = R.y; y < R.y + R.h; y++)
+            for (int x = R.x; x < R.x + R.w; x++)
+                L->px[(size_t)y * (size_t)L->w + (size_t)x] = k ? 0xffffffffu : 0xff000000u;
+        layer_root[depth] = n;
+        layer_depth++;
+        draw_node_now(d, L, n, alpha);
+        layer_depth--;
+    }
+    /* what it is: colour and how see-through, straight (not premultiplied), filtered */
+    for (int y = R.y; y < R.y + R.h; y++)
+        for (int x = R.x; x < R.x + R.w; x++) {
+            size_t i = (size_t)y * (size_t)c->w + (size_t)x;
+            uint32_t kb = B->px[i], kw = W->px[i];
+            float a = 1 - ((float)(C_R(kw) - C_R(kb)) + (float)(C_G(kw) - C_G(kb)) + (float)(C_B(kw) - C_B(kb))) / (3 * 255.0f);
+            a = a < 0 ? 0 : a > 1 ? 1 : a;
+            float r = 0, g = 0, b = 0;
+            if (a > 0.002f)
+                r = C_R(kb) / 255.0f / a, g = C_G(kb) / 255.0f / a, b = C_B(kb) / 255.0f / a;
+            if (s->has_filter)
+                filter_px(s, &r, &g, &b, &a);
+            if (s->clip)
+                a *= clip_cover(s, n->vis, x + 0.5f, y + 0.5f);
+            if (s->mask.kind != FM_BG_NONE) { /* the mask's opacity, laid over its box */
+                struct grad gm = {s->mask, n->vis, 1, 0, 0, 1};
+                float ang = (s->mask.angle - 90) * (float)M_PI / 180;
+                gm.dx = cosf(ang), gm.dy = sinf(ang);
+                gm.len = fmaxf(1, fabsf(n->vis.w * gm.dx) + fabsf(n->vis.h * gm.dy));
+                a *= C_A(shade_grad(&gm, x, y)) / 255.0f;
+            }
+            r = r < 0 ? 0 : r > 1 ? 1 : r, g = g < 0 ? 0 : g > 1 ? 1 : g, b = b < 0 ? 0 : b > 1 ? 1 : b;
+            B->px[i] = (uint32_t)(a * 255 + 0.5f) << 24 | (uint32_t)(r * 255 + 0.5f) << 16 |
+                       (uint32_t)(g * 255 + 0.5f) << 8 | (uint32_t)(b * 255 + 0.5f);
+        }
+    if (s->f_blur > 0.3f) /* blur what it is (premultiplied, so edges fade rather than darken) */
+        for (int pass = 0; pass < 3; pass++) /* three box blurs: close to a Gaussian */
+            blur_layer(B, R, (int)(s->f_blur * sc * 0.6f + 0.5f));
+    /* laid down: turned and skewed about its centre (each screen pixel looks back into the layer) */
+    float cx = n->vis.x + n->vis.w / 2.0f, cy = n->vis.y + n->vis.h / 2.0f;
+    float a = s->rotate * (float)M_PI / 180, ca = cosf(a), sa = sinf(a);
+    float kx = tanf(s->skew_x * (float)M_PI / 180), ky = tanf(s->skew_y * (float)M_PI / 180);
+    /* forward: p' = c + Rot * Skew * (p - c); Skew = [1 kx; ky 1] */
+    float m00 = ca * 1 - sa * ky, m01 = ca * kx - sa * 1, m10 = sa * 1 + ca * ky, m11 = sa * kx + ca * 1;
+    float det = m00 * m11 - m01 * m10;
+    if (fabsf(det) < 1e-4f)
+        return;
+    float i00 = m11 / det, i01 = -m01 / det, i10 = -m10 / det, i11 = m00 / det;
+    bool turned = fabsf(s->rotate) > 0.05f || fabsf(s->skew_x) > 0.05f || fabsf(s->skew_y) > 0.05f;
+    /* where it lands: the corners of R, moved */
+    float xs[4] = {(float)R.x, (float)(R.x + R.w), (float)R.x, (float)(R.x + R.w)};
+    float ys[4] = {(float)R.y, (float)R.y, (float)(R.y + R.h), (float)(R.y + R.h)};
+    float minx = 1e9f, miny = 1e9f, maxx = -1e9f, maxy = -1e9f;
+    for (int k = 0; k < 4; k++) {
+        float dx = xs[k] - cx, dy = ys[k] - cy;
+        float X = turned ? cx + m00 * dx + m01 * dy : xs[k], Y = turned ? cy + m10 * dx + m11 * dy : ys[k];
+        minx = fminf(minx, X), maxx = fmaxf(maxx, X), miny = fminf(miny, Y), maxy = fmaxf(maxy, Y);
+    }
+    int X0 = (int)floorf(minx), Y0 = (int)floorf(miny), X1 = (int)ceilf(maxx), Y1 = (int)ceilf(maxy);
+    if (X0 < c->cx0) X0 = c->cx0;
+    if (Y0 < c->cy0) Y0 = c->cy0;
+    if (X1 > c->cx1) X1 = c->cx1;
+    if (Y1 > c->cy1) Y1 = c->cy1;
+    for (int y = Y0; y < Y1; y++)
+        for (int x = X0; x < X1; x++) {
+            float sx = x + 0.5f, sy = y + 0.5f;
+            if (turned) {
+                float dx = sx - cx, dy = sy - cy;
+                sx = cx + i00 * dx + i01 * dy, sy = cy + i10 * dx + i11 * dy;
+            }
+            /* bilinear, premultiplied */
+            float fx = sx - 0.5f, fy = sy - 0.5f;
+            int ix = (int)floorf(fx), iy = (int)floorf(fy);
+            float tx = fx - ix, ty = fy - iy;
+            float acc[4] = {0};
+            for (int q = 0; q < 4; q++) {
+                int qx = ix + (q & 1), qy = iy + (q >> 1);
+                float w = ((q & 1) ? tx : 1 - tx) * ((q >> 1) ? ty : 1 - ty);
+                if (qx < R.x || qy < R.y || qx >= R.x + R.w || qy >= R.y + R.h || w <= 0)
+                    continue;
+                uint32_t p = B->px[(size_t)qy * (size_t)c->w + (size_t)qx];
+                float pa = C_A(p) / 255.0f * w;
+                acc[0] += pa, acc[1] += C_R(p) * pa, acc[2] += C_G(p) * pa, acc[3] += C_B(p) * pa;
+            }
+            if (acc[0] < 0.002f)
+                continue;
+            float sa_ = acc[0];
+            float sr = acc[1] / sa_ / 255, sg = acc[2] / sa_ / 255, sb = acc[3] / sa_ / 255;
+            uint32_t *dp = &c->px[(size_t)y * (size_t)c->w + (size_t)x];
+            float br = C_R(*dp) / 255.0f, bg = C_G(*dp) / 255.0f, bb = C_B(*dp) / 255.0f;
+            if (s->blend)
+                sr = blend_ch(s->blend, br, sr), sg = blend_ch(s->blend, bg, sg), sb = blend_ch(s->blend, bb, sb);
+            float k = sa_ > 1 ? 1 : sa_;
+            float r = br + (sr - br) * k, g = bg + (sg - bg) * k, b = bb + (sb - bb) * k;
+            *dp = 0xff000000u | (uint32_t)(fminf(1, fmaxf(0, r)) * 255 + 0.5f) << 16 |
+                  (uint32_t)(fminf(1, fmaxf(0, g)) * 255 + 0.5f) << 8 | (uint32_t)(fminf(1, fmaxf(0, b)) * 255 + 0.5f);
+        }
+}
+
 static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
+    if (n->kind == FM_ELEM && !n->st.hidden && n->laid_out && needs_layer(n) && layer_depth < LAYER_DEPTH &&
+        (layer_depth == 0 || layer_root[layer_depth - 1] != n)) {
+        draw_layered(d, c, n, alpha);
+        return;
+    }
+    draw_node_now(d, c, n, alpha);
+}
+
+static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     const fm_style *s = &n->st;
     double t0 = pnow();
     if (s->hidden || !n->laid_out)
@@ -785,9 +1204,24 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
 
     /* shadow and glow sit outside the box */
     color sh = anim ? n->av.shadow : s->shadow;
-    if (s->shadow_blur > 0 && C_A(sh))
+    if (s->nshadow) { /* the last listed first, so the first sits on top */
+        for (int i = s->nshadow - 1; i >= 0; i--) {
+            color col = color_alpha(i == 0 ? sh : s->sh_c[i], op);
+            if (!C_A(col))
+                continue;
+            float sp = s->sh_spread[i] * sc;
+            rect sr = {r.x + (int)lroundf(s->sh_x[i] * sc - sp), r.y + (int)lroundf(s->sh_y[i] * sc - sp),
+                       r.w + (int)lroundf(2 * sp), r.h + (int)lroundf(2 * sp)};
+            float rr = r0 + sp > 0 ? r0 + sp : 0;
+            if (s->sh_blur[i] < 0.5f)
+                fill_round(c, sr, rr, col); /* a hard shadow, offset */
+            else
+                shadow_round(c, sr, rr, s->sh_blur[i] * sc, col);
+        }
+    } else if (s->shadow_blur > 0 && C_A(sh)) {
         shadow_round(c, (rect){r.x + (int)(s->shadow_x * sc), r.y + (int)(s->shadow_y * sc), r.w, r.h}, r0,
                      s->shadow_blur * sc, color_alpha(sh, op));
+    }
     double t1 = pnow(); fm_pacc[0] += t1 - t0;
     float gs = anim ? n->av.glow_size : s->glow_size;
     if (gs > 0.5f)
@@ -801,7 +1235,15 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     if (s->saturate > 1.02f && op > 0.3f)
         vibrancy(c, r, r0, s->saturate, 0.02f);
     double t4 = pnow(); fm_pacc[3] += t4 - t3;
-    paint_bg(c, r, rad, bg, op);
+    if (s->bg_img[0] && !s->bg_img_over) { /* the colour under the picture, then the picture */
+        paint_bg(c, r, rad, bg, op);
+        paint_pic(c, r, rad, s, op);
+    } else if (s->bg_img[0]) { /* the picture, a gradient over it */
+        paint_pic(c, r, rad, s, op);
+        paint_bg(c, r, rad, bg, op);
+    } else {
+        paint_bg(c, r, rad, bg, op);
+    }
     double t5 = pnow(); fm_pacc[4] += t5 - t4;
     /* glass catches light along its top edge */
     if (s->blur > 0.5f && op > 0.3f && r.h > 12)
@@ -888,6 +1330,21 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     draw_children(d, c, n, op);
     if (clip)
         clip_pop(c, cb);
+    /* a scrollbar, when there is more than fits (scrollbar-color / scrollbar-width) */
+    if (s->overflow == FM_OV_SCROLL && s->sb_width >= 0) {
+        float pt = s->pad[0] + FM_BW(s, 0), pb = s->pad[2] + FM_BW(s, 2);
+        int view = r.h - (int)((pt + pb) * sc);
+        if (n->content_h > view + 1 && view > 20) {
+            float w = (s->sb_width > 0 ? s->sb_width : 8) * sc;
+            color thumb = s->sb_thumb ? s->sb_thumb : color_alpha(s->color, 0.35f), track = s->sb_track;
+            rect tr = {r.x + r.w - (int)w - (int)(FM_BW(s, 1) * sc) - 2, r.y + (int)(pt * sc), (int)w, view};
+            if (C_A(track))
+                fill_round(c, tr, s->sb_width >= 10 ? 0 : w / 2, color_alpha(track, op));
+            int th = (int)fmaxf(24, (float)view * view / n->content_h);
+            int ty = tr.y + (int)((float)(view - th) * n->scroll / fmaxf(1, (float)(n->content_h - view)));
+            fill_round(c, (rect){tr.x, ty, tr.w, th}, s->sb_width >= 10 ? 0 : w / 2, color_alpha(thumb, op));
+        }
+    }
 
     /* the text caret of a focused field */
     if (d->focus == n && (tag_is(n, "search") || tag_is(n, "input"))) {
@@ -1028,10 +1485,46 @@ static void unanimate(fm_node *n) {
 }
 
 /* Lays the window template out at r for window `win`. */
+/* A template of its own for this app's windows: <template id="window" for="terminal notes"> (or id="window-terminal") */
+static fm_node *tpl_for_app(fm_doc *d, const char *app) {
+    if (!app || !app[0] || !d->root)
+        return NULL;
+    for (fm_node *t = d->root->first; t; t = t->next) {
+        if (t->kind != FM_ELEM || strcmp(t->tag, "template"))
+            continue;
+        const char *id = fm_attr_get(t, "id"), *fr = fm_attr_get(t, "for");
+        bool mine = false;
+        if (id && !strncmp(id, "window-", 7) && !strcmp(id + 7, app))
+            mine = true;
+        if (fr) {
+            size_t l = strlen(app);
+            for (const char *p = fr; (p = strstr(p, app)); p += l)
+                if ((p == fr || p[-1] == ' ' || p[-1] == ',') && (!p[l] || p[l] == ' ' || p[l] == ','))
+                    mine = true;
+        }
+        if (mine)
+            for (fm_node *k = t->first; k; k = k->next)
+                if (k->kind == FM_ELEM)
+                    return k;
+    }
+    return NULL;
+}
+
+static fm_node *last_frame; /* the frame laid out last (an app's own template, or the usual one) */
+
 fm_node *fmi_frame_layout(fm_doc *d, int win, rect r, bool focused, rect *content) {
-    fm_node *root = fmi_tpl_root(d);
+    int ai = win >= 0 ? fm_host_window_app(win) : -1;
+    const char *app = ai >= 0 ? fm_host_app_id(ai) : NULL;
+    fm_node *root = tpl_for_app(d, app);
+    if (!root)
+        root = fmi_tpl_root(d);
     if (!root)
         return NULL;
+    /* which app it frames, for frame[app="terminal"] and the like */
+    fm_attr_set(root, "app", app ? app : "");
+    last_frame = root;
+    const char *title = win >= 0 ? fm_host_window_title(win) : NULL;
+    fm_attr_set(root, "title", title ? title : "");
     d->cur_win = win;
     d->frame_focused = focused;
     if (d->hover_win != win)
@@ -1054,7 +1547,7 @@ fm_node *fmi_frame_layout(fm_doc *d, int win, rect r, bool focused, rect *conten
 }
 
 bool fm_window_slot(fm_doc *d, rect *frame, float radius[4], float *border, rect *slot, rect *content) {
-    fm_node *root = d && d->window_tpl ? fmi_tpl_root(d) : NULL;
+    fm_node *root = last_frame && d && d->window_tpl ? last_frame : d && d->window_tpl ? fmi_tpl_root(d) : NULL;
     fm_node *s = root ? find_tag(root->first, "slot") : NULL;
     if (!s || !s->laid_out || !root->laid_out)
         return false;

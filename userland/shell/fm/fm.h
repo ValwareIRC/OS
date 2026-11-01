@@ -33,12 +33,20 @@ typedef struct fm_len {
     float v;
 } fm_len;
 
-enum fm_bg_kind { FM_BG_NONE, FM_BG_SOLID, FM_BG_LINEAR, FM_BG_RADIAL };
+enum fm_bg_kind { FM_BG_NONE, FM_BG_SOLID, FM_BG_LINEAR, FM_BG_RADIAL, FM_BG_CONIC };
+#define FM_STOPS 12
 
 typedef struct fm_bg {
     enum fm_bg_kind kind;
-    color a, b;
-    float angle; /* degrees, linear only: 180 = top to bottom */
+    color a, b;  /* the first and last colours (what animations blend between) */
+    float angle; /* degrees: linear 180 = top to bottom; conic: where it starts, 0 = up */
+    /* gradients: their stops, positions 0..1 of the way (or of one repeat) */
+    int nstops;
+    color stop_c[FM_STOPS];
+    float stop_p[FM_STOPS];
+    bool repeating;
+    bool circle;      /* radial: a circle rather than an ellipse fitting the box */
+    float cx, cy;     /* radial and conic: the centre, 0..1 of the box */
 } fm_bg;
 
 /* ---- computed style ---- */
@@ -86,6 +94,14 @@ typedef struct fm_style {
     float radius[4];          /* tl tr br bl */
     float shadow_x, shadow_y, shadow_blur;
     color shadow;
+    /* every outer box-shadow, the first one on top (the first is also shadow_* above, for animation) */
+    int nshadow;
+    float sh_x[4], sh_y[4], sh_blur[4], sh_spread[4];
+    color sh_c[4];
+    /* text-shadows after the first */
+    int ntsh;
+    float tsh_x[3], tsh_y[3], tsh_blur[3];
+    color tsh_c[3];
     float glow_size;
     color glow;
     float opacity;
@@ -96,6 +112,18 @@ typedef struct fm_style {
     enum fm_textalign text_align;
     short text_rot;           /* text turned: 90 reads top to bottom, -90 bottom to top, 180 upside down (inherited) */
     bool crisp_text;          /* font-smooth: none: every pixel of a letter on or off (inherited) */
+    char cursor[64];          /* the pointer over it: arrow, pointer, text, ..., or url(file) x y (inherited) */
+    color sb_thumb, sb_track; /* scrollbar-color (0: from the text colour) */
+    float sb_width;           /* scrollbar-width: px (thin 6, auto 10), -1 none */
+    char decoration;          /* text-decoration: 'u'nderline, 'l'ine-through, 'o'verline (drawn by rich text) */
+    /* animation: name duration [timing] [delay] [count|infinite] [direction] [fill] (@keyframes) */
+    char anim_name[40];
+    float anim_dur, anim_delay, anim_count; /* ms, ms, times (-1 forever) */
+    char anim_dir;            /* 'n'ormal, 'r'everse, 'a'lternate, 'A'lternate-reverse */
+    char anim_ease;           /* 'l'inear, 'e'ase, 'i'n, 'o'ut, 'b'oth (in-out), 's'teps */
+    int anim_steps;
+    float anim_bez[4];        /* cubic-bezier(...) */
+    char anim_fill;           /* 'n'one, 'f'orwards, 'b'ackwards, 'B'oth */
     bool pixelated;           /* image-rendering: pixelated: pictures scaled by whole pixels, never blurred */
     float line_height;        /* multiple of the font's line */
     bool uppercase;
@@ -112,6 +140,24 @@ typedef struct fm_style {
     int line_clamp;           /* most lines a text shows; 0 = as many as fit */
 
     float scale;
+    float rotate;             /* degrees, the whole box turned about its centre (drawn turned; laid out upright) */
+    float skew_x, skew_y;     /* degrees */
+    /* filter: what is drawn of it, changed (all 1 / 0 when none) */
+    bool has_filter;
+    float f_blur, f_bright, f_contrast, f_gray, f_sepia, f_sat, f_hue, f_invert, f_opacity;
+    char blend;               /* mix-blend-mode: 0 normal, 'm'ultiply, 's'creen, 'o'verlay, 'd'arken, 'l'ighten,
+                               * 'D'ifference, 'x' exclusion, 'c'olor-dodge, 'b' color-burn, 'h'ard-light, 'S'oft-light */
+    /* clip-path: 'c'ircle, 'e'llipse, 'i'nset, 'p'olygon; numbers as fractions of the box (or px when > 1.5 for inset) */
+    char clip;
+    int clip_n;
+    float clip_v[34];
+    fm_bg mask;               /* mask-image: a gradient whose opacity is how much of it shows */
+    /* background pictures: background(-image): url(...), with -size, -position and -repeat */
+    char bg_img[160];
+    bool bg_img_over;         /* listed after a gradient: the gradient is drawn over the picture */
+    char bg_size;             /* 'a'uto, 'c'over, 'C'ontain, 'p'x (bg_sw x bg_sh), 'f' a fraction */
+    float bg_sw, bg_sh, bg_px, bg_py; /* size; where (0..1 of the free room) */
+    char bg_repeat;           /* 'r' both, 'x', 'y', 'n'o */
     float tx, ty;             /* translate */
     float tx_pct, ty_pct;     /* translate in % of its own size (translateX(-50%) centring) */
     float transition;         /* ms */
@@ -120,7 +166,22 @@ typedef struct fm_style {
     float icon_size;
     char icon_style[12];      /* filled | line | glow | duotone | plain */
     char icon_shape[12];      /* circle | squircle | square | none */
-    int columns;              /* grid */
+    int columns;              /* grid: a count (when no template) */
+    char grid_cols[120], grid_rows[120]; /* grid-template-columns / -rows, as written (sized at layout) */
+    char grid_areas[240];     /* grid-template-areas: "head head" "side main" */
+    float row_gap, col_gap;   /* -1: the gap */
+    /* as a grid item: lines (1-based, 0 auto, negative from the end), spans, or a named area */
+    short gc0, gc1, gr0, gr1, gcs, grs;
+    char grid_area[20];
+    /* anchor positioning: this element is an anchor (anchor-name: --x); or it is placed against one
+     * (position-anchor: --x, with anchor() in top/right/bottom/left, position-area, anchor-size()) */
+    char anchor_name[32], pos_anchor[32];
+    char anc_side[4];         /* for top, right, bottom, left: the anchor's 't','r','b','l','c'entre, 0 none */
+    float anc_off[4];         /* + / - px after it */
+    char anc_of[4][32];       /* anchor(--other bottom): another anchor for that side */
+    char area_v, area_h;      /* position-area: 't','c','b' / 'l','c','r' ('T' 'B' 'L' 'R': spanning toward) */
+    char anc_w, anc_h;        /* width / height: anchor-size(width|height) */
+    bool flip_block, flip_inline; /* position-try-fallbacks */
     float orbit;              /* orbit radius */
     char place[16], dock[16]; /* the place=/dock= attributes, also accepted as style */
 } fm_style;
@@ -144,7 +205,8 @@ struct fm_node {
     int nattrs;
     int line;               /* source line, for error messages */
     fm_node *parent, *first, *last, *next;
-    bool generated;         /* made by a live element (applist, windowlist) */
+    bool generated;         /* made by a live element (applist, windowlist), or ::before / ::after */
+    char pseudo;            /* 'b' a ::before, 'a' an ::after (generated from the style) */
     int app, win;           /* for generated nodes: which app / window */
 
     /* interaction state */
@@ -170,6 +232,11 @@ struct fm_node {
     float mw, mh;                   /* measured preferred size */
     bool laid_out;
     int content_h;                  /* height of the children, for scrolling */
+    struct fm_rich *rich;           /* a paragraph of rich text: its words, placed (fm/rich.c) */
+    bool rich_on;                   /* laid out as rich text this frame */
+    char anim_was[40];              /* the animation it is running, and since when (ms) */
+    double anim_t0;
+    rect rich_at;                   /* where its words start */
 };
 
 /* ---- documents ---- */
@@ -196,6 +263,10 @@ struct fm_doc {
     fm_problem problems[FM_MAX_PROBLEMS];
     int nproblems;
     int next_id;
+    bool has_pseudo;        /* some rule styles a ::before or ::after */
+    int media_w, media_h;   /* the size @media rules were judged at */
+    struct fm_keyframes *kf; /* @keyframes */
+    int nkf;
     fm_node *focus;         /* text input with the keyboard */
     fm_node *pressed;
     fm_node *hovered;       /* deepest node under the pointer */
@@ -242,6 +313,12 @@ char *fm_text_of(const fm_node *n); /* concatenated text content (malloc'd) */
 void fm_css_load(fm_doc *d);
 /* Adds or replaces rules from CSS text (used by companion edits). */
 void fm_css_patch(fm_doc *d, const char *css);
+/* The pointer the design asks for at x, y ("" for the system's own) */
+const char *fm_cursor(fm_doc *d, int x, int y);
+/* Something is animating (@keyframes): the host keeps frames coming */
+extern bool fm_animating;
+/* The size @media rules are judged by (the screen); a change reloads the sheet */
+extern int fm_media_w, fm_media_h;
 /* After a patched rule for `sel`: the rules that still win on n for its properties, named in out. */
 int fm_css_who_wins(fm_doc *d, fm_node *n, const char *sel, char *out, size_t cap);
 /* Takes a selector's rules (or some of their properties: "height; width") out of the design's own sheet. */

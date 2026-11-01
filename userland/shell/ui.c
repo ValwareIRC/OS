@@ -1,5 +1,9 @@
 #include "app.h"
 #include "wallpaper.h"
+#include "image.h"
+#include "fm/fm.h"
+#include <stdio.h>
+#include <strings.h>
 #include <math.h>
 #include <string.h>
 
@@ -133,8 +137,90 @@ void ui_orb(canvas *c, float cx, float cy, float r, color a, color b, bool activ
         }
 }
 
+/* Pointers a design can ask for (cursor: ...). Drawn as small vector shapes, black outlined in white
+ * (or white in black for the classic arrow), so they read on anything. */
+static void poly(canvas *c, const float *pts, int n, float x, float y, float s, color fill, color edge, float ew) {
+    float p[64];
+    for (int i = 0; i < n && i < 32; i++)
+        p[2 * i] = x + pts[2 * i] * s, p[2 * i + 1] = y + pts[2 * i + 1] * s;
+    fill_polygon(c, p, n, fill);
+    for (int i = 0; i < n; i++)
+        draw_line(c, p[2 * i], p[2 * i + 1], p[2 * ((i + 1) % n)], p[2 * ((i + 1) % n) + 1], ew, edge);
+}
+
+bool ui_cursor_shape(canvas *c, int x, int y, const char *shape) {
+    if (!shape || !shape[0] || !strncasecmp(shape, "dot", 3) || !strncasecmp(shape, "auto", 4))
+        return false;
+    float X = (float)x, Y = (float)y;
+    color w = RGBA(255, 255, 255, 255), k = RGBA(0, 0, 0, 255);
+    if (!strncasecmp(shape, "none", 4))
+        return true;
+    if (!strncasecmp(shape, "url(", 4)) { /* a picture: url(file) hotspot-x hotspot-y */
+        char path[200] = "";
+        int hx = 0, hy = 0;
+        const char *q = shape + 4;
+        int n = 0;
+        while (*q && *q != ')' && n < 199)
+            if (*q != '"' && *q != '\'')
+                path[n++] = *q++;
+            else
+                q++;
+        if (*q == ')')
+            sscanf(q + 1, "%d %d", &hx, &hy);
+        int iw, ih;
+        extern const uint32_t *fmi_picture(const char *src, int want_w, int want_h, int *w, int *h);
+        const uint32_t *px = fmi_picture(path, 32, 32, &iw, &ih);
+        if (!px)
+            return false;
+        image im = {iw, ih, (uint32_t *)px, iw, ih};
+        image_draw(c, &im, x - hx, y - hy, 1);
+        return true;
+    }
+    if (!strncasecmp(shape, "pointer", 7) || !strncasecmp(shape, "hand", 4)) { /* a pointing hand */
+        static const float hand[] = {4, 0, 6, 0, 7, 1, 7, 6, 9, 5.5f, 11, 6, 13, 6.5f, 14, 7.5f, 14, 13, 12, 16, 5, 16, 1, 10,
+                                     1, 8.5f, 2.5f, 8.5f, 3, 9.5f, 3, 1};
+        poly(c, hand, 16, X - 5, Y, 1.2f, w, k, 1.1f);
+        return true;
+    }
+    if (!strncasecmp(shape, "text", 4)) { /* an I-beam */
+        draw_line(c, X, Y - 9, X, Y + 9, 3, w), draw_line(c, X, Y - 9, X, Y + 9, 1.2f, k);
+        draw_line(c, X - 4, Y - 9, X + 4, Y - 9, 1.2f, k), draw_line(c, X - 4, Y + 9, X + 4, Y + 9, 1.2f, k);
+        return true;
+    }
+    if (!strncasecmp(shape, "crosshair", 9)) {
+        draw_line(c, X - 10, Y, X + 10, Y, 3, w), draw_line(c, X, Y - 10, X, Y + 10, 3, w);
+        draw_line(c, X - 10, Y, X + 10, Y, 1.2f, k), draw_line(c, X, Y - 10, X, Y + 10, 1.2f, k);
+        return true;
+    }
+    if (!strncasecmp(shape, "move", 4) || !strncasecmp(shape, "grab", 4) || !strncasecmp(shape, "all-scroll", 10)) {
+        for (int i = 0; i < 4; i++) {
+            float dx = i == 0 ? 1.0f : i == 1 ? -1.0f : 0, dy = i == 2 ? 1.0f : i == 3 ? -1.0f : 0;
+            float tri[] = {dx * 11, dy * 11, dx * 6 - dy * 4, dy * 6 - dx * 4, dx * 6 + dy * 4, dy * 6 + dx * 4};
+            poly(c, tri, 3, X, Y, 1, k, w, 1);
+        }
+        draw_line(c, X - 7, Y, X + 7, Y, 1.6f, k), draw_line(c, X, Y - 7, X, Y + 7, 1.6f, k);
+        return true;
+    }
+    if (!strncasecmp(shape, "wait", 4) || !strncasecmp(shape, "progress", 8)) { /* an hourglass */
+        static const float glass[] = {0, 0, 10, 0, 10, 2, 6, 7, 10, 12, 10, 14, 0, 14, 0, 12, 4, 7, 0, 2};
+        poly(c, glass, 10, X - 5, Y - 7, 1.2f, w, k, 1.1f);
+        return true;
+    }
+    if (!strncasecmp(shape, "not-allowed", 11) || !strncasecmp(shape, "no-drop", 7)) {
+        draw_arc(c, X, Y, 8, 0, 6.2832f, 4, w), draw_arc(c, X, Y, 8, 0, 6.2832f, 2, RGBA(220, 40, 40, 255));
+        draw_line(c, X - 5.5f, Y - 5.5f, X + 5.5f, Y + 5.5f, 2, RGBA(220, 40, 40, 255));
+        return true;
+    }
+    /* default / arrow: the classic arrow, white with a black edge */
+    static const float arrow[] = {0, 0, 0, 16, 4, 12.5f, 7, 19, 9.5f, 18, 6.5f, 11.5f, 11.5f, 11.5f};
+    poly(c, arrow, 7, X, Y, 1.05f, w, k, 1.1f);
+    return true;
+}
+
 void ui_cursor(canvas *c, int x, int y) {
-    /* A soft luminous dot: calmer than an arrow. */
+    /* A soft luminous dot: calmer than an arrow (unless the design asks for another pointer). */
+    if (A.screen == SCR_DESKTOP && A.ui && ui_cursor_shape(c, x, y, fm_cursor(A.ui, x, y)))
+        return;
     glow_circle(c, (float)x, (float)y, 14, RGBA(255, 255, 255, 40));
     fill_circle(c, (float)x, (float)y, 6.0f, RGBA(20, 18, 24, 110)); /* a faint rim, for light backgrounds */
     fill_circle(c, (float)x, (float)y, 5.0f, RGBA(255, 255, 255, 240));

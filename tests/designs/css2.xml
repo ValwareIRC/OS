@@ -1,0 +1,80 @@
+<facet>
+<meta ai-name="Test" user-name="T"/>
+<style>
+:root { --accent:#ff8a5c; --bg:#101018; --surface:#1c1c28; --text:#fff; }
+desktop { background: linear-gradient(135deg, #1d2671 0%, #c33764 45%, #f7b733 70%, #fc4a1a 100%); }
+#grads { place: top-left; direction: row; gap: 12; padding: 16; }
+#grads box { size: 110; radius: 12; }
+#g1 { background: linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet); }
+#g2 { background: repeating-linear-gradient(45deg, #222 0px, #222 10px, #ffcc00 10px, #ffcc00 20px); }
+#g3 { background: conic-gradient(from 0deg, red, yellow, lime, aqua, blue, magenta, red); radius: 50%; }
+#g4 { background: radial-gradient(circle at 30% 30%, #ffffff, #88aaff 30%, #10204a 100%); radius: 50%; }
+#g5 { background: linear-gradient(180deg, #fff 0%, #fff 49%, #ccc 50%, #eee 100%); }
+#list { place: center; width: 300; gap: 0; background: #fff; color: #222; radius: 8; padding: 6; }
+#list text { padding: 6 10; }
+#list text:nth-child(odd) { background: #eef2ff; }
+#list text:first-child { font-weight: bold; color: #c33764; }
+#list text:last-child { color: #999; }
+#list text:not(.keep) + text { border-top: 1px solid #ccd; }
+#list .keep ~ text { color: #0a7; }
+#list text.tag::before { content: "#"; color: #c33764; padding: 0 2 0 0; }
+#list::after { content: "end of list"; color: #888; padding: 6 10; font-size: 11; }
+#para { place: bottom; width: 520; margin: 0 0 60 0; padding: 14 18; background: rgba(0,0,0,0.55); radius: 10; color: #eee; font: Inter 15; line-height: 1.5; }
+#para a { color: #7cc4ff; }
+#para a:hover { color: #fff; }
+#para code { background: rgba(255,255,255,0.15); padding: 0 4; radius: 4; color: #ffd27a; }
+#para .big { font-size: 22; color: #fc4a1a; }
+#fx { place: right; direction: column; gap: 22; margin: 0 40 0 0; align: center; }
+#fx box { width: 150; height: 70; radius: 10; color: #fff; align: center; justify: center; font: Inter 14; }
+#turn { background: #3a7bd5; transform: rotate(-12deg); box-shadow: 0 10 24 rgba(0,0,0,0.5); }
+#lean { background: #00a676; transform: skewX(-15deg); }
+#retro { background: #ffde59; color: #000; box-shadow: 6px 6px 0 #000, 12px 12px 0 #c33764; radius: 0; }
+#gray { background: linear-gradient(90deg, red, yellow, lime, cyan, blue); filter: grayscale(100%) contrast(1.4); }
+#hue { background: linear-gradient(90deg, red, yellow, lime, cyan, blue); filter: hue-rotate(120deg) blur(2px); }
+#mult { background: #00c3ff; mix-blend-mode: multiply; }
+#circ { width: 90; height: 90; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); clip-path: circle(45% at 50% 50%); }
+#star { width: 90; height: 90; background: #ffd700; clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+#fade { background: #ffffff; color: #000; mask-image: linear-gradient(90deg, #000 0%, transparent 100%); }
+#neon { color: #fff; font: Inter 30; font-weight: bold; text-shadow: 0 0 4px #fff, 0 0 12px #ff00de, 0 0 24px #ff00de, 0 0 40px #ff00de; }
+#spin { width: 40; height: 40; background: #fff; radius: 8; animation: spin 2s linear infinite; }
+#pics2 { place: left; direction: column; gap: 14; margin: 0 0 0 30; }
+#pics2 box { width: 180; height: 90; radius: 12; color: #fff; align: center; justify: center; font-weight: bold; }
+#tile { background: url(/tmp/egg.png) #223; background-size: 32px; }
+#cover { background: linear-gradient(180deg, transparent, rgba(0,0,0,0.7)), url(/tmp/egg.png) center / cover; }
+#once { background: url(/tmp/egg.png) no-repeat right bottom #334; background-size: 48px; }
+#bento { place: top; margin: 140 0 0 0; width: 560; display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 70px 70px 50px; gap: 10;
+  grid-template-areas: "big a b" "big c c" "wide wide d"; }
+#bento box { background: rgba(255,255,255,0.85); color: #222; radius: 10; align: center; justify: center; }
+#bento .big { grid-area: big; background: #1d2671; color: #fff; }
+#bento .wide { grid-area: wide; background: #c33764; color: #fff; }
+#auto { place: bottom-left; margin: 0 0 20 20; width: 340; display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6; }
+#auto box { height: 30; background: #fff; color: #333; radius: 6; align: center; justify: center; }
+#auto .two { grid-column: span 2; background: #f7b733; }
+#anchorbtn { place: top-right; margin: 20 220 0 0; padding: 8 14; background: #fff; color: #222; radius: 8; anchor-name: --menu; cursor: pointer; }
+#tipbox { position-anchor: --menu; position-area: bottom center; margin: 8 0 0 0; padding: 8 12; background: #222; color: #fff; radius: 6; font-size: 12; }
+#side2 { position-anchor: --menu; top: anchor(top); left: anchor(right) + 10; padding: 6 10; background: #c33764; color: #fff; radius: 6; font-size: 12; }
+#scroll { place: bottom-right; margin: 0 200 20 0; width: 160; height: 110; overflow: scroll; background: #fff; color: #222; radius: 8; padding: 8; scrollbar-color: #c33764 #eee; scrollbar-width: 8px; }
+:root { cursor: default; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (max-width: 800px) { #grads { display: none; } }
+</style>
+<desktop>
+  <row id="grads"><box id="g1"/><box id="g2"/><box id="g3"/><box id="g4"/><box id="g5"/></row>
+  <column id="list">
+    <text>First row</text>
+    <text class="tag">tagged</text>
+    <text class="keep">keep (rows after me are green)</text>
+    <text>fourth</text>
+    <text>fifth</text>
+    <text>last row</text>
+  </column>
+  <text id="para">Facet now does <b>bold</b>, <i>italic</i>, <u>underline</u>, <s>struck</s>, <mark>marked</mark> and <code>code</code> inside one line, a <a what="open:files">link that opens Files</a>, <span class="big">big words</span> sharing a baseline with small ones,<br/>and line breaks, all wrapping together as one paragraph should.</text>
+  <grid id="bento"><box class="big">big (area)</box><box>a</box><box>b</box><box>c</box><box class="wide">wide (area)</box><box>d</box></grid>
+  <grid id="auto"><box>1</box><box class="two">span 2</box><box>3</box><box>4</box><box>5</box><box>6</box><box>7</box></grid>
+  <button id="anchorbtn" what="open:files">Anchor me</button>
+  <text id="tipbox">I sit under my anchor</text><text id="side2">and I sit to its right</text>
+  <column id="scroll"><text>one</text><text>two</text><text>three</text><text>four</text><text>five</text><text>six</text><text>seven</text><text>eight</text></column>
+  <column id="pics2"><box id="tile">tiled</box><box id="cover">cover + gradient over</box><box id="once">once, bottom right</box></column>
+  <column id="fx"><box id="turn">rotated</box><box id="lean">skewed</box><box id="retro">hard shadows</box><box id="gray">grayscale</box><box id="hue">hue + blur</box><box id="mult">multiply</box><row style="direction: row; gap: 16"><box id="circ"/><box id="star"/></row><box id="fade">masked fade</box><text id="neon">NEON</text><box id="spin"/></column>
+</desktop>
+</facet>

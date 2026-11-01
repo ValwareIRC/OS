@@ -136,7 +136,12 @@ const char *fmi_own_text(fm_doc *d, fm_node *n, char *buf, size_t len) {
 }
 
 void fmi_text_for_draw(const fm_style *st, const char *src, char *out, size_t len) {
-    snprintf(out, len, "%s", src ? src : "");
+    src = src ? src : "";
+    while (*src == ' ') /* the space kept at either end is for rich text joining words over tags */
+        src++;
+    snprintf(out, len, "%s", src);
+    for (size_t l = strlen(out); l && out[l - 1] == ' ';)
+        out[--l] = 0;
     if (st->uppercase)
         for (char *p = out; *p; p++)
             if (*p >= 'a' && *p <= 'z')
@@ -184,7 +189,7 @@ static fm_node *new_text(const char *s) {
 static void remove_generated(fm_node *n) {
     for (fm_node *c = n->first, *next; c; c = next) {
         next = c->next;
-        if (c->generated)
+        if (c->generated && !c->pseudo)
             fm_remove(c);
     }
 }
@@ -396,7 +401,7 @@ static void sync_applist(fm_doc *d, fm_node *n) {
     int k = 0;
     bool same = true;
     for (fm_node *c = n->first; c; c = c->next)
-        if (c->generated) {
+        if (c->generated && !c->pseudo) {
             if (k >= nw || c->app != want[k])
                 same = false;
             k++;
@@ -414,7 +419,7 @@ static void sync_windowlist(fm_doc *d, fm_node *n) {
     int k = 0;
     bool same = true;
     for (fm_node *c = n->first; c; c = c->next)
-        if (c->generated) {
+        if (c->generated && !c->pseudo) {
             if (k >= nw || c->win != k || c->app != fm_host_window_app(k))
                 same = false;
             k++;
@@ -660,32 +665,26 @@ void fmi_measure(fm_doc *d, fm_node *n, float aw, float ah) {
 
     fm_node *kids[256];
     int nk = 0;
-    for (fm_node *c = n->first; c && nk < 256; c = c->next)
-        if (in_flow(c) && !tag_is(c, "tip"))
-            kids[nk++] = c;
+    if (fmi_is_rich(n)) { /* a paragraph of rich text: its words flowed in the room it has */
+        float rw, rh;
+        fmi_rich_layout(n, fw >= 0 ? fw - pl - pr : caw, &rw, &rh);
+        cw = fmaxf(cw, rw);
+        ch = fmaxf(ch, rh);
+    } else {
+        for (fm_node *c = n->first; c && nk < 256; c = c->next)
+            if (in_flow(c) && !tag_is(c, "tip"))
+                kids[nk++] = c;
+    }
 
     if (nk) {
         for (int i = 0; i < nk; i++)
             fmi_measure(d, kids[i], caw, cah);
         float gap = st->gap;
         if (st->mode == FM_GRID) {
-            int cols = st->columns > 0 ? st->columns : 3;
-            float cellw = 0, total_h = 0, row_h = 0;
-            for (int i = 0; i < nk; i++) {
-                float w = kids[i]->mw + kids[i]->st.margin[1] + kids[i]->st.margin[3];
-                if (w > cellw) cellw = w;
-            }
-            for (int i = 0; i < nk; i++) {
-                float h = kids[i]->mh + kids[i]->st.margin[0] + kids[i]->st.margin[2];
-                if (h > row_h) row_h = h;
-                if (i % cols == cols - 1 || i == nk - 1) {
-                    total_h += row_h + (total_h > 0 ? gap : 0);
-                    row_h = 0;
-                }
-            }
-            int c = nk < cols ? nk : cols;
-            cw = fmaxf(cw, c * cellw + gap * (c - 1));
-            ch = fmaxf(ch, total_h);
+            float gw, gh;
+            fmi_grid_measure(d, n, kids, nk, fw >= 0 ? fw - pl - pr : caw, fh >= 0 ? fh - pt - pb : cah, &gw, &gh);
+            cw = fmaxf(cw, gw);
+            ch = fmaxf(ch, gh);
         } else if (st->mode == FM_STACK) {
             for (int i = 0; i < nk; i++) {
                 cw = fmaxf(cw, kids[i]->mw + kids[i]->st.margin[1] + kids[i]->st.margin[3]);
@@ -780,8 +779,8 @@ static void arrange_line(fm_doc *d, fm_node *n, fm_node **kids, int nk, rect c, 
                 sz[i] += add;
             }
         free_space = 0;
-    } else if (free_space < 0) {
-        /* shrink what isn't a fixed size, in proportion */
+    } else if (free_space < 0 && !(n->st.overflow == FM_OV_SCROLL && n->st.dir == FM_COLUMN)) {
+        /* shrink what isn't a fixed size, in proportion (a scrolling column lets it run on instead) */
         float shrinkable = 0;
         for (int i = 0; i < nk; i++) {
             fm_len fixed = row ? kids[i]->st.width : kids[i]->st.height;
@@ -860,32 +859,6 @@ static void arrange_flex(fm_doc *d, fm_node *n, fm_node **kids, int nk, rect c) 
         arrange_line(d, n, kids + start, end - start, c, line_pos, line_cross);
         line_pos += line_cross + gap;
         start = end;
-    }
-}
-
-static void arrange_grid(fm_doc *d, fm_node *n, fm_node **kids, int nk, rect c) {
-    const fm_style *st = &n->st;
-    int cols = st->columns > 0 ? st->columns : 3;
-    float gap = st->gap;
-    float cellw = (c.w - gap * (cols - 1)) / cols;
-    float y = 0;
-    for (int r0 = 0; r0 < nk; r0 += cols) {
-        float row_h = 0;
-        for (int i = r0; i < nk && i < r0 + cols; i++) {
-            fmi_measure(d, kids[i], cellw, c.h);
-            row_h = fmaxf(row_h, kids[i]->mh + kids[i]->st.margin[0] + kids[i]->st.margin[2]);
-        }
-        for (int i = r0; i < nk && i < r0 + cols; i++) {
-            fm_node *k = kids[i];
-            float x = (i - r0) * (cellw + gap);
-            float w = cross_size(k, st->align, cellw, false, cellw);
-            float h = cross_size(k, st->align, row_h, true, row_h);
-            float ox = st->align == FM_A_CENTER ? (cellw - w) / 2 : st->align == FM_A_END ? cellw - w : 0;
-            float oy = st->align == FM_A_CENTER ? (row_h - h) / 2 : st->align == FM_A_END ? row_h - h : 0;
-            fmi_arrange(d, k, (rect){(int)(c.x + x + ox + k->st.margin[3]), (int)(c.y + y + oy + k->st.margin[0]),
-                                     (int)(w), (int)(h)});
-        }
-        y += row_h + gap;
     }
 }
 
@@ -987,6 +960,19 @@ void fmi_arrange(fm_doc *d, fm_node *n, rect box) {
     rect c = {box.x + (int)pl, box.y + (int)pt, box.w - (int)(pl + pr), box.h - (int)(pt + pb)};
     if (c.w < 0) c.w = 0;
     if (c.h < 0) c.h = 0;
+    n->rich_on = fmi_is_rich(n);
+    if (n->rich_on) { /* its words, flowed in the width it got, placed */
+        float rw, rh;
+        fmi_rich_layout(n, (float)c.w, &rw, &rh);
+        int top = c.y;
+        if (n->st.dir == FM_COLUMN ? n->st.justify == FM_J_CENTER : n->st.align == FM_A_CENTER)
+            top = c.y + (c.h - (int)rh) / 2; /* centred, as a single text would be */
+        else if (n->st.dir == FM_COLUMN ? n->st.justify == FM_J_END : n->st.align == FM_A_END)
+            top = c.y + c.h - (int)rh;
+        fmi_rich_place(n, (rect){c.x, top, c.w, (int)rh});
+        n->content_h = (int)rh;
+        return;
+    }
     fm_node *kids[256];
     int nk = 0;
     for (fm_node *k = n->first; k; k = k->next) {
@@ -999,7 +985,7 @@ void fmi_arrange(fm_doc *d, fm_node *n, rect box) {
     for (int i = 0; i < nk; i++)
         fmi_measure(d, kids[i], (float)c.w, (float)c.h);
     switch (n->st.mode) {
-    case FM_GRID: arrange_grid(d, n, kids, nk, c); break;
+    case FM_GRID: fmi_grid_arrange(d, n, kids, nk, c); break;
     case FM_STACK: arrange_stack(d, n, kids, nk, c); break;
     case FM_ORBIT: arrange_orbit(d, n, kids, nk, c); break;
     default: arrange_flex(d, n, kids, nk, c); break;
@@ -1336,6 +1322,115 @@ void fmi_transform(fm_node *n, float s, float dx, float dy) {
     }
 }
 
+/* ---- anchor positioning: after everything else is placed ---- */
+
+static fm_node *find_anchor(fm_node *n, const char *name) {
+    for (; n; n = n->next) {
+        if (n->kind != FM_ELEM)
+            continue;
+        if (n->laid_out && !n->st.hidden && n->st.anchor_name[0] && !strcmp(n->st.anchor_name, name))
+            return n;
+        fm_node *f = find_anchor(n->first, name);
+        if (f)
+            return f;
+    }
+    return NULL;
+}
+
+static float edge_of(rect a, char side) {
+    switch (side) {
+    case 't': return (float)a.y;
+    case 'b': return (float)(a.y + a.h);
+    case 'l': return (float)a.x;
+    case 'r': return (float)(a.x + a.w);
+    }
+    return 0;
+}
+
+static void anchor_one(fm_doc *d, fm_node *k) {
+    const fm_style *s = &k->st;
+    bool insets = s->anc_side[0] || s->anc_side[1] || s->anc_side[2] || s->anc_side[3];
+    if (!s->pos_anchor[0] && !insets)
+        return;
+    fm_node *an = s->pos_anchor[0] ? find_anchor(d->root, s->pos_anchor) : NULL;
+    rect A = an ? an->vis : (rect){0, 0, 0, 0};
+    if (!an && !insets)
+        return;
+    fmi_measure(d, k, (float)d->screen.w, (float)d->screen.h);
+    float w = s->anc_w ? (float)(s->anc_w == 'h' ? A.h : A.w) : s->width.unit != FM_AUTO ? rl(s->width, (float)d->screen.w, 0) : k->mw;
+    float h = s->anc_h ? (float)(s->anc_h == 'w' ? A.w : A.h) : s->height.unit != FM_AUTO ? rl(s->height, (float)d->screen.h, 0) : k->mh;
+    float x = (float)A.x + (A.w - w) / 2, y = (float)A.y + (A.h - h) / 2;
+    if (s->area_v || s->area_h) { /* a cell of the 3x3 grid around the anchor */
+        switch (s->area_v) {
+        case 't': y = A.y - h; break;
+        case 'b': y = (float)(A.y + A.h); break;
+        case 'T': y = (float)(A.y + A.h) - h; break; /* span-top: from its bottom edge upward */
+        case 'B': y = (float)A.y; break;
+        }
+        switch (s->area_h) {
+        case 'l': x = A.x - w; break;
+        case 'r': x = (float)(A.x + A.w); break;
+        case 'L': x = (float)(A.x + A.w) - w; break;
+        case 'R': x = (float)A.x; break;
+        }
+        x += s->margin[3] - s->margin[1];
+        y += s->margin[0] - s->margin[2];
+    }
+    /* insets with anchor(): each pins one side of it to a side of an anchor */
+    float ins[4];
+    bool has[4];
+    for (int i = 0; i < 4; i++) {
+        has[i] = s->anc_side[i] != 0;
+        if (!has[i])
+            continue;
+        rect B = A;
+        if (s->anc_of[i][0]) {
+            fm_node *o = find_anchor(d->root, s->anc_of[i]);
+            if (!o) {
+                has[i] = false;
+                continue;
+            }
+            B = o->vis;
+        }
+        float e = s->anc_side[i] == 'c' ? (i % 2 ? B.x + B.w / 2.0f : B.y + B.h / 2.0f) : edge_of(B, s->anc_side[i]);
+        ins[i] = e + s->anc_off[i];
+    }
+    if (has[0]) y = ins[0];                                   /* top: anchor(...) */
+    if (has[3]) x = ins[3];                                   /* left */
+    if (has[2] && !has[0]) y = (ins[2] - h);                  /* bottom given as a position: its bottom edge there */
+    if (has[1] && !has[3]) x = (ins[1] - w);
+    if (has[0] && has[2]) h = fmaxf(0, ins[2] - ins[0]);
+    if (has[3] && has[1]) w = fmaxf(0, ins[1] - ins[3]);
+    /* off the screen: flipped to the other side if it may be, then kept on the screen */
+    rect S = d->screen;
+    if (s->flip_block && (y < S.y || y + h > S.y + S.h) && an) {
+        float fy = y < S.y ? (float)(A.y + A.h) + (A.y - (y + h)) : A.y - h - (y - (A.y + A.h));
+        if (fy >= S.y && fy + h <= S.y + S.h)
+            y = fy;
+    }
+    if (s->flip_inline && (x < S.x || x + w > S.x + S.w) && an) {
+        float fx = x < S.x ? (float)(A.x + A.w) + (A.x - (x + w)) : A.x - w - (x - (A.x + A.w));
+        if (fx >= S.x && fx + w <= S.x + S.w)
+            x = fx;
+    }
+    if (x + w > S.x + S.w) x = S.x + S.w - w;
+    if (y + h > S.y + S.h) y = S.y + S.h - h;
+    if (x < S.x) x = (float)S.x;
+    if (y < S.y) y = (float)S.y;
+    fmi_arrange(d, k, (rect){(int)lroundf(x), (int)lroundf(y), (int)lroundf(w), (int)lroundf(h)});
+    fmi_transform(k, 1, 0, 0);
+}
+
+static void anchors_rec(fm_doc *d, fm_node *n) {
+    for (; n; n = n->next) {
+        if (n->kind != FM_ELEM || n->st.hidden)
+            continue;
+        if (n->st.pos_anchor[0] || n->st.anc_side[0] || n->st.anc_side[1] || n->st.anc_side[2] || n->st.anc_side[3])
+            anchor_one(d, n);
+        anchors_rec(d, n->first);
+    }
+}
+
 void fm_layout(fm_doc *d, rect screen) {
     d->screen = screen;
     if (!d->desktop)
@@ -1346,6 +1441,7 @@ void fm_layout(fm_doc *d, rect screen) {
     orient_lists(d->desktop);
     arrange_desktop(d);
     fmi_place_popovers(d);
+    anchors_rec(d, d->desktop); /* placed against their anchors, wherever those ended up */
 }
 
 void fmi_sync_subtree(fm_doc *d, fm_node *n) {

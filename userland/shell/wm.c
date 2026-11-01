@@ -1280,9 +1280,14 @@ static struct {
     bool active;
 } ft;
 
-void wm_frame_begin(void) { ft.begin = usec(); }
+void wm_frame_begin(void) {
+    ft.begin = usec();
+    fm_animating = false; /* set again by whatever animates (@keyframes) as it is styled */
+}
 
 static bool animating(void) {
+    if (fm_animating)
+        return true;
     for (int w = 0; w < WIN_MAX; w++)
         if (ww[w].anim)
             return true;

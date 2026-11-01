@@ -43,9 +43,38 @@ static int weight_of(const char *v, int current) {
     return 0;
 }
 
-/* The first shadow of a text-shadow list: "x y [blur] colour", the colour
- * first or last. */
+/* After the shadow at p, the next one (past the comma outside brackets), or NULL */
+static const char *next_shadow(const char *p) {
+    int depth = 0;
+    for (; *p; p++) {
+        if (*p == '(') depth++;
+        else if (*p == ')') depth--;
+        else if (*p == ',' && depth == 0)
+            return p + 1;
+    }
+    return NULL;
+}
+
+/* One shadow of a text-shadow list: "x y [blur] colour", the colour first or last. */
+static bool parse_one_shadow(fm_style *st, const char *v);
+
+/* The whole list: the first as tshadow, up to three more after it */
 static bool parse_shadow(fm_style *st, const char *v) {
+    st->ntsh = 0;
+    if (!parse_one_shadow(st, v))
+        return false;
+    for (const char *p = v; (p = next_shadow(p));) {
+        fm_style t = *st;
+        if (!parse_one_shadow(&t, p) || st->ntsh >= 3)
+            break;
+        st->tsh_x[st->ntsh] = t.tshadow_x, st->tsh_y[st->ntsh] = t.tshadow_y;
+        st->tsh_blur[st->ntsh] = t.tshadow_blur, st->tsh_c[st->ntsh] = t.tshadow;
+        st->ntsh++;
+    }
+    return true;
+}
+
+static bool parse_one_shadow(fm_style *st, const char *v) {
     float f[3] = {0, 0, 0};
     int k = 0;
     color c = RGBA(0, 0, 0, 128);
@@ -184,6 +213,9 @@ void fm_type_inherit(fm_style *st, const fm_style *parent) {
     st->tshadow_y = parent->tshadow_y;
     st->tshadow_blur = parent->tshadow_blur;
     st->tshadow = parent->tshadow;
+    st->ntsh = parent->ntsh;
+    memcpy(st->tsh_x, parent->tsh_x, sizeof st->tsh_x), memcpy(st->tsh_y, parent->tsh_y, sizeof st->tsh_y);
+    memcpy(st->tsh_blur, parent->tsh_blur, sizeof st->tsh_blur), memcpy(st->tsh_c, parent->tsh_c, sizeof st->tsh_c);
     st->nowrap = parent->nowrap;
     st->clip_text = parent->clip_text;
     st->line_clamp = parent->line_clamp;
@@ -250,6 +282,11 @@ void fmi_draw_line_in(canvas *c, font *f, rect r, const char *s, color col, cons
         x = r.x + (r.w - tw) / 2;
     else if (st->text_align == FM_T_END)
         x = r.x + r.w - tw;
+    for (int i = st->ntsh - 1; i >= 0; i--) { /* the later shadows under the first */
+        color sc = color_alpha(st->tsh_c[i], C_A(col) / 255.0f);
+        draw_text_shadow(c, f, x + (int)lroundf(st->tsh_x[i] * scale), y + (int)lroundf(st->tsh_y[i] * scale), s,
+                         (int)strlen(s), sc, st->tsh_blur[i] * scale);
+    }
     if (C_A(st->tshadow)) {
         text_shadow sh = shadow_for(st, col, scale);
         draw_text_shadow(c, f, x + (int)lroundf(sh.dx), y + (int)lroundf(sh.dy), s, (int)strlen(s), sh.col, sh.blur);

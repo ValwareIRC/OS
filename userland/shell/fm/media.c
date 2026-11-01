@@ -318,6 +318,71 @@ static struct pic *render(const fm_node *n, int w, int h) {
     return slot;
 }
 
+/* A picture for a background, whole (cached by path; SVGs drawn at want_w x want_h) */
+const uint32_t *fmi_picture(const char *src, int want_w, int want_h, int *w, int *h) {
+    static struct { char path[300]; int w, h, rw, rh; uint32_t *px; uint64_t used; } bank[8];
+    static uint64_t tick;
+    char buf[600];
+    if (!path_ok(src))
+        return NULL;
+    const char *path = resolve(src, buf, sizeof buf);
+    size_t pl = strlen(path);
+    bool svg = pl > 4 && !strcasecmp(path + pl - 4, ".svg");
+    int slot = 0;
+    for (int i = 0; i < 8; i++) {
+        if (bank[i].px && !strcmp(bank[i].path, path) && (!svg || (bank[i].rw == want_w && bank[i].rh == want_h))) {
+            bank[i].used = ++tick;
+            *w = bank[i].w, *h = bank[i].h;
+            return bank[i].px;
+        }
+        if (bank[i].used < bank[slot].used)
+            slot = i;
+    }
+    uint32_t *px = NULL;
+    int iw = 0, ih = 0;
+    if (svg) {
+        NSVGimage *im = nsvgParseFromFile(path, "px", 96);
+        NSVGrasterizer *rz = im ? nsvgCreateRasterizer() : NULL;
+        if (rz && im->width > 0 && im->height > 0) {
+            float s = fmaxf((float)want_w / im->width, (float)want_h / im->height);
+            if (s <= 0) s = 1;
+            iw = (int)ceilf(im->width * s), ih = (int)ceilf(im->height * s);
+            if (iw > MAX_SIDE) iw = MAX_SIDE;
+            if (ih > MAX_SIDE) ih = MAX_SIDE;
+            unsigned char *rgba = malloc((size_t)iw * (size_t)ih * 4);
+            px = rgba ? malloc((size_t)iw * (size_t)ih * 4) : NULL;
+            if (px) {
+                nsvgRasterize(rz, im, 0, 0, s, rgba, iw, ih, iw * 4);
+                for (size_t i = 0; i < (size_t)iw * (size_t)ih; i++) {
+                    unsigned a = rgba[i * 4 + 3];
+                    unsigned r = a ? rgba[i * 4] * 255u / a : 0, g = a ? rgba[i * 4 + 1] * 255u / a : 0,
+                             b = a ? rgba[i * 4 + 2] * 255u / a : 0;
+                    px[i] = a << 24 | (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+                }
+            }
+            free(rgba);
+        }
+        if (rz) nsvgDeleteRasterizer(rz);
+        if (im) nsvgDelete(im);
+    } else {
+        image *im = image_load(path, MAX_SIDE);
+        if (im) {
+            iw = im->w, ih = im->h, px = im->px;
+            im->px = NULL;
+            image_free(im);
+        }
+    }
+    if (!px)
+        return NULL;
+    free(bank[slot].px);
+    snprintf(bank[slot].path, sizeof bank[slot].path, "%s", path);
+    bank[slot].w = iw, bank[slot].h = ih, bank[slot].rw = want_w, bank[slot].rh = want_h;
+    bank[slot].px = px;
+    bank[slot].used = ++tick;
+    *w = iw, *h = ih;
+    return px;
+}
+
 /* Draws it in r; false if it couldn't be (missing, not a picture, not allowed). */
 bool fmi_media_draw(canvas *c, const fm_node *n, rect r, float op) {
     if (tag_is(n, "pixels")) {

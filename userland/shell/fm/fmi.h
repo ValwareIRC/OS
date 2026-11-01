@@ -41,9 +41,22 @@ static inline bool is_blank_text(const fm_node *n) {
     return true;
 }
 
+/* CSS grid (fm/grid.c) */
+void fmi_grid_measure(fm_doc *d, fm_node *n, fm_node **kids, int nk, float aw, float ah, float *w, float *h);
+void fmi_grid_arrange(fm_doc *d, fm_node *n, fm_node **kids, int nk, rect c);
+
+/* Rich text (fm/rich.c): words and inline elements flowed as one paragraph */
+bool fmi_is_inline(const fm_node *n);
+bool fmi_is_rich(const fm_node *n);
+void fmi_rich_layout(fm_node *para, float width, float *w, float *h);
+void fmi_rich_place(fm_node *para, rect content);
+void fmi_rich_draw(canvas *c, fm_node *para, float op);
+void fmi_rich_free(fm_node *n);
+
 /* Pictures (fm/media.c): <image src> and inline <svg> */
 bool fmi_media_size(const fm_node *n, float *w, float *h);
 bool fmi_media_draw(canvas *c, const fm_node *n, rect r, float op);
+const uint32_t *fmi_picture(const char *src, int want_w, int want_h, int *w, int *h);
 
 /* In the flow of its parent's layout? */
 static inline bool in_flow(const fm_node *n) {

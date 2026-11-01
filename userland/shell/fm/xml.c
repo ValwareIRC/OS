@@ -60,6 +60,8 @@ static void free_node(fm_node *n) {
     while (n) {
         if (n->kind == FM_ELEM && !strcmp(n->tag, "canvas"))
             fmi_canvas_forget(n);
+        extern void fmi_rich_free(fm_node *n);
+        fmi_rich_free(n);
         fm_node *next = n->next;
         free_node(n->first);
         free(n->text);
@@ -298,6 +300,16 @@ static void add_text(struct parser *ps, fm_node *parent, const char *s, size_t n
         space = false;
         sb_addn(&t, c, 1);
     }
+    if (t.p && isspace((unsigned char)raw.p[0])) { /* one space each side is kept: rich text joins words over tags */
+        sbuf l;
+        sb_init(&l);
+        sb_add(&l, " ");
+        sb_add(&l, t.p);
+        sb_free(&t);
+        t = l;
+    }
+    if (t.p && space)
+        sb_add(&t, " ");
     sb_free(&raw);
     if (!t.p)
         return;

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 /* The stylesheet: CSS syntax, a deliberately small property set, and both
  * short names and the real CSS spellings models already know. */
@@ -23,8 +24,17 @@ struct compound {
     char cls[4][32];
     int ncls;
     char attr[24], attr_val[48];
+    char attr_op; /* '=' exact, '^' starts, '$' ends, '*' contains, '~' a word of it, 0 any value */
     uint8_t states;
-    char comb; /* relation to the compound on its left: ' ' descendant, '>' child */
+    char comb; /* relation to the compound on its left: ' ' descendant, '>' child, '+' next sibling, '~' a later sibling */
+    /* structure: :first-child (nth 0n+1), :last-child (from the end), :nth-child(an+b), :only-child, :empty */
+    bool nth, nth_last, only, empty;
+    int nth_a, nth_b;
+    /* :not(x), x simple: a tag, #id, .class, [attr] or a state */
+    bool has_not;
+    char not_tag[24], not_id[48], not_cls[32], not_attr[24];
+    uint8_t not_states;
+    char pseudo; /* ::before 'b', ::after 'a' */
 };
 
 struct selector {
@@ -39,6 +49,18 @@ struct decl {
     bool important; /* !important: after everything else, the element's own style too */
 };
 
+#define KF_STOPS 16
+struct fm_keyframes {
+    char name[40];
+    int n;
+    float at[KF_STOPS];          /* 0..1, ascending */
+    struct decl *decls[KF_STOPS];
+    int nd[KF_STOPS];
+};
+
+bool fm_animating;
+int fm_media_w = 1600, fm_media_h = 900;
+
 struct fm_rule {
     struct selector sel;
     char text[100]; /* the selector as written, for telling the writer which rule wins */
@@ -50,6 +72,10 @@ struct fm_rule {
 /* The OS's defaults: structure only. How anything looks is up to the AI. */
 static const char *const builtin_css =
     "facet, desktop { color: #ffffff; font: Inter 16; }\n"
+    "b, strong { font-weight: bold; } i, em, cite { font-style: italic; } u, ins { text-decoration: underline; }\n"
+    "s, del { text-decoration: line-through; } code, kbd { font-family: JetBrainsMono; }\n"
+    "mark { background: #ffe066; color: #1a1a1a; padding: 0 2; } small { font-size: 12; }\n"
+    "a { text-decoration: underline; }\n"
     "row, taskbar, menubar, dock, button, windowlist, search { direction: row; align: center; }\n"
     "column, popover, sheet, panel, window, stack { direction: column; }\n"
     "button { justify: center; gap: 6; }\n"
@@ -255,53 +281,128 @@ static bool parse_bg(const char *s, fm_bg *bg) {
         bg->kind = FM_BG_NONE;
         return true;
     }
-    bool linear = !strncasecmp(s, "linear", 6), radial = !strncasecmp(s, "radial", 6);
-    if (linear || radial) {
+    bool repeating = !strncasecmp(s, "repeating-", 10);
+    const char *k = repeating ? s + 10 : s;
+    bool linear = !strncasecmp(k, "linear", 6), radial = !strncasecmp(k, "radial", 6), conic = !strncasecmp(k, "conic", 5);
+    if (linear || radial || conic) {
         const char *p = strchr(s, '(');
         if (!p)
             return false;
         p++;
-        float angle = 180;
-        color cs[6];
-        int nc = 0;
+        fm_bg g;
+        memset(&g, 0, sizeof g);
+        g.kind = linear ? FM_BG_LINEAR : radial ? FM_BG_RADIAL : FM_BG_CONIC;
+        g.repeating = repeating;
+        g.angle = linear ? 180 : 0;
+        g.cx = g.cy = 0.5f;
+        float pos[FM_STOPS];
+        bool has_pos[FM_STOPS];
+        /* the first part may say which way (linear), what shape and where (radial), where from (conic) */
         while (*p && *p != ')') {
             p = skip_ws(p);
-            const char *before = p;
-            color c;
-            if (parse_color(&p, &c)) {
-                if (nc < 6)
-                    cs[nc++] = c;
-                /* skip stop positions like "40%" */
-                while (*p && *p != ',' && *p != ')')
-                    p++;
-            } else if (!strncasecmp(p, "to ", 3)) {
-                p += 3;
-                p = skip_ws(p);
-                if (!strncasecmp(p, "bottom", 6)) angle = 180;
-                else if (!strncasecmp(p, "top", 3)) angle = 0;
-                else if (!strncasecmp(p, "right", 5)) angle = 90;
-                else if (!strncasecmp(p, "left", 4)) angle = 270;
-                while (*p && *p != ',' && *p != ')')
-                    p++;
-            } else {
-                bool ok;
-                float v = parse_num(&p, &ok);
-                if (ok)
-                    angle = v;
-                while (*p && *p != ',' && *p != ')')
-                    p++;
+            const char *part = p;
+            int depth = 0;
+            while (*p && !(depth == 0 && (*p == ',' || *p == ')'))) {
+                if (*p == '(') depth++;
+                if (*p == ')') depth--;
+                p++;
             }
+            char item[160];
+            snprintf(item, sizeof item, "%.*s", (int)(p - part), part);
             if (*p == ',')
                 p++;
-            if (p == before)
-                p++;
+            const char *q = skip_ws(item);
+            color c;
+            const char *cq = q;
+            if (parse_color(&cq, &c)) {
+                if (g.nstops < FM_STOPS) {
+                    g.stop_c[g.nstops] = c;
+                    cq = skip_ws(cq);
+                    has_pos[g.nstops] = false;
+                    if (*cq) { /* "40%" (or px, taken as a share of 300) */
+                        bool ok;
+                        float v = parse_num(&cq, &ok);
+                        if (ok) {
+                            pos[g.nstops] = *cq == '%' ? v / 100 : v / 300;
+                            has_pos[g.nstops] = true;
+                        }
+                    }
+                    g.nstops++;
+                }
+                continue;
+            }
+            if (g.nstops) /* words after the colours begin: nothing more to read here */
+                continue;
+            if (linear) {
+                if (!strncasecmp(q, "to ", 3)) {
+                    q = skip_ws(q + 3);
+                    bool t = strcasestr(q, "top") != NULL, b = strcasestr(q, "bottom") != NULL;
+                    bool l = strcasestr(q, "left") != NULL, r = strcasestr(q, "right") != NULL;
+                    g.angle = t ? (l ? 315 : r ? 45 : 0) : b ? (l ? 225 : r ? 135 : 180) : l ? 270 : r ? 90 : 180;
+                } else {
+                    bool ok;
+                    float v = parse_num(&q, &ok);
+                    if (ok)
+                        g.angle = !strncasecmp(q, "turn", 4) ? v * 360 : !strncasecmp(q, "rad", 3) ? v * 57.29578f : v;
+                }
+            } else {
+                if (radial && strcasestr(q, "circle"))
+                    g.circle = true;
+                const char *from = conic ? strcasestr(q, "from") : NULL;
+                if (from) {
+                    const char *f2 = skip_ws(from + 4);
+                    bool ok;
+                    float v = parse_num(&f2, &ok);
+                    if (ok)
+                        g.angle = !strncasecmp(f2, "turn", 4) ? v * 360 : v;
+                }
+                const char *at = strcasestr(q, "at ");
+                if (at) {
+                    const char *a2 = skip_ws(at + 3);
+                    float xy[2] = {0.5f, 0.5f};
+                    for (int i = 0; i < 2 && *a2; i++) {
+                        a2 = skip_ws(a2);
+                        if (!strncasecmp(a2, "left", 4) || !strncasecmp(a2, "top", 3)) xy[i] = 0;
+                        else if (!strncasecmp(a2, "right", 5) || !strncasecmp(a2, "bottom", 6)) xy[i] = 1;
+                        else if (!strncasecmp(a2, "center", 6)) xy[i] = 0.5f;
+                        else {
+                            bool ok;
+                            float v = parse_num(&a2, &ok);
+                            if (ok)
+                                xy[i] = v / 100;
+                        }
+                        while (*a2 && !isspace((unsigned char)*a2))
+                            a2++;
+                    }
+                    g.cx = xy[0], g.cy = xy[1];
+                }
+            }
         }
-        if (nc == 0)
+        if (g.nstops == 0)
             return false;
-        bg->kind = linear ? FM_BG_LINEAR : FM_BG_RADIAL;
-        bg->a = cs[0];
-        bg->b = nc > 1 ? cs[nc - 1] : cs[0];
-        bg->angle = angle;
+        /* positions not given are spread evenly between the ones that are, as CSS does */
+        if (!has_pos[0])
+            pos[0] = 0, has_pos[0] = true;
+        if (!has_pos[g.nstops - 1])
+            pos[g.nstops - 1] = g.nstops > 1 ? 1 : 0, has_pos[g.nstops - 1] = true;
+        for (int i = 1; i < g.nstops; i++) {
+            if (has_pos[i]) {
+                if (pos[i] < pos[i - 1])
+                    pos[i] = pos[i - 1];
+                continue;
+            }
+            int j = i;
+            while (!has_pos[j])
+                j++;
+            for (int m = i; m < j; m++)
+                pos[m] = pos[i - 1] + (pos[j] - pos[i - 1]) * (float)(m - i + 1) / (float)(j - i + 1);
+            i = j - 1;
+        }
+        for (int i = 0; i < g.nstops; i++)
+            g.stop_p[i] = pos[i];
+        g.a = g.stop_c[0];
+        g.b = g.stop_c[g.nstops - 1];
+        *bg = g;
         return true;
     }
     color c;
@@ -357,6 +458,533 @@ static void parse_font_family(const char *v, char *out, size_t n) {
 
 /* Applies one declaration. Returns false for unknown properties or values
  * it can't read (the caller reports those to the AI). */
+/* ---- animation ---- */
+
+static char *resolve_vars(const fm_doc *d, const char *v, int depth);
+
+static float time_ms(const char *v) {
+    char *e;
+    float x = strtof(v, &e);
+    return !strncasecmp(e, "ms", 2) ? x : x * 1000;
+}
+
+/* one word of an animation: a timing, a direction, a fill mode; true if it was one */
+static bool anim_word(fm_style *st, const char *w) {
+    static const struct { const char *w; char what, v; } t[] = {
+        {"linear", 'e', 'l'}, {"ease-in-out", 'e', 'b'}, {"ease-in", 'e', 'i'}, {"ease-out", 'e', 'o'}, {"ease", 'e', 'e'},
+        {"alternate-reverse", 'd', 'A'}, {"alternate", 'd', 'a'}, {"reverse", 'd', 'r'}, {"normal", 'd', 'n'},
+        {"forwards", 'f', 'f'}, {"backwards", 'f', 'b'}, {"both", 'f', 'B'}, {"none", 'f', 'n'}};
+    for (size_t i = 0; i < sizeof t / sizeof t[0]; i++)
+        if (!strncasecmp(w, t[i].w, strlen(t[i].w))) {
+            if (t[i].what == 'e') st->anim_ease = t[i].v;
+            else if (t[i].what == 'd') st->anim_dir = t[i].v;
+            else st->anim_fill = t[i].v;
+            return true;
+        }
+    if (!strncasecmp(w, "steps(", 6)) {
+        st->anim_ease = 's';
+        st->anim_steps = atoi(w + 6);
+        return true;
+    }
+    if (!strncasecmp(w, "cubic-bezier(", 13)) {
+        st->anim_ease = 'c';
+        sscanf(w + 13, "%f , %f , %f , %f", &st->anim_bez[0], &st->anim_bez[1], &st->anim_bez[2], &st->anim_bez[3]);
+        return true;
+    }
+    if (!strncasecmp(w, "step-end", 8) || !strncasecmp(w, "step-start", 10)) {
+        st->anim_ease = 's';
+        st->anim_steps = 1;
+        return true;
+    }
+    return false;
+}
+
+/* "pulse 2s ease-in-out 0.5s infinite alternate": the first time is the duration, the second the delay */
+static void anim_shorthand(fm_style *st, const char *v) {
+    st->anim_name[0] = 0;
+    st->anim_dur = st->anim_delay = 0;
+    st->anim_count = 1;
+    st->anim_dir = 'n', st->anim_ease = 'e', st->anim_fill = 'n';
+    int times = 0;
+    for (const char *p = skip_ws(v); *p;) {
+        char w[48];
+        int k = 0;
+        int depth = 0;
+        while (*p && (depth || (*p != ' ' && *p != ',')) && k < 47) {
+            if (*p == '(') depth++;
+            if (*p == ')') depth--;
+            w[k++] = *p++;
+        }
+        w[k] = 0;
+        while (*p == ' ' || *p == ',')
+            p++;
+        if (!w[0])
+            break;
+        if (isdigit((unsigned char)w[0]) || w[0] == '.') {
+            char *e;
+            float x = strtof(w, &e);
+            if (!strncasecmp(e, "ms", 2) || *e == 's') {
+                if (times++ == 0) st->anim_dur = time_ms(w);
+                else st->anim_delay = time_ms(w);
+            } else {
+                st->anim_count = x;
+            }
+        } else if (!strncasecmp(w, "infinite", 8)) {
+            st->anim_count = -1;
+        } else if (!anim_word(st, w) && !st->anim_name[0]) {
+            snprintf(st->anim_name, sizeof st->anim_name, "%s", w);
+        }
+    }
+}
+
+/* cubic-bezier(x1, y1, x2, y2) at x = t (Newton, then bisection) */
+static float bezier(float x1, float y1, float x2, float y2, float t) {
+    float u = t;
+    for (int i = 0; i < 8; i++) {
+        float x = 3 * (1 - u) * (1 - u) * u * x1 + 3 * (1 - u) * u * u * x2 + u * u * u - t;
+        float dx = 3 * (1 - u) * (1 - u) * x1 + 6 * (1 - u) * u * (x2 - x1) + 3 * u * u * (1 - x2);
+        if (fabsf(x) < 1e-4f)
+            break;
+        if (fabsf(dx) < 1e-6f)
+            break;
+        u -= x / dx;
+        u = u < 0 ? 0 : u > 1 ? 1 : u;
+    }
+    return 3 * (1 - u) * (1 - u) * u * y1 + 3 * (1 - u) * u * u * y2 + u * u * u;
+}
+
+static float ease(const fm_style *st, float t) {
+    switch (st->anim_ease) {
+    case 'l': return t;
+    case 'i': return bezier(0.42f, 0, 1, 1, t);
+    case 'o': return bezier(0, 0, 0.58f, 1, t);
+    case 'b': return bezier(0.42f, 0, 0.58f, 1, t);
+    case 's': return st->anim_steps > 0 ? floorf(t * st->anim_steps) / st->anim_steps : t;
+    case 'c': return bezier(st->anim_bez[0], st->anim_bez[1], st->anim_bez[2], st->anim_bez[3], t);
+    default: return bezier(0.25f, 0.1f, 0.25f, 1, t); /* "ease" */
+    }
+}
+
+static color mixc(color a, color b, float t) { return color_mix(a, b, t); }
+static float mixf(float a, float b, float t) { return a + (b - a) * t; }
+
+/* What moves between two keyframes: colours, sizes, offsets, light; the rest switches halfway */
+static void blend(fm_style *a, const fm_style *b, float t) {
+    fm_style keep = *a;
+    if (t >= 0.5f) /* what can't blend switches over halfway */
+        *a = *b;
+    a->opacity = mixf(keep.opacity, b->opacity, t);
+    a->scale = mixf(keep.scale, b->scale, t);
+    a->tx = mixf(keep.tx, b->tx, t), a->ty = mixf(keep.ty, b->ty, t);
+    a->tx_pct = mixf(keep.tx_pct, b->tx_pct, t), a->ty_pct = mixf(keep.ty_pct, b->ty_pct, t);
+    a->rotate = mixf(keep.rotate, b->rotate, t);
+    a->color = mixc(keep.color, b->color, t);
+    a->border = mixc(keep.border, b->border, t);
+    a->border_w = mixf(keep.border_w, b->border_w, t);
+    a->shadow = mixc(keep.shadow, b->shadow, t);
+    a->shadow_x = mixf(keep.shadow_x, b->shadow_x, t), a->shadow_y = mixf(keep.shadow_y, b->shadow_y, t);
+    a->shadow_blur = mixf(keep.shadow_blur, b->shadow_blur, t);
+    a->glow = mixc(keep.glow, b->glow, t);
+    a->glow_size = mixf(keep.glow_size, b->glow_size, t);
+    a->blur = mixf(keep.blur, b->blur, t);
+    a->letter_spacing = mixf(keep.letter_spacing, b->letter_spacing, t);
+    a->font_size = mixf(keep.font_size, b->font_size, t);
+    for (int k = 0; k < 4; k++)
+        a->radius[k] = mixf(keep.radius[k], b->radius[k], t);
+    if (keep.bg.kind == b->bg.kind || keep.bg.kind == FM_BG_NONE || b->bg.kind == FM_BG_NONE) {
+        fm_bg x = t >= 0.5f ? b->bg : keep.bg;
+        color ka = keep.bg.kind == FM_BG_NONE ? color_alpha(b->bg.a, 0) : keep.bg.a;
+        color kb = keep.bg.kind == FM_BG_NONE ? color_alpha(b->bg.b, 0) : keep.bg.b;
+        color ba = b->bg.kind == FM_BG_NONE ? color_alpha(keep.bg.a, 0) : b->bg.a;
+        color bb = b->bg.kind == FM_BG_NONE ? color_alpha(keep.bg.b, 0) : b->bg.b;
+        if (x.kind == FM_BG_NONE)
+            x = keep.bg.kind == FM_BG_NONE ? b->bg : keep.bg;
+        x.a = mixc(ka, ba, t), x.b = mixc(kb, bb, t);
+        x.angle = mixf(keep.bg.angle, b->bg.angle, t);
+        if (keep.bg.nstops == b->bg.nstops)
+            for (int i = 0; i < x.nstops; i++) {
+                x.stop_c[i] = mixc(keep.bg.stop_c[i], b->bg.stop_c[i], t);
+                x.stop_p[i] = mixf(keep.bg.stop_p[i], b->bg.stop_p[i], t);
+            }
+        else if (x.nstops == 0 && x.kind == FM_BG_SOLID)
+            x.a = x.b = mixc(ka, ba, t);
+        a->bg = x;
+    }
+    if (keep.width.unit == FM_PX && b->width.unit == FM_PX)
+        a->width.v = mixf(keep.width.v, b->width.v, t);
+    if (keep.height.unit == FM_PX && b->height.unit == FM_PX)
+        a->height.v = mixf(keep.height.v, b->height.v, t);
+    if (keep.width.unit == FM_PCT && b->width.unit == FM_PCT)
+        a->width.v = mixf(keep.width.v, b->width.v, t);
+}
+
+static double mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+}
+
+/* Runs n's animation on its style, now */
+static bool apply(fm_style *st, const char *prop, const char *v);
+static void animate(fm_doc *d, fm_node *n) {
+    fm_style *st = &n->st;
+    if (!st->anim_name[0] || st->anim_dur <= 0) {
+        n->anim_was[0] = 0;
+        return;
+    }
+    struct fm_keyframes *k = NULL;
+    for (int i = 0; i < d->nkf && !k; i++)
+        if (!strcmp(d->kf[i].name, st->anim_name))
+            k = &d->kf[i];
+    if (!k)
+        return;
+    double now = mono_ms();
+    if (strcmp(n->anim_was, st->anim_name)) { /* a new animation starts from now */
+        snprintf(n->anim_was, sizeof n->anim_was, "%s", st->anim_name);
+        n->anim_t0 = now;
+    }
+    double e = now - n->anim_t0 - st->anim_delay;
+    if (e < 0 && st->anim_fill != 'b' && st->anim_fill != 'B') {
+        fm_animating = true;
+        return;
+    }
+    if (e < 0)
+        e = 0;
+    double iters = e / st->anim_dur;
+    bool done = st->anim_count >= 0 && iters >= st->anim_count;
+    if (done && st->anim_fill != 'f' && st->anim_fill != 'B')
+        return;
+    if (done)
+        iters = st->anim_count > 0 ? st->anim_count - 1e-6 : 0;
+    else
+        fm_animating = true;
+    int it = (int)iters;
+    float p = (float)(iters - it);
+    if (done && st->anim_count > 0 && fabs(st->anim_count - floor(st->anim_count)) < 1e-6)
+        p = 1;
+    bool rev = st->anim_dir == 'r' || (st->anim_dir == 'a' && it % 2) || (st->anim_dir == 'A' && !(it % 2));
+    if (rev)
+        p = 1 - p;
+    /* the keyframes either side of p; a missing 0% or 100% is the element's own style */
+    float at0 = 0, at1 = 1;
+    int i0 = -1, i1 = -1;
+    for (int i = 0; i < k->n; i++) {
+        if (k->at[i] <= p && (i0 < 0 || k->at[i] >= at0))
+            i0 = i, at0 = k->at[i];
+        if (k->at[i] >= p && (i1 < 0 || k->at[i] <= at1))
+            i1 = i, at1 = k->at[i];
+    }
+    if (i0 < 0)
+        at0 = 0;
+    if (i1 < 0)
+        at1 = 1;
+    fm_style a = *st, b = *st;
+    if (i0 >= 0)
+        for (int j = 0; j < k->nd[i0]; j++)
+            apply(&a, k->decls[i0][j].prop, k->decls[i0][j].value);
+    if (i1 >= 0)
+        for (int j = 0; j < k->nd[i1]; j++)
+            apply(&b, k->decls[i1][j].prop, k->decls[i1][j].value);
+    float t = at1 > at0 ? (p - at0) / (at1 - at0) : 0;
+    t = ease(st, t < 0 ? 0 : t > 1 ? 1 : t);
+    blend(&a, &b, t);
+    /* the animation itself stays as it was */
+    memcpy(a.anim_name, st->anim_name, sizeof a.anim_name);
+    *st = a;
+}
+
+/* @keyframes NAME { from { } 50% { } to { } } */
+static void read_keyframes(fm_doc *d, const char *head, const char *body, const char *end) {
+    const char *nm = skip_ws(head + 10);
+    char name[40];
+    int k = 0;
+    while (*nm && !isspace((unsigned char)*nm) && *nm != '{' && k < 39)
+        name[k++] = *nm++;
+    name[k] = 0;
+    if (!name[0])
+        return;
+    d->kf = realloc(d->kf, sizeof *d->kf * (size_t)(d->nkf + 1));
+    struct fm_keyframes *f = &d->kf[d->nkf++];
+    memset(f, 0, sizeof *f);
+    snprintf(f->name, sizeof f->name, "%s", name);
+    for (const char *p = body; p < end;) {
+        const char *o = memchr(p, '{', (size_t)(end - p));
+        if (!o)
+            break;
+        const char *c = memchr(o, '}', (size_t)(end - o));
+        if (!c)
+            break;
+        char sel[64];
+        snprintf(sel, sizeof sel, "%.*s", (int)(o - p) < 63 ? (int)(o - p) : 63, p);
+        char *decl_text = strndup(o + 1, (size_t)(c - o - 1));
+        /* "0%, 50%" share a block */
+        for (char *save, *w = strtok_r(sel, ",", &save); w && f->n < KF_STOPS; w = strtok_r(NULL, ",", &save)) {
+            const char *s = skip_ws(w);
+            float at = !strncasecmp(s, "from", 4) ? 0 : !strncasecmp(s, "to", 2) ? 1 : strtof(s, NULL) / 100;
+            int i = f->n++;
+            f->at[i] = at;
+            f->decls[i] = malloc(sizeof(struct decl) * 32);
+            char *dt = strdup(decl_text);
+            for (char *s2, *t = strtok_r(dt, ";", &s2); t && f->nd[i] < 32; t = strtok_r(NULL, ";", &s2)) {
+                char *colon = strchr(t, ':');
+                if (!colon)
+                    continue;
+                *colon = 0;
+                struct decl *x = &f->decls[i][f->nd[i]];
+                memset(x, 0, sizeof *x);
+                if (sscanf(t, " %31s", x->prop) != 1)
+                    continue;
+                char *v = colon + 1;
+                while (isspace((unsigned char)*v))
+                    v++;
+                x->value = resolve_vars(d, v, 0);
+                f->nd[i]++;
+            }
+            free(dt);
+        }
+        free(decl_text);
+        p = c + 1;
+    }
+}
+
+static void free_keyframes(fm_doc *d) {
+    for (int i = 0; i < d->nkf; i++)
+        for (int s = 0; s < d->kf[i].n; s++) {
+            for (int j = 0; j < d->kf[i].nd[s]; j++)
+                free(d->kf[i].decls[s][j].value);
+            free(d->kf[i].decls[s]);
+        }
+    free(d->kf);
+    d->kf = NULL;
+    d->nkf = 0;
+}
+
+/* @media (min-width: 900px) and (orientation: landscape): judged against the screen */
+static bool media_holds(const char *q) {
+    if (!strcasestr(q, "width") && !strcasestr(q, "height") && !strcasestr(q, "orientation") &&
+        !strcasestr(q, "aspect"))
+        return strcasestr(q, "screen") || strcasestr(q, "all");
+    bool ok = true;
+    for (const char *p = q; (p = strchr(p, '(')); p++) {
+        char feat[32] = "", val[32] = "";
+        sscanf(p + 1, " %31[^:) ] : %31[^)]", feat, val);
+        float v = strtof(val, NULL);
+        if (!strcasecmp(feat, "min-width")) ok &= fm_media_w >= v;
+        else if (!strcasecmp(feat, "max-width")) ok &= fm_media_w <= v;
+        else if (!strcasecmp(feat, "min-height")) ok &= fm_media_h >= v;
+        else if (!strcasecmp(feat, "max-height")) ok &= fm_media_h <= v;
+        else if (!strcasecmp(feat, "orientation"))
+            ok &= strcasestr(val, "portrait") ? fm_media_h > fm_media_w : fm_media_w >= fm_media_h;
+    }
+    if (strcasestr(q, " or ") || strchr(q, ',')) { /* any of them */
+        ok = false;
+        char copy[256];
+        snprintf(copy, sizeof copy, "%s", q);
+        for (char *s, *part = strtok_r(copy, ",", &s); part; part = strtok_r(NULL, ",", &s))
+            ok |= media_holds(part) && !strcasestr(part, " or ");
+    }
+    return ok;
+}
+
+/* ---- filters, clip paths ---- */
+
+static float angle_of(const char *v) {
+    char *e;
+    float a = strtof(skip_ws(v), &e);
+    if (!strncasecmp(e, "turn", 4)) return a * 360;
+    if (!strncasecmp(e, "rad", 3)) return a * 57.29578f;
+    if (!strncasecmp(e, "grad", 4)) return a * 0.9f;
+    return a;
+}
+
+static bool apply(fm_style *st, const char *prop, const char *v);
+static void parse_shadow_into(fm_style *st, const char *v) {
+    char inner[160];
+    const char *e = strchr(v, ')');
+    snprintf(inner, sizeof inner, "%.*s", e ? (int)(e - v) : (int)strlen(v), v);
+    fm_style tmp = *st;
+    apply(&tmp, "box-shadow", inner);
+    if (tmp.nshadow && st->nshadow < 4) {
+        int i = st->nshadow++;
+        st->sh_x[i] = tmp.sh_x[0], st->sh_y[i] = tmp.sh_y[0], st->sh_blur[i] = tmp.sh_blur[0];
+        st->sh_spread[i] = 0, st->sh_c[i] = tmp.sh_c[0];
+        if (i == 0)
+            st->shadow_x = tmp.shadow_x, st->shadow_y = tmp.shadow_y, st->shadow_blur = tmp.shadow_blur,
+            st->shadow = tmp.shadow;
+    }
+}
+
+/* "blur(4px) brightness(1.2) grayscale(100%) ..." */
+static bool parse_filter(fm_style *st, const char *v) {
+    st->has_filter = false;
+    st->f_blur = st->f_gray = st->f_sepia = st->f_hue = st->f_invert = 0;
+    st->f_bright = st->f_contrast = st->f_sat = st->f_opacity = 1;
+    st->bg_size = 'a', st->bg_px = st->bg_py = 0.5f, st->bg_repeat = 'r';
+    st->row_gap = st->col_gap = -1;
+    v = skip_ws(v);
+    if (!strncasecmp(v, "none", 4))
+        return true;
+    bool any = false;
+    for (const char *p = v; *p;) {
+        p = skip_ws(p);
+        const char *o = strchr(p, '(');
+        if (!o)
+            break;
+        char name[24];
+        snprintf(name, sizeof name, "%.*s", (int)(o - p) < 23 ? (int)(o - p) : 23, p);
+        char *e;
+        float x = strtof(o + 1, &e);
+        if (*e == '%')
+            x /= 100;
+        if (!strcasecmp(name, "blur")) st->f_blur = x;
+        else if (!strcasecmp(name, "brightness")) st->f_bright = x;
+        else if (!strcasecmp(name, "contrast")) st->f_contrast = x;
+        else if (!strcasecmp(name, "grayscale")) st->f_gray = x;
+        else if (!strcasecmp(name, "sepia")) st->f_sepia = x;
+        else if (!strcasecmp(name, "saturate")) st->f_sat = x;
+        else if (!strcasecmp(name, "hue-rotate")) st->f_hue = angle_of(o + 1);
+        else if (!strcasecmp(name, "invert")) st->f_invert = x;
+        else if (!strcasecmp(name, "opacity")) st->f_opacity = x;
+        else if (!strcasecmp(name, "drop-shadow")) { /* a shadow that follows the shape: drawn as its box's */
+            parse_shadow_into(st, o + 1);
+        } else
+            return false;
+        any = true;
+        const char *c = strchr(o, ')');
+        p = c ? c + 1 : o + strlen(o);
+    }
+    st->has_filter = any;
+    return any;
+}
+
+/* circle(40% at 50% 50%), ellipse(50% 30% at 50% 50%), inset(10px 20px round 8px), polygon(50% 0, 100% 100%, 0 100%) */
+static float clip_num(const char **p, bool *pct) {
+    *p = skip_ws(*p);
+    char *e;
+    float x = strtof(*p, &e);
+    *pct = *e == '%';
+    *p = e + (*pct ? 1 : (!strncasecmp(e, "px", 2) ? 2 : 0));
+    return *pct ? x / 100 : x;
+}
+
+static bool parse_clip(fm_style *st, const char *v) {
+    st->clip = 0;
+    st->clip_n = 0;
+    if (!strncasecmp(v, "none", 4))
+        return true;
+    const char *o = strchr(v, '(');
+    if (!o)
+        return false;
+    const char *p = o + 1;
+    bool pct;
+    if (!strncasecmp(v, "circle", 6) || !strncasecmp(v, "ellipse", 7)) {
+        bool circle = v[0] == 'c' || v[0] == 'C';
+        float r1 = 0.5f, r2 = 0.5f, cx = 0.5f, cy = 0.5f;
+        const char *at = strcasestr(p, "at ");
+        if (skip_ws(p) != at && *skip_ws(p) != ')') {
+            r1 = clip_num(&p, &pct);
+            r2 = circle ? r1 : clip_num(&p, &pct);
+        }
+        if (at) {
+            p = at + 3;
+            cx = clip_num(&p, &pct);
+            cy = clip_num(&p, &pct);
+        }
+        st->clip = circle ? 'c' : 'e';
+        st->clip_v[0] = r1, st->clip_v[1] = r2, st->clip_v[2] = cx, st->clip_v[3] = cy;
+        st->clip_n = 4;
+        return true;
+    }
+    if (!strncasecmp(v, "inset", 5)) {
+        float t[4] = {0}, r = 0;
+        int n = 0;
+        while (*skip_ws(p) && *skip_ws(p) != ')' && strncasecmp(skip_ws(p), "round", 5) && n < 4) {
+            t[n++] = clip_num(&p, &pct);
+            if (!pct)
+                t[n - 1] = -t[n - 1]; /* px: negative, told apart from fractions */
+        }
+        float tt[4];
+        tt[0] = t[0], tt[1] = n > 1 ? t[1] : t[0], tt[2] = n > 2 ? t[2] : t[0], tt[3] = n > 3 ? t[3] : tt[1];
+        const char *rd = strcasestr(p, "round");
+        if (rd) {
+            const char *q = rd + 5;
+            r = clip_num(&q, &pct);
+        }
+        st->clip = 'i';
+        memcpy(st->clip_v, tt, sizeof tt);
+        st->clip_v[4] = r;
+        st->clip_n = 5;
+        return true;
+    }
+    if (!strncasecmp(v, "polygon", 7)) {
+        st->clip = 'p';
+        while (*skip_ws(p) && *skip_ws(p) != ')' && st->clip_n < 34) {
+            float x = clip_num(&p, &pct);
+            if (!pct)
+                x = -x;
+            float y = clip_num(&p, &pct);
+            if (!pct)
+                y = -y;
+            st->clip_v[st->clip_n++] = x;
+            st->clip_v[st->clip_n++] = y;
+            p = skip_ws(p);
+            if (*p == ',')
+                p++;
+        }
+        return st->clip_n >= 6;
+    }
+    return false;
+}
+
+/* "span 2", "1 / 3", "2 / span 3", "1 / -1" */
+static void grid_lines(const char *v, short *a, short *b, short *span) {
+    *a = *b = *span = 0;
+    const char *slash = strchr(v, '/');
+    char first[32] = "", second[32] = "";
+    snprintf(first, sizeof first, "%.*s", slash ? (int)(slash - v) : (int)strlen(v), v);
+    if (slash)
+        snprintf(second, sizeof second, "%s", skip_ws(slash + 1));
+    const char *f = skip_ws(first);
+    if (!strncasecmp(f, "span", 4))
+        *span = (short)atoi(f + 4);
+    else
+        *a = (short)atoi(f);
+    if (second[0]) {
+        if (!strncasecmp(second, "span", 4))
+            *span = (short)atoi(second + 4);
+        else
+            *b = (short)atoi(second);
+    }
+}
+
+/* "anchor(bottom)", "anchor(--menu left)", "calc(anchor(top) - 8px)" */
+static void anchor_inset(fm_style *st, int k, const char *v) {
+    const char *a = strcasestr(v, "anchor(") + 7;
+    char w1[32] = "", w2[32] = "";
+    sscanf(a, " %31[^ ,)] %31[^ ,)]", w1, w2);
+    const char *side = w1;
+    st->anc_of[k][0] = 0;
+    if (w1[0] == '-' && w1[1] == '-') {
+        snprintf(st->anc_of[k], sizeof st->anc_of[k], "%s", w1);
+        side = w2;
+    }
+    st->anc_side[k] = !strcasecmp(side, "top") || !strcasecmp(side, "start") ? 't'
+                    : !strcasecmp(side, "bottom") || !strcasecmp(side, "end") ? 'b'
+                    : !strcasecmp(side, "left") ? 'l' : !strcasecmp(side, "right") ? 'r' : 'c';
+    /* top/bottom insets read the anchor's rows; left/right its columns: "start"/"end" follow that */
+    if ((k == 1 || k == 3) && (st->anc_side[k] == 't' || st->anc_side[k] == 'b'))
+        st->anc_side[k] = st->anc_side[k] == 't' ? 'l' : 'r';
+    st->anc_off[k] = 0;
+    const char *close = strchr(a, ')');
+    if (close) {
+        const char *q = close + 1;
+        while (*q == ' ')
+            q++;
+        if (*q == '+' || *q == '-')
+            st->anc_off[k] = (*q == '-' ? -1 : 1) * strtof(q + 1, NULL);
+    }
+}
+
 /* ---- borders ---- */
 
 static bool border_style_of(const char *v, char out[4]) {
@@ -473,6 +1101,45 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
         st->wrap = !strstr(v, "nowrap") && !strstr(v, "false");
     } else if (IS("position")) {
         st->absolute = strstr(v, "absolute") || strstr(v, "fixed");
+    } else if ((IS("left") || IS("top") || IS("right") || IS("bottom")) && strcasestr(v, "anchor(")) {
+        int k = IS("top") ? 0 : IS("right") ? 1 : IS("bottom") ? 2 : 3;
+        anchor_inset(st, k, v);
+        st->absolute = true;
+    } else if (IS("anchor-name")) {
+        sscanf(skip_ws(v), "%31[^ ;,]", st->anchor_name);
+    } else if (IS("position-anchor")) {
+        sscanf(skip_ws(v), "%31[^ ;,]", st->pos_anchor);
+        st->absolute = true;
+    } else if (IS("position-area") || IS("inset-area")) {
+        v = skip_ws(v);
+        st->area_v = st->area_h = 0;
+        char w1[24] = "", w2[24] = "";
+        sscanf(v, "%23s %23s", w1, w2);
+        for (int i = 0; i < 2; i++) {
+            const char *w = i ? w2 : w1;
+            if (!w[0]) continue;
+            bool span = !strncasecmp(w, "span-", 5);
+            const char *b = span ? w + 5 : w;
+            if (!strcasecmp(b, "top") || !strcasecmp(b, "block-start")) st->area_v = span ? 'T' : 't';
+            else if (!strcasecmp(b, "bottom") || !strcasecmp(b, "block-end")) st->area_v = span ? 'B' : 'b';
+            else if (!strcasecmp(b, "left") || !strcasecmp(b, "inline-start")) st->area_h = span ? 'L' : 'l';
+            else if (!strcasecmp(b, "right") || !strcasecmp(b, "inline-end")) st->area_h = span ? 'R' : 'r';
+            else if (!strcasecmp(b, "center")) {
+                if (!st->area_v) st->area_v = 'c';
+                else st->area_h = 'c';
+            } else if (!strcasecmp(b, "all")) st->area_v = 'c', st->area_h = 'c';
+        }
+        if (st->area_v && !st->area_h) st->area_h = 'c';
+        if (st->area_h && !st->area_v) st->area_v = 'c';
+        st->absolute = true;
+    } else if (IS("position-try-fallbacks") || IS("position-try") || IS("position-try-options")) {
+        st->flip_block = strcasestr(v, "flip-block") != NULL || strcasestr(v, "flip-y") != NULL;
+        st->flip_inline = strcasestr(v, "flip-inline") != NULL || strcasestr(v, "flip-x") != NULL;
+    } else if ((IS("width") || IS("height")) && strcasestr(v, "anchor-size(")) {
+        const char *a = strcasestr(v, "anchor-size(") + 12;
+        char which = strcasestr(a, "height") || strcasestr(a, "block") ? 'h' : 'w';
+        if (IS("width")) st->anc_w = which;
+        else st->anc_h = which;
     } else if (IS("left")) st->left = parse_len(v, &ok);
     else if (IS("top")) st->top = parse_len(v, &ok);
     else if (IS("right")) st->right = parse_len(v, &ok);
@@ -503,8 +1170,17 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
     else if (IS("margin-right")) st->margin[1] = strtof(v, NULL);
     else if (IS("margin-bottom")) st->margin[2] = strtof(v, NULL);
     else if (IS("margin-left")) st->margin[3] = strtof(v, NULL);
-    else if (IS("gap") || IS("row-gap") || IS("column-gap")) {
-        st->gap = strtof(skip_ws(v), NULL);
+    else if (IS("gap") || IS("grid-gap")) {
+        float a = 0, b = -1;
+        int k = sscanf(skip_ws(v), "%f%*[^0-9.]%f", &a, &b);
+        st->gap = a;
+        st->row_gap = a, st->col_gap = k > 1 ? b : a;
+    } else if (IS("row-gap") || IS("grid-row-gap")) {
+        st->row_gap = strtof(skip_ws(v), NULL);
+    } else if (IS("column-gap") || IS("grid-column-gap")) {
+        st->col_gap = strtof(skip_ws(v), NULL);
+        if (st->dir == FM_ROW && st->mode != FM_GRID)
+            st->gap = st->col_gap;
     } else if (IS("align") || IS("align-items")) {
         int a = parse_align(v);
         if ((ok = a >= 0))
@@ -522,7 +1198,96 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
                        : strstr(v, "hidden") || strstr(v, "clip") ? FM_OV_CLIP
                                                                    : FM_OV_VISIBLE;
     } else if (IS("background") || IS("background-color") || IS("background-image") || IS("bg")) {
-        ok = parse_bg(v, &st->bg);
+        const char *url = strcasestr(v, "url(");
+        if (url) { /* a picture, maybe under or over a gradient or colour: "linear-gradient(...), url(x) center/cover" */
+            const char *q = url + 4;
+            while (*q == ' ' || *q == '"' || *q == '\'')
+                q++;
+            int k = 0;
+            while (*q && *q != ')' && *q != '"' && *q != '\'' && k < 159)
+                st->bg_img[k++] = *q++;
+            st->bg_img[k] = 0;
+            if (IS("background")) {
+                st->bg_size = 'a', st->bg_px = st->bg_py = 0.5f, st->bg_repeat = 'r';
+                const char *after = strchr(url, ')');
+                after = after ? after + 1 : url + 4;
+                if (strcasestr(after, "cover")) st->bg_size = 'c';
+                else if (strcasestr(after, "contain")) st->bg_size = 'C';
+                if (strcasestr(after, "no-repeat")) st->bg_repeat = 'n';
+                else if (strcasestr(after, "repeat-x")) st->bg_repeat = 'x';
+                else if (strcasestr(after, "repeat-y")) st->bg_repeat = 'y';
+                if (strcasestr(after, "left")) st->bg_px = 0;
+                if (strcasestr(after, "right")) st->bg_px = 1;
+                if (strcasestr(after, "top")) st->bg_py = 0;
+                if (strcasestr(after, "bottom")) st->bg_py = 1;
+            }
+            /* the rest of the list: a gradient or colour, before the picture (over it) or after (under it) */
+            char rest[400] = "";
+            size_t pre = (size_t)(url - v);
+            const char *close = strchr(url, ')');
+            const char *post = close ? close + 1 : url + 4;
+            const char *comma = strchr(post, ',');
+            if (pre > 0) {
+                snprintf(rest, sizeof rest, "%.*s", (int)pre, v);
+                char *e = rest + strlen(rest);
+                while (e > rest && (e[-1] == ' ' || e[-1] == ','))
+                    *--e = 0;
+                st->bg_img_over = true;
+            } else if (comma) {
+                snprintf(rest, sizeof rest, "%s", comma + 1);
+                st->bg_img_over = false;
+            }
+            if (!rest[0] || !parse_bg(rest, &st->bg)) {
+                /* "url(x) #222": a colour word after it */
+                const char *w = post;
+                color cc;
+                while (*w) {
+                    const char *q2 = skip_ws(w);
+                    if (parse_color(&q2, &cc)) {
+                        st->bg.kind = FM_BG_SOLID, st->bg.a = st->bg.b = cc, st->bg.nstops = 0;
+                        break;
+                    }
+                    while (*w && *w != ' ')
+                        w++;
+                    w = skip_ws(w);
+                }
+            }
+        } else {
+            if (IS("background-image") || IS("background"))
+                st->bg_img[0] = 0;
+            ok = parse_bg(v, &st->bg);
+        }
+    } else if (IS("background-size")) {
+        v = skip_ws(v);
+        if (!strncasecmp(v, "cover", 5)) st->bg_size = 'c';
+        else if (!strncasecmp(v, "contain", 7)) st->bg_size = 'C';
+        else if (!strncasecmp(v, "auto", 4)) st->bg_size = 'a';
+        else {
+            char *e;
+            st->bg_sw = strtof(v, &e);
+            st->bg_size = *e == '%' ? 'f' : 'p';
+            if (*e == '%') st->bg_sw /= 100, e++;
+            else if (!strncasecmp(e, "px", 2)) e += 2;
+            const char *h = skip_ws(e);
+            st->bg_sh = *h && *h != 'a' ? strtof(h, NULL) / (st->bg_size == 'f' ? 100 : 1) : -1;
+        }
+    } else if (IS("background-position")) {
+        v = skip_ws(v);
+        st->bg_px = st->bg_py = 0.5f;
+        if (strcasestr(v, "left")) st->bg_px = 0;
+        if (strcasestr(v, "right")) st->bg_px = 1;
+        if (strcasestr(v, "top")) st->bg_py = 0;
+        if (strcasestr(v, "bottom")) st->bg_py = 1;
+        if (isdigit((unsigned char)*v)) {
+            char *e;
+            st->bg_px = strtof(v, &e) / 100;
+            if (*e == '%') e++;
+            st->bg_py = *skip_ws(e) ? strtof(skip_ws(e), NULL) / 100 : 0.5f;
+        }
+    } else if (IS("background-repeat")) {
+        v = skip_ws(v);
+        st->bg_repeat = !strncasecmp(v, "no-repeat", 9) ? 'n' : !strncasecmp(v, "repeat-x", 8) ? 'x'
+                      : !strncasecmp(v, "repeat-y", 8) ? 'y' : 'r';
     } else if (IS("blur") || IS("backdrop-blur")) {
         st->blur = strtof(skip_ws(v), NULL);
     } else if (IS("backdrop-filter") || IS("-webkit-backdrop-filter")) {
@@ -619,9 +1384,11 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
         }
     } else if (IS("shadow") || IS("box-shadow")) {
         const char *p = skip_ws(v);
+        st->nshadow = 0;
         if (!strncasecmp(p, "none", 4)) {
             st->shadow_blur = 0;
             st->shadow = 0;
+            st->ninset = 0;
         } else {
             bool outer = false;
             st->ninset = 0;
@@ -652,12 +1419,19 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
                     st->inset_x[st->ninset] = k > 0 ? f[0] : 0;
                     st->inset_y[st->ninset] = k > 1 ? f[1] : 0;
                     st->inset_c[st->ninset++] = c;
-                } else if (!inset && !outer) {
-                    outer = true;
-                    st->shadow_x = k > 0 ? f[0] : 0;
-                    st->shadow_y = k > 1 ? f[1] : 0;
-                    st->shadow_blur = k > 2 ? f[2] : 12;
-                    st->shadow = c;
+                } else if (!inset && st->nshadow < 4) {
+                    int i = st->nshadow++;
+                    st->sh_x[i] = k > 0 ? f[0] : 0;
+                    st->sh_y[i] = k > 1 ? f[1] : 0;
+                    st->sh_blur[i] = k > 2 ? f[2] : (k == 2 ? 0 : 12);
+                    st->sh_spread[i] = k > 3 ? f[3] : 0;
+                    st->sh_c[i] = c;
+                    if (!outer) {
+                        outer = true;
+                        st->shadow_x = st->sh_x[i], st->shadow_y = st->sh_y[i];
+                        st->shadow_blur = st->sh_blur[i] > 0 ? st->sh_blur[i] : 0.01f; /* sharp, yet there */
+                        st->shadow = c;
+                    }
                 }
                 if (*p == ',')
                     p = skip_ws(p + 1);
@@ -770,6 +1544,44 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
     } else if (IS("image-rendering")) {
         v = skip_ws(v);
         st->pixelated = !strncasecmp(v, "pixel", 5) || !strncasecmp(v, "crisp", 5) || !strncasecmp(v, "optimizespeed", 13);
+    } else if (IS("animation")) {
+        anim_shorthand(st, v);
+    } else if (IS("animation-name")) {
+        sscanf(skip_ws(v), "%39[^ ;,]", st->anim_name);
+        if (!strcasecmp(st->anim_name, "none"))
+            st->anim_name[0] = 0;
+    } else if (IS("animation-duration")) {
+        st->anim_dur = time_ms(skip_ws(v));
+    } else if (IS("animation-delay")) {
+        st->anim_delay = time_ms(skip_ws(v));
+    } else if (IS("animation-iteration-count")) {
+        v = skip_ws(v);
+        st->anim_count = !strncasecmp(v, "infinite", 8) ? -1 : strtof(v, NULL);
+    } else if (IS("animation-direction")) {
+        anim_word(st, skip_ws(v));
+    } else if (IS("animation-timing-function") || IS("animation-fill-mode")) {
+        anim_word(st, skip_ws(v));
+    } else if (IS("cursor")) {
+        snprintf(st->cursor, sizeof st->cursor, "%s", skip_ws(v));
+    } else if (IS("scrollbar-color")) {
+        const char *p = skip_ws(v);
+        if (!strncasecmp(p, "auto", 4))
+            st->sb_thumb = st->sb_track = 0;
+        else {
+            ok = parse_color(&p, &st->sb_thumb);
+            p = skip_ws(p);
+            if (*p)
+                parse_color(&p, &st->sb_track);
+        }
+    } else if (IS("scrollbar-width")) {
+        v = skip_ws(v);
+        st->sb_width = !strncasecmp(v, "none", 4) ? -1 : !strncasecmp(v, "thin", 4) ? 6 : !strncasecmp(v, "auto", 4) ? 0
+                                                                                     : strtof(v, NULL);
+    } else if (IS("text-decoration") || IS("text-decoration-line")) {
+        v = skip_ws(v);
+        st->decoration = strcasestr(v, "underline") ? 'u' : strcasestr(v, "line-through") ? 'l'
+                       : strcasestr(v, "overline") ? 'o' : 0;
+        ok = st->decoration || !strncasecmp(v, "none", 4);
     } else if (IS("writing-mode")) {
         v = skip_ws(v);
         if (!strncasecmp(v, "sideways-lr", 11))
@@ -780,20 +1592,47 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
             st->text_rot = 0;
         else
             ok = false;
-    } else if (IS("text-rotate") || IS("rotate")) { /* "rotate: -90deg": the text in it turns */
+    } else if (IS("text-rotate")) { /* "text-rotate: -90deg": the text in it turns, and its layout with it */
         float a = strtof(skip_ws(v), NULL);
         int q = ((int)lroundf(a / 90.0f) % 4 + 4) % 4;
         ok = fabsf(a - 90.0f * lroundf(a / 90.0f)) < 1;
         st->text_rot = (short)(q == 1 ? 90 : q == 2 ? 180 : q == 3 ? -90 : 0);
+    } else if (IS("filter")) {
+        ok = parse_filter(st, v);
+    } else if (IS("mix-blend-mode")) {
+        static const char *const names[] = {"normal", "multiply", "screen", "overlay", "darken", "lighten",
+                                            "difference", "exclusion", "color-dodge", "color-burn", "hard-light",
+                                            "soft-light", NULL};
+        static const char codes[] = {0, 'm', 's', 'o', 'd', 'l', 'D', 'x', 'c', 'b', 'h', 'S'};
+        ok = false;
+        for (int i = 0; names[i]; i++)
+            if (!strncasecmp(skip_ws(v), names[i], strlen(names[i])))
+                st->blend = codes[i], ok = true;
+    } else if (IS("clip-path")) {
+        ok = parse_clip(st, skip_ws(v));
+    } else if (IS("mask") || IS("mask-image") || IS("-webkit-mask-image") || IS("-webkit-mask")) {
+        v = skip_ws(v);
+        if (!strncasecmp(v, "none", 4))
+            st->mask.kind = FM_BG_NONE;
+        else
+            ok = parse_bg(v, &st->mask) && st->mask.kind != FM_BG_SOLID;
     } else if (IS("transform")) {
         const char *rot = strstr(v, "rotate(");
-        if (rot) { /* quarter turns turn the text; anything else is reported (no_effect) */
-            float a = strtof(rot + 7, NULL);
-            if (fabsf(a - 90.0f * lroundf(a / 90.0f)) < 1) {
-                int q = ((int)lroundf(a / 90.0f) % 4 + 4) % 4;
-                st->text_rot = (short)(q == 1 ? 90 : q == 2 ? 180 : q == 3 ? -90 : 0);
-            }
+        st->rotate = rot ? angle_of(rot + 7) : 0;
+        const char *sk = strstr(v, "skew(");
+        const char *skx = strstr(v, "skewX("), *sky = strstr(v, "skewY(");
+        st->skew_x = st->skew_y = 0;
+        if (sk) {
+            const char *q = sk + 5;
+            st->skew_x = angle_of(q);
+            const char *comma = strchr(q, ',');
+            if (comma && comma < strchr(q, ')'))
+                st->skew_y = angle_of(comma + 1);
         }
+        if (skx)
+            st->skew_x = angle_of(skx + 6);
+        if (sky)
+            st->skew_y = angle_of(sky + 6);
         const char *sc = strstr(v, "scale(");
         if (sc)
             st->scale = strtof(sc + 6, NULL);
@@ -858,21 +1697,36 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
         snprintf(st->icon_style, sizeof st->icon_style, "%s", skip_ws(v));
     } else if (IS("icon-shape")) {
         snprintf(st->icon_shape, sizeof st->icon_shape, "%s", skip_ws(v));
-    } else if (IS("columns") || IS("grid-columns") || IS("grid-template-columns")) {
-        const char *rp = strstr(v, "repeat(");
-        if (rp)
-            st->columns = atoi(rp + 7);
-        else if (isdigit((unsigned char)*skip_ws(v)) && !strstr(v, "px") && !strstr(v, "fr"))
-            st->columns = atoi(skip_ws(v));
-        else { /* count tracks: "1fr 1fr 1fr" */
-            int k = 0;
-            for (const char *p = skip_ws(v); *p;) {
-                k++;
-                while (*p && !isspace((unsigned char)*p))
-                    p++;
-                p = skip_ws(p);
-            }
-            st->columns = k;
+    } else if (IS("columns") || IS("grid-columns")) {
+        st->columns = atoi(skip_ws(v));
+        st->grid_cols[0] = 0;
+    } else if (IS("grid-template-columns")) {
+        snprintf(st->grid_cols, sizeof st->grid_cols, "%s", skip_ws(v));
+        st->mode = FM_GRID;
+    } else if (IS("grid-template-rows")) {
+        snprintf(st->grid_rows, sizeof st->grid_rows, "%s", skip_ws(v));
+        st->mode = FM_GRID;
+    } else if (IS("grid-template-areas")) {
+        snprintf(st->grid_areas, sizeof st->grid_areas, "%s", skip_ws(v));
+        st->mode = FM_GRID;
+    } else if (IS("grid-column") || IS("grid-row")) {
+        bool col = IS("grid-column");
+        short a = 0, b = 0, span = 0;
+        grid_lines(skip_ws(v), &a, &b, &span);
+        if (col) st->gc0 = a, st->gc1 = b, st->gcs = span;
+        else st->gr0 = a, st->gr1 = b, st->grs = span;
+    } else if (IS("grid-column-start")) {
+        st->gc0 = (short)atoi(skip_ws(v));
+    } else if (IS("grid-row-start")) {
+        st->gr0 = (short)atoi(skip_ws(v));
+    } else if (IS("grid-area")) {
+        v = skip_ws(v);
+        if (isdigit((unsigned char)*v)) { /* row-start / col-start / row-end / col-end */
+            int r0 = 0, c0 = 0, r1 = 0, c1 = 0;
+            sscanf(v, "%d / %d / %d / %d", &r0, &c0, &r1, &c1);
+            st->gr0 = (short)r0, st->gc0 = (short)c0, st->gr1 = (short)r1, st->gc1 = (short)c1;
+        } else {
+            sscanf(v, "%19[^ ;]", st->grid_area);
         }
     } else if (IS("orbit") || IS("orbit-radius")) {
         st->orbit = strtof(v, NULL);
@@ -899,11 +1753,10 @@ static bool is_unset(const char *v) {
  * the one who wrote them is told, with what works instead. */
 static const char *no_effect(const char *prop, const char *v) {
     static const char *const t[][2] = {
-        {"filter", "colours, opacity or saturate"},       {"outline", "border or box-shadow"},
-        {"text-decoration", "a border-bottom"},           {"animation", "transition"},
-        {"cursor", ""},                                   {"pointer-events", ""},
+        {"outline", "border or box-shadow"},
+        {"pointer-events", ""},
         {"user-select", ""},                              {"box-sizing", "(sizes here already include padding)"},
-        {"content", "text in the markup"},                {"will-change", ""},
+        {"will-change", ""},
         {"align-content", "align-items"},                 {"flex-shrink", "min-width / max-width"},
         {"flex-basis", "width"},                          {"object-fit", ""},
         {"vertical-align", "align-items on the row"},     {"list-style", ""},
@@ -911,17 +1764,80 @@ static const char *no_effect(const char *prop, const char *v) {
     for (size_t i = 0; i < sizeof t / sizeof t[0]; i++)
         if (!strcasecmp(prop, t[i][0]))
             return t[i][1];
-    if (!strcasecmp(prop, "transform") && strstr(v, "rotate(")) {
-        float a = strtof(strstr(v, "rotate(") + 7, NULL);
-        if (fabsf(a - 90.0f * lroundf(a / 90.0f)) >= 1)
-            return "quarter turns only (rotate(90deg), rotate(-90deg), 180deg): they turn the text in it";
-    }
-    if (!strcasecmp(prop, "transform") && (strstr(v, "skew") || strstr(v, "matrix")))
-        return "scale(), translate() and quarter-turn rotate()";
+    if (!strcasecmp(prop, "transform") && strstr(v, "matrix"))
+        return "scale(), translate(), rotate() and skew()";
     return NULL;
 }
 
 /* ---- selectors ---- */
+
+static uint8_t state_of(const char *name) {
+    if (!strcmp(name, "hover")) return ST_HOVER;
+    if (!strcmp(name, "active") || !strcmp(name, "pressed")) return ST_ACTIVE;
+    if (!strcmp(name, "open") || !strcmp(name, "checked")) return ST_OPEN;
+    if (!strcmp(name, "focus") || !strcmp(name, "focus-visible") || !strcmp(name, "focus-within")) return ST_FOCUS;
+    return 0;
+}
+
+/* an+b, odd, even, 3 */
+static bool parse_nth(const char *v, int *a, int *b) {
+    while (*v == ' ')
+        v++;
+    if (!strncasecmp(v, "odd", 3)) return *a = 2, *b = 1, true;
+    if (!strncasecmp(v, "even", 4)) return *a = 2, *b = 0, true;
+    char *e;
+    long x = strtol(v, &e, 10);
+    const char *n = strchr(v, 'n');
+    if (!n) {
+        if (e == v)
+            return false;
+        *a = 0, *b = (int)x;
+        return true;
+    }
+    if (n == v || (n == v + 1 && (*v == '+' || *v == '-')))
+        *a = *v == '-' ? -1 : 1;
+    else
+        *a = (int)x;
+    const char *r = n + 1;
+    while (*r == ' ')
+        r++;
+    int sign = 1;
+    if (*r == '+' || *r == '-') {
+        sign = *r == '-' ? -1 : 1;
+        r++;
+    }
+    *b = *r ? sign * atoi(r) : 0;
+    return true;
+}
+
+/* :not(x) for a simple x */
+static bool parse_not(const char *v, struct compound *c) {
+    while (*v == ' ')
+        v++;
+    c->has_not = true;
+    int k = 0;
+    if (*v == '#') {
+        for (v++; (isalnum((unsigned char)*v) || *v == '-' || *v == '_') && k < 47;)
+            c->not_id[k++] = *v++;
+    } else if (*v == '.') {
+        for (v++; (isalnum((unsigned char)*v) || *v == '-' || *v == '_') && k < 31;)
+            c->not_cls[k++] = *v++;
+    } else if (*v == '[') {
+        for (v++; *v && *v != ']' && *v != '=' && k < 23;)
+            c->not_attr[k++] = *v++;
+    } else if (*v == ':') {
+        char name[24];
+        for (v++; (isalnum((unsigned char)*v) || *v == '-') && k < 23;)
+            name[k++] = (char)tolower((unsigned char)*v++);
+        name[k] = 0;
+        c->not_states = state_of(name);
+        return c->not_states != 0;
+    } else if (isalpha((unsigned char)*v)) {
+        for (; (isalnum((unsigned char)*v) || *v == '-') && k < 23;)
+            c->not_tag[k++] = (char)tolower((unsigned char)*v++);
+    }
+    return k > 0;
+}
 
 static bool parse_compound(const char **sp, struct compound *c) {
     const char *s = *sp;
@@ -954,9 +1870,13 @@ static bool parse_compound(const char **sp, struct compound *c) {
         } else if (*s == '[') {
             s++;
             int k = 0;
-            while (*s && *s != '=' && *s != ']' && k < 23)
+            while (*s && *s != '=' && *s != ']' && !strchr("^$*~|", *s) && k < 23)
                 c->attr[k++] = *s++;
+            if (strchr("^$*~|", *s) && *s && s[1] == '=')
+                c->attr_op = *s == '|' ? '^' : *s, s++;
             if (*s == '=') {
+                if (!c->attr_op)
+                    c->attr_op = '=';
                 s++;
                 if (*s == '"' || *s == '\'')
                     s++;
@@ -973,13 +1893,51 @@ static bool parse_compound(const char **sp, struct compound *c) {
             s++;
             if (*s == ':')
                 s++;
-            if (!strncasecmp(s, "hover", 5)) c->states |= ST_HOVER;
-            else if (!strncasecmp(s, "active", 6) || !strncasecmp(s, "pressed", 7)) c->states |= ST_ACTIVE;
-            else if (!strncasecmp(s, "open", 4) || !strncasecmp(s, "checked", 7)) c->states |= ST_OPEN;
-            else if (!strncasecmp(s, "focus", 5)) c->states |= ST_FOCUS;
-            else if (!strncasecmp(s, "root", 4)) strcpy(c->tag, "facet");
-            while (isalnum((unsigned char)*s) || *s == '-')
-                s++;
+            char name[24];
+            int k = 0;
+            while ((isalnum((unsigned char)*s) || *s == '-') && k < 23)
+                name[k++] = (char)tolower((unsigned char)*s++);
+            name[k] = 0;
+            char arg[96] = "";
+            if (*s == '(') { /* its argument, nested brackets and all */
+                int depth = 0, a = 0;
+                for (s++; *s && !(*s == ')' && depth == 0); s++) {
+                    if (*s == '(') depth++;
+                    if (*s == ')') depth--;
+                    if (a < 95)
+                        arg[a++] = *s;
+                }
+                arg[a] = 0;
+                if (*s == ')')
+                    s++;
+            }
+            uint8_t st = state_of(name);
+            if (st)
+                c->states |= st;
+            else if (!strcmp(name, "root"))
+                strcpy(c->tag, "facet");
+            else if (!strcmp(name, "first-child") || !strcmp(name, "first-of-type"))
+                c->nth = true, c->nth_a = 0, c->nth_b = 1;
+            else if (!strcmp(name, "last-child") || !strcmp(name, "last-of-type"))
+                c->nth = c->nth_last = true, c->nth_a = 0, c->nth_b = 1;
+            else if (!strcmp(name, "only-child"))
+                c->only = true;
+            else if (!strcmp(name, "empty"))
+                c->empty = true;
+            else if (!strcmp(name, "nth-child") || !strcmp(name, "nth-last-child") || !strcmp(name, "nth-of-type")) {
+                if (!parse_nth(arg, &c->nth_a, &c->nth_b))
+                    return false;
+                c->nth = true;
+                c->nth_last = !strcmp(name, "nth-last-child");
+            } else if (!strcmp(name, "not")) {
+                if (!parse_not(arg, c))
+                    return false;
+            } else if (!strcmp(name, "before"))
+                c->pseudo = 'b';
+            else if (!strcmp(name, "after"))
+                c->pseudo = 'a';
+            else
+                return false; /* a pseudo-class this doesn't know: refused, never quietly matched */
             any = true;
         } else {
             break;
@@ -1002,7 +1960,7 @@ static bool parse_selector(const char *text, struct selector *sel) {
         s = skip_ws(s);
         comb = ' ';
         if (*s == '>' || *s == '+' || *s == '~') {
-            comb = *s == '>' ? '>' : ' ';
+            comb = *s; /* '>' child, '+' the very next sibling, '~' any later sibling */
             s = skip_ws(s + 1);
         }
     }
@@ -1010,8 +1968,10 @@ static bool parse_selector(const char *text, struct selector *sel) {
         return false;
     for (int i = 0; i < sel->n; i++) {
         struct compound *c = &sel->parts[i];
-        sel->spec += (c->id[0] ? 100 : 0) + 10 * (c->ncls + (c->attr[0] ? 1 : 0) + __builtin_popcount(c->states)) +
-                     (c->tag[0] ? 1 : 0);
+        sel->spec += (c->id[0] ? 100 : 0) +
+                     10 * (c->ncls + (c->attr[0] ? 1 : 0) + __builtin_popcount(c->states) + c->nth + c->only + c->empty) +
+                     (c->tag[0] ? 1 : 0) + (c->pseudo ? 1 : 0) +
+                     (c->has_not ? (c->not_id[0] ? 100 : c->not_tag[0] ? 1 : 10) : 0);
     }
     return true;
 }
@@ -1027,9 +1987,58 @@ static bool has_class(const fm_node *n, const char *cls) {
     return false;
 }
 
+/* Its place among its parent's elements: 1-based, from the start or from the end */
+static int place_of(const fm_node *n, bool from_end, int *count) {
+    int i = 0, at = 0;
+    for (const fm_node *k = n->parent ? n->parent->first : n; k; k = k->next) {
+        if (k->kind != FM_ELEM || k->pseudo || (n->parent == NULL && k != n))
+            continue;
+        i++;
+        if (k == n)
+            at = i;
+    }
+    *count = i;
+    return from_end ? i - at + 1 : at;
+}
+
+static bool nth_fits(int pos, int a, int b) {
+    if (a == 0)
+        return pos == b;
+    int d = pos - b;
+    return d % a == 0 && d / a >= 0;
+}
+
+static bool attr_fits(const char *v, char op, const char *want) {
+    if (!v)
+        return false;
+    size_t lv = strlen(v), lw = strlen(want);
+    switch (op) {
+    case 0: return true;
+    case '=': return !strcmp(v, want);
+    case '^': return !strncmp(v, want, lw);
+    case '$': return lv >= lw && !strcmp(v + lv - lw, want);
+    case '*': return strstr(v, want) != NULL;
+    case '~':
+        for (const char *p = v; (p = strstr(p, want)); p++)
+            if ((p == v || p[-1] == ' ') && (p[lw] == 0 || p[lw] == ' '))
+                return true;
+        return false;
+    }
+    return false;
+}
+
+static bool match_compound_el(const fm_node *n, const struct compound *c);
+
 static bool match_compound(const fm_node *n, const struct compound *c) {
     if (n->kind != FM_ELEM)
         return false;
+    /* ::before and ::after are their own boxes; the rest of the compound is about the element they belong to */
+    if (c->pseudo || n->pseudo)
+        return c->pseudo == n->pseudo && n->parent && match_compound_el(n->parent, c);
+    return match_compound_el(n, c);
+}
+
+static bool match_compound_el(const fm_node *n, const struct compound *c) {
     if (c->tag[0] && !same_tag(c->tag, n->tag))
         return false;
     if (c->id[0] && strcmp(c->id, n->id))
@@ -1037,9 +2046,25 @@ static bool match_compound(const fm_node *n, const struct compound *c) {
     for (int i = 0; i < c->ncls; i++)
         if (!has_class(n, c->cls[i]))
             return false;
-    if (c->attr[0]) {
-        const char *v = fm_attr_get(n, c->attr);
-        if (!v || (c->attr_val[0] && strcmp(v, c->attr_val)))
+    if (c->attr[0] && !attr_fits(fm_attr_get(n, c->attr), c->attr_op, c->attr_val))
+        return false;
+    if (c->nth || c->only) {
+        int count, pos = place_of(n, c->nth_last, &count);
+        if (c->only && count != 1)
+            return false;
+        if (c->nth && !nth_fits(pos, c->nth_a, c->nth_b))
+            return false;
+    }
+    if (c->empty)
+        for (const fm_node *k = n->first; k; k = k->next)
+            if (k->kind == FM_ELEM || (k->text && k->text[strspn(k->text, " \t\n\r")]))
+                return false;
+    if (c->has_not) {
+        bool hit = (c->not_tag[0] && same_tag(c->not_tag, n->tag)) || (c->not_id[0] && !strcmp(c->not_id, n->id)) ||
+                   (c->not_cls[0] && has_class(n, c->not_cls)) || (c->not_attr[0] && fm_attr_get(n, c->not_attr)) ||
+                   ((c->not_states & ST_HOVER) && n->hover) || ((c->not_states & ST_ACTIVE) && n->active) ||
+                   ((c->not_states & ST_OPEN) && n->open) || ((c->not_states & ST_FOCUS) && n->focus);
+        if (hit)
             return false;
     }
     if ((c->states & ST_HOVER) && !n->hover)
@@ -1053,13 +2078,30 @@ static bool match_compound(const fm_node *n, const struct compound *c) {
     return true;
 }
 
+static bool match_up(const fm_node *n, const struct selector *s, int i);
+
 static bool match_from(const fm_node *n, const struct selector *s, int i) {
     if (!match_compound(n, &s->parts[i]))
         return false;
+    return match_up(n, s, i);
+}
+
+/* n matched part i: does what is around it match the parts before? */
+static bool match_up(const fm_node *n, const struct selector *s, int i) {
     if (i == 0)
         return true;
     if (s->parts[i].comb == '>')
         return n->parent && match_from(n->parent, s, i - 1);
+    if (s->parts[i].comb == '+' || s->parts[i].comb == '~') { /* siblings before it */
+        const fm_node *prev = NULL;
+        for (const fm_node *k = n->parent ? n->parent->first : NULL; k && k != n; k = k->next)
+            if (k->kind == FM_ELEM && !k->pseudo) {
+                if (s->parts[i].comb == '~' && match_from(k, s, i - 1))
+                    return true;
+                prev = k;
+            }
+        return s->parts[i].comb == '+' && prev && match_from(prev, s, i - 1);
+    }
     for (const fm_node *p = n->parent; p; p = p->parent)
         if (match_from(p, s, i - 1))
             return true;
@@ -1217,9 +2259,15 @@ static void load_sheet(fm_doc *d, const char *css, bool report, int *order, bool
                  * variables override :root's); anything else is skipped. */
                 const char *end = block_end(open);
                 int scheme = at_scheme(selectors);
-                if (scheme && scheme == fm_scheme && pass == 0 && nlater < 8) {
+                const char *at = skip_ws(selectors);
+                if (!strncasecmp(at, "@keyframes", 10) && pass == 1 && !vars_only) {
+                    read_keyframes(d, at, open + 1, end);
+                } else if (scheme && scheme == fm_scheme && pass == 0 && nlater < 8) {
                     /* it wins wherever it sits: read after the rest */
                     later[nlater][0] = open + 1;
+                    later[nlater++][1] = end;
+                } else if (!scheme && !strncasecmp(at, "@media", 6) && media_holds(at + 6) && pass == 0 && nlater < 8) {
+                    later[nlater][0] = open + 1; /* a screen-size block that holds: read after the rest */
                     later[nlater++][1] = end;
                 }
                 p = *end ? end + 1 : end;
@@ -1364,6 +2412,9 @@ static void fix_class_for_id(fm_doc *d) {
 
 void fm_css_load(fm_doc *d) {
     fm_css_free_rules(d);
+    free_keyframes(d);
+    if (d->media_w)
+        fm_media_w = d->media_w, fm_media_h = d->media_h;
     /* Variables start over too: a switch of colour scheme must not leave
      * the other scheme's values behind. */
     for (int i = 0; i < d->nvars; i++) {
@@ -1377,6 +2428,9 @@ void fm_css_load(fm_doc *d) {
     load_sheet(d, d->css ? d->css : "", true, &order, false);
     fix_class_for_id(d);
     qsort(d->rules, (size_t)d->nrules, sizeof *d->rules, rule_cmp);
+    d->has_pseudo = false;
+    for (int i = 0; i < d->nrules; i++)
+        d->has_pseudo |= d->rules[i].sel.parts[d->rules[i].sel.n - 1].pseudo != 0;
 }
 
 void fm_css_patch(fm_doc *d, const char *css) {
@@ -1399,6 +2453,8 @@ static void initial(fm_style *st, const fm_style *parent) {
     st->saturate = 1;
     st->line_height = parent ? parent->line_height : 1.3f;
     st->transition = 160;
+    st->anim_count = 1, st->anim_dir = 'n', st->anim_ease = 'e', st->anim_fill = 'n';
+    st->f_bright = st->f_contrast = st->f_sat = st->f_opacity = 1;
     st->align = FM_A_STRETCH;
     st->border = RGBA(255, 255, 255, 60);
     st->glow = RGBA(255, 255, 255, 120);
@@ -1409,6 +2465,8 @@ static void initial(fm_style *st, const fm_style *parent) {
         st->text_align = parent->text_align;
         st->text_rot = parent->text_rot;
         st->crisp_text = parent->crisp_text;
+        memcpy(st->cursor, parent->cursor, sizeof st->cursor);
+        st->sb_thumb = parent->sb_thumb, st->sb_track = parent->sb_track, st->sb_width = parent->sb_width;
         st->uppercase = parent->uppercase;
         memcpy(st->icon_style, parent->icon_style, sizeof st->icon_style);
         memcpy(st->icon_shape, parent->icon_shape, sizeof st->icon_shape);
@@ -1432,6 +2490,107 @@ static void apply_inline(fm_style *st, const char *style) {
             apply(st, prop, colon + 1);
     }
     free(copy);
+}
+
+/* ---- ::before and ::after ---- */
+
+/* What content: says for n's ::before ('b') or ::after ('a'): its text (malloc'd), or NULL for none */
+static char *pseudo_content(fm_doc *d, fm_node *n, char which) {
+    const char *found = NULL;
+    for (int i = 0; i < d->nrules; i++) {
+        struct fm_rule *r = &d->rules[i];
+        const struct compound *last = &r->sel.parts[r->sel.n - 1];
+        if (last->pseudo != which || !match_compound_el(n, last) || !match_up(n, &r->sel, r->sel.n - 1))
+            continue;
+        for (int k = 0; k < r->ndecls; k++)
+            if (!strcmp(r->decls[k].prop, "content"))
+                found = r->decls[k].value;
+    }
+    if (!found)
+        return NULL;
+    const char *v = skip_ws(found);
+    if (!strncasecmp(v, "none", 4) || !strncasecmp(v, "normal", 6))
+        return NULL;
+    sbuf b;
+    sb_init(&b);
+    while (*v) { /* "text", 'text', attr(name), in any order */
+        v = skip_ws(v);
+        if (*v == '"' || *v == '\'') {
+            char q = *v++;
+            while (*v && *v != q) {
+                if (*v == '\\' && v[1]) {
+                    v++;
+                    if (*v == 'A' || *v == 'a') { /* \A: a new line */
+                        sb_add(&b, "\n");
+                        v++;
+                        continue;
+                    }
+                }
+                sb_addn(&b, v++, 1);
+            }
+            if (*v)
+                v++;
+        } else if (!strncasecmp(v, "attr(", 5)) {
+            char name[32];
+            int k = 0;
+            for (v += 5; *v && *v != ')' && k < 31; v++)
+                if (*v != ' ')
+                    name[k++] = *v;
+            name[k] = 0;
+            const char *a = fm_attr_get(n, name);
+            if (a)
+                sb_add(&b, a);
+            if (*v)
+                v++;
+        } else {
+            while (*v && !isspace((unsigned char)*v))
+                v++;
+        }
+    }
+    return b.p ? b.p : strdup("");
+}
+
+static void ensure_pseudo(fm_doc *d, fm_node *n, char which) {
+    fm_node *k = NULL;
+    for (fm_node *c = n->first; c; c = c->next)
+        if (c->kind == FM_ELEM && c->pseudo == which)
+            k = c;
+    char *text = pseudo_content(d, n, which);
+    if (!text) {
+        if (k)
+            fm_attr_set(k, "hidden", "true");
+        return;
+    }
+    if (!k) {
+        k = fm_node_new(d, which == 'b' ? "before" : "after");
+        k->generated = true;
+        k->pseudo = which;
+        k->app = k->win = -1;
+        k->parent = n;
+        if (which == 'b') {
+            k->next = n->first;
+            n->first = k;
+            if (!n->last)
+                n->last = k;
+        } else {
+            fm_append(n, k);
+        }
+    }
+    fm_attr_set(k, "hidden", "false");
+    fm_node *t = k->first;
+    if (!t) {
+        t = calloc(1, sizeof *t);
+        t->kind = FM_TEXT;
+        t->generated = true;
+        t->app = t->win = -1;
+        fm_append(k, t);
+    }
+    if (!t->text || strcmp(t->text, text)) {
+        free(t->text);
+        t->text = text;
+    } else {
+        free(text);
+    }
 }
 
 static void style_node(fm_doc *d, fm_node *n, const fm_style *parent) {
@@ -1485,16 +2644,31 @@ static void style_node(fm_doc *d, fm_node *n, const fm_style *parent) {
                     apply(&n->st, x->prop, x->value);
             }
         }
+        if (d->nkf)
+            animate(d, n);
         if (n->st.opacity < 0) n->st.opacity = 0;
         if (n->st.opacity > 1) n->st.opacity = 1;
         if (n->st.scale <= 0.05f) n->st.scale = 1;
         if (n->st.font_size < 6) n->st.font_size = 6;
         if (n->st.font_size > 220) n->st.font_size = 220;
+        if (d->has_pseudo && !n->pseudo && !is_meta(n)) {
+            ensure_pseudo(d, n, 'b');
+            ensure_pseudo(d, n, 'a');
+        }
         style_node(d, n->first, &n->st);
     }
 }
 
 void fm_style_tree(fm_doc *d) {
+    /* @media: the size it is shown at; a new one reads the sheet again (if it has size rules) */
+    int w = d->screen.w > 0 ? d->screen.w : 1600, h = d->screen.h > 0 ? d->screen.h : 900;
+    if (w != d->media_w || h != d->media_h) {
+        bool had = d->media_w != 0;
+        d->media_w = w, d->media_h = h;
+        if (had && d->css && strcasestr(d->css, "@media"))
+            fm_css_load(d);
+    }
+
     if (d->root)
         style_node(d, d->root, NULL);
 }

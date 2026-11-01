@@ -358,6 +358,20 @@ static void type_into(fm_doc *d, fm_node *f, int key) {
     fm_attr_set(f, "value", buf);
 }
 
+const char *fm_cursor(fm_doc *d, int x, int y) {
+    if (!d || !d->desktop)
+        return "";
+    fm_node *hit = hit_layer(d, 2, x, y);
+    if (!hit)
+        hit = hit_layer(d, 1, x, y);
+    if (!hit)
+        hit = hit_layer(d, 0, x, y);
+    const char *c = hit ? hit->st.cursor : d->desktop->st.cursor;
+    if (!c[0] && hit && fmi_action_of(hit))
+        return d->desktop->st.cursor[0] ? "pointer" : ""; /* a design with pointers of its own: a hand on links */
+    return c[0] ? c : d->desktop->st.cursor;
+}
+
 bool fm_input(fm_doc *d, int layer_mask) {
     const input_state *in = d->in;
     if (!in || !d->desktop)
