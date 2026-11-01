@@ -1,0 +1,5 @@
+# an existing list is read at start
+write ~/Todo.txt "  buy bread\nx call mum\n  water plants"
+expect "buy bread"
+expect "water plants"
+expect "2 left"

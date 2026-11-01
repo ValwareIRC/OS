@@ -47,6 +47,8 @@ void input_set_repeat(int delay_ms, int rate_hz);
 int input_fds(int fds[2]);
 /* Drains pending events into `in` (per-frame fields are reset first). */
 void input_poll(input_state *in);
+/* This frame's input withheld: no clicks, keys or wheel, the pointer nowhere (a dialog above has it). */
+void input_clear(input_state *in);
 /* Text from the host computer's clipboard (VMs), or "" if none. */
 const char *clipboard_text(void);
 /* Copies text inside this computer (Notes' copy and cut); the next copy on

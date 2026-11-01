@@ -31,7 +31,7 @@ $(OUT)/obj/figure/%.o: CFLAGS += -fno-math-errno -Wno-unused-parameter -Wno-sign
 $(OUT)/os-figure: $(FIGURE_OBJS)
 	$(CC) -static -o $@ $^ -lm -lpthread
 
-SHELL_OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(wildcard shell/*.c shell/fm/*.c shell/wl/*.c))
+SHELL_OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(wildcard shell/*.c shell/fm/*.c shell/wl/*.c shell/fx/*.c))
 $(OUT)/os-shell: $(SHELL_OBJS) $(LIB_OBJS)
 	$(CC) -static -o $@ $^ $(LIBS)
 

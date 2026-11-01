@@ -58,6 +58,7 @@ struct window {
     rect r;
     int z;
     struct wl_view *view; /* app windows: what the app drew */
+    struct fxwin *fx;     /* or a Facet app running in the shell (fxwin.c) */
     rect body;            /* where the content went last frame */
     bool fitted;          /* sized to the app's first frame */
     int asked_w, asked_h; /* the size last asked of the app */
@@ -185,6 +186,9 @@ void desktop_set_ui(struct fm_doc *doc);
  * old one. `first`: the end of onboarding, the desktop arrives. */
 void desktop_adopt(struct fm_doc *doc, const design *d, bool first);
 void desktop_open_window(int w);
+/* One frame of the whole OS; and frames with `draw` over everything until *done (main.c). */
+void main_frame(void);
+void main_modal(void (*draw)(void), const bool *done);
 /* Erases everything kept on the disk, apps too, and restarts at the very first screen. */
 void factory_reset(void);
 /* The design's own spot for her on the screen (its <ai> or <avatar>), if it has one showing. */

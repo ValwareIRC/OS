@@ -8,6 +8,7 @@
 #include "term.h"
 #include "wl/wl.h"
 #include "store.h"
+#include "fxwin.h"
 #include "voice.h"
 #include "files.h"
 #include "launcher.h"
@@ -174,6 +175,8 @@ static const char *window_title(int w) {
                                        APP_REDESIGN};
     if (w == WIN_PREVIEW)
         return "Preview";
+    if (w >= WIN_COUNT && A.win[w].fx)
+        return fxwin_title(A.win[w].fx);
     if (w >= WIN_COUNT) {
         wl_view *v = A.win[w].view;
         return !v ? "" : v->title[0] ? v->title : v->app_id[0] ? v->app_id : "App";
@@ -1095,7 +1098,15 @@ static void draw_window(int w, bool focused) {
     case WIN_ABOUT: about_body(body); break;
     case WIN_TERMINAL: term_draw(body, focused, D.surface, D.surface_text, D.body_px - 2 < 13 ? 13 : D.body_px - 2); break;
     case WIN_PREVIEW: preview_body(body, focused); break;
-    default: app_body(w, body); break;
+    default:
+        if (win->fx) {
+            fill_rect(A.frame, body, D.surface);
+            win->body = body;
+            fxwin_draw(win->fx, body, focused, w == pointer_top);
+        } else {
+            app_body(w, body);
+        }
+        break;
     }
     canvas_unclip(A.frame);
 }
@@ -1742,6 +1753,8 @@ static void explain_why(fm_node *n) {
 void fm_host_action(fm_doc *d, fm_node *src, const char *a) {
     (void)src;
     LOG("ui action %s\n", a);
+    if (!strncmp(a, "fx:", 3) && fxwin_action(d, a + 3))
+        return;
     if (!strncasecmp(a, "open:", 5) || !strncasecmp(a, "launch:", 7)) {
         const char *id = strchr(a, ':') + 1;
         int k = fm_app_index(id);
@@ -1753,7 +1766,15 @@ void fm_host_action(fm_doc *d, fm_node *src, const char *a) {
         } else if (k >= APP_COUNT) {
             launch_bundled(&bundled[k - APP_COUNT]);
         } else {
-            toast("Nothing called \"%s\" here yet.", id);
+            char names[32][64], paths[32][300];
+            int n = fxwin_list(names, paths, 32), hit = -1;
+            for (int i = 0; i < n; i++)
+                if (!strcasecmp(names[i], id))
+                    hit = i;
+            if (hit >= 0)
+                fxwin_open(paths[hit]); /* an app of theirs, written in Facet (~/Apps) */
+            else
+                toast("Nothing called \"%s\" here yet.", id);
         }
     } else if (!strncasecmp(a, "file:", 5)) {
         desktop_open_path(a + 5); /* a folder in Files, anything else in Notes (a canvas's own file view) */
@@ -1826,7 +1847,10 @@ void fm_host_action(fm_doc *d, fm_node *src, const char *a) {
 /* Closes a window for good (wm.c calls this once it has its last picture). */
 void desktop_close_window(int w) {
     struct window *win = &A.win[w];
-    if (w >= WIN_COUNT) {
+    if (w >= WIN_COUNT && win->fx) {
+        fxwin_close(win->fx);
+        win->open = false;
+    } else if (w >= WIN_COUNT) {
         wls_close(win->view); /* the app closes itself (and may ask to save first) */
     } else if (w == WIN_TERMINAL) {
         term_close();
@@ -2021,6 +2045,7 @@ void desktop_draw(void) {
         A.in.nkeys = 0;
         A.in.mx = A.in.my = -1000;
     }
+    fxwin_reap(); /* Facet apps that closed themselves */
     tray_frame_begin(); /* its popovers and toasts take the pointer first */
     bool cached = wm_scene_cached(); /* while a window is moved, the picture below it is kept */
     if (!cached && wallpaper_animated(&D))

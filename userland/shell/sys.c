@@ -297,6 +297,14 @@ void clipboard_set(const char *text) {
     clip[n] = 0;
 }
 
+void input_clear(input_state *in) {
+    in->clicked = in->pressed = in->right_clicked = in->down = in->moved = false;
+    in->wheel = 0;
+    in->nkeys = 0;
+    in->nraw = 0;
+    in->mx = in->my = -10000;
+}
+
 void input_poll(input_state *in) {
     clip_poll();
     in->clicked = in->pressed = in->right_clicked = in->moved = false;

@@ -137,6 +137,66 @@ static void keep_on_disk(void) {
     }
 }
 
+/* One frame: input, drawing, presenting, then sleeping until something happens. */
+static void (*modal)(void); /* a question being asked (main_modal) */
+static int frame_fds[2];
+
+void main_frame(void) {
+    A.now = now_ms();
+    wm_frame_begin();
+    wls_dispatch();
+    portal_poll(); /* os-portal: file choosers, notifications */
+    appapi_poll(); /* apps using the companion: her AI, voice, face, memory */
+    models_poll(); /* model downloads, wherever they were started */
+    presence_poll(); /* her frames, and what she should know */
+    input_poll(&A.in);
+    input_state real = A.in;
+    if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
+        input_clear(&A.in);
+    switch (A.screen) {
+    case SCR_SPLASH: splash_draw(); break;
+    case SCR_CHOOSE: choose_draw(); break;
+    case SCR_MODELS: models_draw(); break;
+    case SCR_CONNECT: connect_draw(); break;
+    case SCR_ONBOARD: onboard_draw(); break;
+    case SCR_DESIGNING: designing_draw(); break;
+    case SCR_DESKTOP: desktop_draw(); break;
+    }
+    if (modal) {
+        A.in = real;
+        modal();
+    }
+    capture_frame(false); /* a recording without the pointer takes this */
+    ui_cursor(A.frame, A.in.mx, A.in.my);
+    wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
+    capture_frame(true); /* ...with it, this */
+    display_present(A.frame);
+    wm_frame_end();
+    wls_frame_done((uint32_t)A.now); /* apps draw their next frame now */
+    keep_on_disk();
+
+    /* Sleep until input arrives, an app has something to say, or the
+     * next animation frame (~30 fps). */
+    struct pollfd p[160] = {{.fd = frame_fds[0], .events = POLLIN}, {.fd = frame_fds[1], .events = POLLIN}};
+    int wfds[158], nw = wls_fds(wfds, 30);
+    nw += portal_fds(wfds + nw, 158 - nw);
+    nw += presence_fds(wfds + nw, 158 - nw);
+    nw += appapi_fds(wfds + nw, 158 - nw);
+    for (int i = 0; i < nw; i++)
+        p[2 + i] = (struct pollfd){.fd = wfds[i], .events = POLLIN};
+    poll(p, (nfds_t)(2 + nw), wm_poll_ms(33));
+}
+
+/* Runs frames, with `draw` over everything taking the input, until *done. Code
+ * waiting for an answer (a Facet app's ask) calls this and carries on after. */
+void main_modal(void (*draw)(void), const bool *done) {
+    void (*outer)(void) = modal;
+    modal = draw;
+    while (!*done)
+        main_frame();
+    modal = outer;
+}
+
 int main(void) {
     if (!display_open()) {
         fprintf(stderr, "os-shell: no framebuffer\n");
@@ -241,44 +301,7 @@ int main(void) {
     presence_init(); /* the light, or her face (os-figure) */
     set_screen(SCR_SPLASH);
 
-    int fds[2];
-    input_fds(fds);
-    for (;;) {
-        A.now = now_ms();
-        wm_frame_begin();
-        wls_dispatch();
-        portal_poll(); /* os-portal: file choosers, notifications */
-        appapi_poll(); /* apps using the companion: her AI, voice, face, memory */
-        models_poll(); /* model downloads, wherever they were started */
-        presence_poll(); /* her frames, and what she should know */
-        input_poll(&A.in);
-        switch (A.screen) {
-        case SCR_SPLASH: splash_draw(); break;
-        case SCR_CHOOSE: choose_draw(); break;
-        case SCR_MODELS: models_draw(); break;
-        case SCR_CONNECT: connect_draw(); break;
-        case SCR_ONBOARD: onboard_draw(); break;
-        case SCR_DESIGNING: designing_draw(); break;
-        case SCR_DESKTOP: desktop_draw(); break;
-        }
-        capture_frame(false); /* a recording without the pointer takes this */
-        ui_cursor(A.frame, A.in.mx, A.in.my);
-        wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
-        capture_frame(true); /* ...with it, this */
-        display_present(A.frame);
-        wm_frame_end();
-        wls_frame_done((uint32_t)A.now); /* apps draw their next frame now */
-        keep_on_disk();
-
-        /* Sleep until input arrives, an app has something to say, or the
-         * next animation frame (~30 fps). */
-        struct pollfd p[160] = {{.fd = fds[0], .events = POLLIN}, {.fd = fds[1], .events = POLLIN}};
-        int wfds[158], nw = wls_fds(wfds, 30);
-        nw += portal_fds(wfds + nw, 158 - nw);
-        nw += presence_fds(wfds + nw, 158 - nw);
-        nw += appapi_fds(wfds + nw, 158 - nw);
-        for (int i = 0; i < nw; i++)
-            p[2 + i] = (struct pollfd){.fd = wfds[i], .events = POLLIN};
-        poll(p, (nfds_t)(2 + nw), wm_poll_ms(33));
-    }
+    input_fds(frame_fds);
+    for (;;)
+        main_frame();
 }

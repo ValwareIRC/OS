@@ -497,14 +497,15 @@ static void dedupe_ids(fm_doc *d) {
                 break;
             }
         int num = 2;
+        const fm_node *kept = nodes[keep]; /* (the list is cleared as it goes: keep the one that keeps its id) */
         for (int k = 0; k < ns; k++) {
             fm_node *e = nodes[same[k]];
             if (same[k] != keep) {
                 char nid[sizeof e->id];
                 snprintf(nid, sizeof nid, "%.40s-%d", e->id, num++);
                 memcpy(e->id, nid, sizeof nid);
-                fm_report(d, e->line, false, "the id \"%s\" was used twice; this one is now \"%s\"",
-                          nodes[keep]->id, e->id);
+                fm_report(d, e->line, false, "the id \"%s\" was used twice; this one is now \"%s\"", kept->id,
+                          e->id);
             }
             nodes[same[k]] = NULL;
         }
