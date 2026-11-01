@@ -778,8 +778,13 @@ void design_begin(const char *extra) {
     /* Hard limits first: comfort is not a matter of taste. */
     sb_add(&r, "\nACCESS (hard constraints, never trade them for looks):\n");
     float ts = A.prof.text_scale > 0.5f ? A.prof.text_scale : 1;
-    sb_printf(&r, "- body text at least %d px, labels at least %d px, controls at least %d px tall\n", (int)(16 * ts),
-              (int)(13 * ts), (int)(36 * ts));
+    /* the least, not a size to aim for: a desktop is used with a pointer, at a desk (small controls can be
+     * clicked a little around them); larger only when they asked for larger text */
+    sb_printf(&r, "- body text at least %d px and labels at least %d px; controls at least %d px tall. These are "
+                  "floors, not targets: size things as a well-made desktop would (body text %d-%d px, bars and "
+                  "title bars %d-%d px, buttons %d-%d px), not bigger\n",
+              (int)(13 * ts), (int)(11 * ts), (int)(18 * ts), (int)(13 * ts), (int)(15 * ts), (int)(22 * ts),
+              (int)(32 * ts), (int)(22 * ts), (int)(30 * ts));
     sb_printf(&r, "- text contrast at least %s:1 against what is behind it\n", A.prof.high_contrast ? "7" : "4.5");
     if (A.prof.reduce_motion)
         sb_add(&r, "- no motion: transition 0, a still wallpaper (gradient, paper, dunes, sun or constellation)\n");

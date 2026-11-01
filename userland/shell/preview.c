@@ -3,6 +3,7 @@
 #include "app.h"
 #include "emblem.h"
 #include "fm/fm.h"
+#include "fm/lint.h"
 #include "stylist.h"
 #include "theme.h"
 #include "wallpaper.h"
@@ -694,6 +695,25 @@ void preview_body(rect r, bool focused) {
             if (A.in.clicked) {
                 describe_pointed(sh, h);
                 LOG("preview: pointing at #%s: %s\n", PV.pointed, PV.pointed_what);
+                /* a button that opens a menu or panel opens it here, so it can be seen before applying */
+                for (fm_node *b = h; b && b != sh->desktop; b = b->parent) {
+                    const char *w = fm_attr_get(b, "what");
+                    const char *t = w ? strstr(w, "toggle:#") : NULL;
+                    if (!t)
+                        t = w ? strstr(w, "show:#") : NULL;
+                    if (t) {
+                        char id[64];
+                        const char *s0 = strchr(t, '#') + 1;
+                        snprintf(id, sizeof id, "#%.*s", (int)strcspn(s0, "; "), s0);
+                        fm_node *pop = fm_find(sh, id);
+                        if (pop) {
+                            fm_set_open(sh, pop, !pop->open);
+                            PV.redraw = true;
+                            LOG("preview: %s %s\n", pop->open ? "opened" : "closed", id);
+                        }
+                        break;
+                    }
+                }
             }
         }
     }
@@ -722,6 +742,22 @@ void preview_body(rect r, bool focused) {
     color ink = theme_fit(first ? RGBA(40, 34, 30, 255) : D.surface_text, under, 4.5f);
     color muted = theme_fit(first ? RGBA(90, 80, 72, 255) : D.muted, under, 4.5f);
     int chip_x = img.x + img.w, chip_y = img.y + img.h + 8;
+    if (sh && !PV.before) { /* its main menu, opened in the preview */
+        fm_node *menu = fm_lint_main_popover(sh);
+        if (menu) {
+            const char *ml = menu->open ? "Close the menu" : "Open the menu";
+            int mw = text_width(small, ml) + 28;
+            chip_x -= mw;
+            rect mb = {chip_x, chip_y, mw, 30};
+            if (ui_button(mb, ml, small, menu->open ? accent : color_alpha(ink, 0.10f),
+                          menu->open ? readable_on(accent) : ink, 15, true)) {
+                fm_set_open(sh, menu, !menu->open);
+                PV.redraw = true;
+            }
+            log_rect(0, "preview-menu", mb);
+            chip_x -= 8;
+        }
+    }
     if (sh && !PV.before) {
         const char *wl = PV.window ? "Hide the window" : "Show a window";
         int ww = text_width(small, wl) + 28;

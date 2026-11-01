@@ -750,30 +750,68 @@ void senses_write(char *out, size_t n) {
 #undef ADD
 }
 
+/* A folder: newest first, each with its size and when it was last changed (for a download, when it came) */
+struct entry {
+    char name[120];
+    bool dir;
+    off_t size;
+    time_t mtime;
+};
+
+static int newest_first(const void *a, const void *b) {
+    const struct entry *x = a, *y = b;
+    return x->mtime < y->mtime ? 1 : x->mtime > y->mtime ? -1 : strcmp(x->name, y->name);
+}
+
 static void list_dir(const char *path, char *out, size_t n) {
     DIR *d = opendir(path);
     if (!d) {
         snprintf(out, n, "%s can't be opened.", path);
         return;
     }
-    size_t o = (size_t)snprintf(out, n, "In %s:", path);
+    static struct entry es[400];
+    int k = 0, total = 0;
     struct dirent *e;
-    int k = 0;
-    while ((e = readdir(d)) && o < n) {
+    while ((e = readdir(d))) {
         if (e->d_name[0] == '.')
+            continue;
+        total++;
+        if (k >= 400)
             continue;
         char full[600];
         snprintf(full, sizeof full, "%s/%s", strcmp(path, "/") ? path : "", e->d_name);
         struct stat st;
-        bool dir = stat(full, &st) == 0 && S_ISDIR(st.st_mode);
-        if (k++ < 40)
-            o += (size_t)snprintf(out + o, n - o, " %s%s%s", k > 1 ? "," : "", e->d_name, dir ? "/" : "");
+        if (stat(full, &st) != 0)
+            continue;
+        snprintf(es[k].name, sizeof es[k].name, "%s", e->d_name);
+        es[k].dir = S_ISDIR(st.st_mode);
+        es[k].size = st.st_size;
+        es[k].mtime = st.st_mtime;
+        k++;
     }
     closedir(d);
-    if (k > 40 && o < n)
-        snprintf(out + o, n - o, " and %d more", k - 40);
-    if (!k && o < n)
-        snprintf(out + o, n - o, " nothing");
+    qsort(es, (size_t)k, sizeof es[0], newest_first);
+    size_t o = (size_t)snprintf(out, n, "In %s (%d, newest first; size, last changed):\n", path, total);
+    int shown = 0;
+    for (int i = 0; i < k && o < n - 80; i++, shown++) {
+        char when[32], size[24];
+        struct tm tm;
+        localtime_r(&es[i].mtime, &tm);
+        strftime(when, sizeof when, "%Y-%m-%d %H:%M", &tm);
+        if (es[i].dir)
+            snprintf(size, sizeof size, "folder");
+        else if (es[i].size >= 1 << 20)
+            snprintf(size, sizeof size, "%.1f MB", es[i].size / 1048576.0);
+        else if (es[i].size >= 1024)
+            snprintf(size, sizeof size, "%.0f KB", es[i].size / 1024.0);
+        else
+            snprintf(size, sizeof size, "%lld bytes", (long long)es[i].size);
+        o += (size_t)snprintf(out + o, n - o, "- %s%s  %s  %s\n", es[i].name, es[i].dir ? "/" : "", size, when);
+    }
+    if (shown < total && o < n)
+        snprintf(out + o, n - o, "...and %d more\n", total - shown);
+    if (!total && o < n)
+        snprintf(out + o, n - o, "nothing\n");
 }
 
 static void read_file(const char *path, char *out, size_t n) {

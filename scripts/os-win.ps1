@@ -134,7 +134,9 @@ if ($Fullscreen) {
     # gl=on: the graphics card draws the window. QEMU's own full-screen drawing
     # on Windows made the whole VM 2-3x slower (measured with
     # tests\win_display_time.ps1: init at 55 s instead of 21 s).
-    $gtk += ",full-screen=on,gl=on"
+    # (gl=on was faster to start, but on this PC it hung QEMU before the OS booted, holding the whole
+    # screen with no way out but Task Manager: full screen is drawn by QEMU itself again.)
+    $gtk += ",full-screen=on"
     [IO.File]::WriteAllText($size, "$($screen.Bounds.Width)x$($screen.Bounds.Height)")
     Write-Host "Full screen at $($screen.Bounds.Width)x$($screen.Bounds.Height) with $cpus processors (Ctrl+Alt+F leaves full screen, Ctrl+Alt+G frees the mouse)"
 } else {

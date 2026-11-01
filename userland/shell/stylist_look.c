@@ -58,6 +58,15 @@ char *stylist_last_zoom(void) {
     return z;
 }
 
+/* around what she changed, with room to see it in its place */
+static rect closeup_rect(const fm_node *f) {
+    int padx = f->vis.w / 3 + 12, pady = f->vis.h / 3 + 12;
+    rect cr = {f->vis.x - padx, f->vis.y - pady, f->vis.w + 2 * padx, f->vis.h + 2 * pady};
+    if (cr.w > 600) cr.x += (cr.w - 600) / 2, cr.w = 600;
+    if (cr.h > 340) cr.y += (cr.h - 340) / 2, cr.h = 340;
+    return cr;
+}
+
 /* r of src, enlarged by whole pixels (nearest), as JPEG base64 */
 static char *closeup_of(const canvas *src, rect r) {
     if (r.x < 0) r.w += r.x, r.x = 0;
@@ -171,16 +180,18 @@ void stylist_look_at(const char *text, bool pictures, stylist_look *out) {
         out->jpeg_b64[0] = picture_of(work);
         snprintf(out->shows[0], sizeof out->shows[0], "the desktop at rest, nothing open");
         fm_node *f = look_focus ? fm_find(doc, look_focus) : NULL;
-        if (f && f->vis.w > 0 && f->vis.h > 0) { /* a close-up, around it, at its real pixels */
-            int padx = f->vis.w / 3 + 12, pady = f->vis.h / 3 + 12;
-            rect cr = {f->vis.x - padx, f->vis.y - pady, f->vis.w + 2 * padx, f->vis.h + 2 * pady};
-            if (cr.w > 600) cr.x += (cr.w - 600) / 2, cr.w = 600;
-            if (cr.h > 340) cr.y += (cr.h - 340) / 2, cr.h = 340;
-            out->jpeg_b64[2] = closeup_of(work, cr);
-        }
-        fm_node *pop = fm_lint_main_popover(doc);
+        /* what she changed may be inside a menu: that menu is the one shown open */
+        fm_node *in_pop = NULL;
+        for (fm_node *a = f; a; a = a->parent)
+            if (a->kind == FM_ELEM && (!strcmp(a->tag, "popover") || !strcmp(a->tag, "sheet") || !strcmp(a->tag, "menu")))
+                in_pop = a;
+        if (f && !in_pop && f->vis.w > 0 && f->vis.h > 0)
+            out->jpeg_b64[2] = closeup_of(work, closeup_rect(f));
+        fm_node *pop = in_pop ? in_pop : fm_lint_main_popover(doc);
         fm_lint_paint(doc, &o, pop, true);
         out->jpeg_b64[1] = picture_of(work);
+        if (f && in_pop && f->vis.w > 0 && f->vis.h > 0) /* now laid out, its menu open */
+            out->jpeg_b64[2] = closeup_of(work, closeup_rect(f));
         if (pop)
             snprintf(out->shows[1], sizeof out->shows[1], "#%s open, over an app window drawn with your template",
                      pop->id);
