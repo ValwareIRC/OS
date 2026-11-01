@@ -928,7 +928,7 @@ void onboard_draw(void) {
     struct conversation *c = &A.onboard;
     if (convo_poll(c) && !c->error[0]) {
         struct msg *m = &c->msgs[c->n - 1];
-        persona_take(m->text); /* what she read in them: private, taken out first */
+        persona_take(m->text); /* what she read in them (private) and wishes about her, taken out first */
         char *shown = apply_tags(m->text);
         free(m->text);
         palettes_from_prose(shown);

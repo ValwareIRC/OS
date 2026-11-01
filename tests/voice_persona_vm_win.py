@@ -5,7 +5,8 @@ sound. tests/fake_ai.py plays the companion:
   (from Kokoro's published voices) and she speaks with it, through os-speak;
   what she reads in them ([[trait:]]) never shows; at 15 her own traits are
   chosen and her character written, each in a context of its own, and her
-  next reply is made knowing who she is.
+  next reply is made knowing who she is;
+  they ask her to be more cutesy: the wish holds at once, and she is rewritten with it.
   python tests\\voice_persona_vm_win.py [OUTDIR]"""
 import json, os, re, sys, time
 
@@ -27,7 +28,11 @@ replies = [
                                        "Affectionate, Perfectionistic]]"},
     {"system": r"You cast characters", "reply": "Calm, Patient, Witty, Curious, Loyal, Sceptical, Stubborn, Organised, "
                                               "Observant, Honest, Playful, Practical, Even-tempered, Outspoken, Modest"},
+    {"when": r"asked you to change", "system": r"novelist", "reply": "You are sweeter now, playful. " * 12},
     {"system": r"novelist", "reply": character},
+    {"when": r"more cutesy", "reply": "Okay, okay. Softer and sillier it is. [[persona:tune more cutesy and playful]]"},
+    {"when": r"still there", "system": r"WHAT THEY ASKED YOU TO BE[\s\S]*more cutesy and playful",
+     "reply": "tune-seen."},
     {"when": r"are you there", "system": r"WHO YOU ARE", "reply": "persona-seen. Always."},
 ]
 for _ in range(6):
@@ -61,6 +66,13 @@ try:
     time.sleep(3)
     results["she knows who she is"] = "persona-seen" in open(vm.ailog).read()
     vm.shot("3-after.png")
+    vm.say("be more cutesy", r"persona: they asked her to change")
+    results["wish taken"] = "persona: they asked her to change" in vm.log_text()
+    results["rewritten with it"] = bool(vm.wait_for(r"persona: rewritten with their wish", 120))
+    vm.say("still there", r"voice: speaking")
+    time.sleep(3)
+    results["she is what they asked"] = "tune-seen" in open(vm.ailog).read()
+    vm.shot("4-tuned.png")
 finally:
     vm.stop()
     for k, v in results.items():

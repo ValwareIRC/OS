@@ -20,6 +20,7 @@
 #define OWN_FILE STATE_DIR "/persona-traits"    /* hers */
 #define CORE_FILE STATE_DIR "/persona.txt"      /* her personality, as written */
 #define LATELY_FILE STATE_DIR "/persona-lately" /* first line: when; then how she has been lately */
+#define TUNES_FILE STATE_DIR "/persona-tunes"   /* what they asked her to be, one wish a line: theirs to see */
 #define DRIFT_MS (3ull * 24 * 3600 * 1000)     /* a little change, every few days at most */
 
 static struct {
@@ -28,7 +29,9 @@ static struct {
     int read[PERSONA_WANT];
     char *core, *lately;
     uint64_t lately_at;
-    job *building, *drifting;
+    job *building, *drifting, *tuning;
+    char *tunes;      /* their wishes, one a line */
+    bool retune;      /* a wish came while she was being rewritten */
     uint64_t build_failed_at;
     int talks_seen; /* replies since the last drift */
     bool chat_asked;
@@ -95,6 +98,7 @@ void persona_load(void) {
     }
     free(r);
     P.core = slurp(CORE_FILE);
+    P.tunes = slurp(TUNES_FILE);
     char *l = slurp(LATELY_FILE);
     if (l) {
         char *nl = strchr(l, '\n');
@@ -111,6 +115,9 @@ void persona_reset(void) {
     unlink(CORE_FILE);
     unlink(LATELY_FILE);
     unlink(STATE_DIR "/persona-asked");
+    unlink(TUNES_FILE);
+    free(P.tunes);
+    P.tunes = NULL;
     free(P.core);
     free(P.lately);
     P.core = P.lately = NULL;
@@ -167,6 +174,36 @@ void persona_take(char *text) {
     }
     if (changed)
         save_read();
+    while ((o = strstr(text, "[[persona:"))) { /* [[persona:tune be a bit more cutesy]]: their wish */
+        char *e = strstr(o, "]]");
+        char *after = e ? e + 2 : o + strlen(o);
+        if (e) {
+            char wish[300];
+            snprintf(wish, sizeof wish, "%.*s", (int)(e - o - 10) < 299 ? (int)(e - o - 10) : 299, o + 10);
+            char *w = wish;
+            if (!strncasecmp(w, "tune", 4))
+                w += 4;
+            while (*w == ' ' || *w == ':')
+                w++;
+            for (char *c = w; *c; c++)
+                if (*c == '\n')
+                    *c = ' ';
+            if (*w) {
+                sbuf t;
+                sb_init(&t);
+                sb_add(&t, P.tunes ? P.tunes : "");
+                sb_printf(&t, "%s\n", w);
+                free(P.tunes);
+                P.tunes = t.p;
+                spill(TUNES_FILE, P.tunes);
+                LOG("persona: they asked her to change\n");
+                P.retune = true; /* persona_poll rewrites her (again, if a rewrite is under way) */
+            }
+        }
+        while (o > text && o[-1] == ' ')
+            o--;
+        memmove(o, after, strlen(after) + 1);
+    }
     P.talks_seen++;
 }
 
@@ -183,7 +220,7 @@ static void read_into(sbuf *b) {
 }
 
 const char *persona_onboarding_prompt(void) {
-    static char buf[4000];
+    static char buf[6000];
     persona_load();
     sbuf b;
     sb_init(&b);
@@ -197,7 +234,8 @@ const char *persona_onboarding_prompt(void) {
                   "trait to them, never let a question sound like a personality test. Ask the questions a curious "
                   "new friend would (what they'd do with a free Saturday, the last thing that made them laugh, how "
                   "they decide things, what they're stubborn about), and keep going until you have %d; don't begin the "
-                  "mirror before then.",
+                  "mirror before then. If they say how they'd like you to be (cuter, calmer, funnier...), take it "
+                  "warmly and add [[persona:tune their wish, in a few words]].",
               P.nread ? ")" : "", PERSONA_WANT);
     snprintf(buf, sizeof buf, "%s", b.p);
     free(b.p);
@@ -205,7 +243,7 @@ const char *persona_onboarding_prompt(void) {
 }
 
 const char *persona_companion_prompt(void) {
-    static char buf[6000];
+    static char buf[10000];
     persona_load();
     sbuf b;
     sb_init(&b);
@@ -218,6 +256,14 @@ const char *persona_companion_prompt(void) {
         }
         sb_add(&b, "\n");
     }
+    if (P.tunes && P.tunes[0]) {
+        sb_add(&b, "\nWHAT THEY ASKED YOU TO BE (these win over anything above; be it now):\n");
+        sb_add(&b, P.tunes);
+    }
+    sb_add(&b, "\nIf they ask you to be different (cuter, calmer, more sarcastic, gentler, to talk less, to tease "
+               "more...), it's their call: take it gracefully in your own words, and end your reply with "
+               "[[persona:tune their wish, in a few words]]; you are that from now on. If it's about how you sound, "
+               "also offer a voice or two that fit and play one ([[voice:hear NAME]]), and speed if it helps.\n");
     if (P.nread < PERSONA_WANT) {
         sb_printf(&b, "\nPRIVATELY, you are still getting to know them: when what they say clearly shows a trait from "
                       "this list, add [[trait:Trait]] at the end of your reply: ");
@@ -303,6 +349,10 @@ static void build_child(void *arg, char **result) {
                "habit of software, a time of day), not abstractions like kindness or clarity. End with three short "
                "lines you might actually say to them, each on its own line. Never mention the person's traits, a "
                "list, or that this was designed.");
+    if (P.tunes && P.tunes[0]) {
+        sb_add(&w, "\n\nThey have already said how they'd like you to be; make it fully so (later wishes win):\n");
+        sb_add(&w, P.tunes);
+    }
     if (!strncasecmp(A.cfg.model, "qwen3", 5))
         sb_add(&w, "\n/no_think");
     struct ai_message m2 = {"user", w.p, NULL, 0};
@@ -341,10 +391,42 @@ static void drift_child(void *arg, char **result) {
     sb_add(&q, "\n\nIn two or three sentences, in the second person, say how you have been lately: a mood, something "
                "from these talks that stayed with you, an interest you picked up or a small opinion that shifted. "
                "Who you are stays the same; this is only the weather. Nothing else.");
+    if (P.tunes && P.tunes[0]) {
+        sb_add(&q, " Stay true to what they asked you to be:\n");
+        sb_add(&q, P.tunes);
+    }
     struct ai_message m = {"user", q.p, NULL, 0};
     char *reply = NULL;
     if (ai_chat(&A.cfg, "You keep a character's diary, briefly and truthfully.", &m, 1, 1000, &reply, err, sizeof err) != 0)
         reply = NULL;
+    free(q.p);
+    *result = reply ? reply : strdup("");
+}
+
+static void tune_child(void *arg, char **result) {
+    (void)arg;
+    char err[300];
+    sbuf q;
+    sb_init(&q);
+    sb_add(&q, "This is who you are:\n");
+    sb_add(&q, P.core);
+    sb_add(&q, "\n\nThe person you live with has asked you to change. Their wishes, oldest first (later ones win "
+               "where they clash):\n");
+    sb_add(&q, P.tunes);
+    sb_add(&q, "\nRewrite who you are with their wishes fully made: not a nod to them, really that, in how you talk, "
+               "the words you reach for, how you joke and how you show you care. Keep everything their wishes don't "
+               "touch. Same form: second person (\"You ...\"), 250 to 350 words of plain prose, no body (no fingers, "
+               "desks or coffee), never mention wishes, changes or that this was written, and end with three short "
+               "lines you might actually say to them, each on its own line. Nothing else.");
+    if (!strncasecmp(A.cfg.model, "qwen3", 5))
+        sb_add(&q, "\n/no_think");
+    struct ai_message m = {"user", q.p, NULL, 0};
+    char *reply = NULL;
+    if (ai_chat(&A.cfg, "You are a novelist who writes vivid, believable people.", &m, 1, 2500, &reply, err,
+                sizeof err) != 0 || !reply || strlen(reply) < 200) {
+        free(reply);
+        reply = NULL;
+    }
     free(q.p);
     *result = reply ? reply : strdup("");
 }
@@ -387,8 +469,26 @@ void persona_poll(void) {
         }
         free(res);
     }
+    if (P.tuning && job_poll(P.tuning, &res)) {
+        job_free(P.tuning);
+        P.tuning = NULL;
+        if (res && strlen(res) >= 200) {
+            spill(CORE_FILE, res);
+            free(P.core);
+            P.core = strdup(res);
+            LOG("persona: rewritten with their wish\n");
+        } else {
+            LOG("persona: couldn't be rewritten; their wish still stands\n");
+        }
+        free(res);
+    }
     if (!A.provider || !A.cfg.model[0] || A.screen != SCR_DESKTOP)
         return;
+    /* a wish: once she is written (else the writing takes it), rewrite her with it */
+    if (P.retune && persona_ready() && !P.tuning && !P.building) {
+        P.retune = false;
+        P.tuning = job_start(tune_child, NULL);
+    }
     /* 15 read and nobody written yet: write her (a failure waits ten minutes) */
     if (P.nread >= PERSONA_WANT && !persona_ready() && !P.building &&
         (!P.build_failed_at || A.now - P.build_failed_at > 600000)) {
