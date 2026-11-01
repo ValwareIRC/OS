@@ -1,0 +1,42 @@
+<facet>
+<meta ai-name="Test" user-name="T"/>
+<style>
+:root { --accent:#000080; --bg:#008080; --surface:#c0c0c0; --text:#000000; }
+desktop { background: #008080; }
+taskbar { dock: bottom; height: 30; background: #c0c0c0; padding: 2 4; gap: 4;
+  border-top: 1px solid #dfdfdf; box-shadow: inset 0 1px #ffffff; }
+.w95 { background: #c0c0c0; color: #000; font: Inter 13; padding: 4 12; height: 24;
+  box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf; }
+.w95:active { box-shadow: inset -1px -1px #ffffff, inset 1px 1px #0a0a0a, inset -2px -2px #dfdfdf, inset 2px 2px #808080; }
+#panel { place: center; width: 520; height: 300; background: #c0c0c0; gap: 14; padding: 18;
+  border: 3px outset #c0c0c0; }
+#row { direction: row; gap: 12; }
+.b { width: 110; height: 50; background: #c0c0c0; color: #000; font: Inter 12; align-items: center; justify-content: center; }
+#s1 { border: 4px dashed #000080; }
+#s2 { border: 4px dotted #800000; }
+#s3 { border: 6px double #000; }
+#s4 { border: 4px inset #c0c0c0; }
+#r1 { border: 4px ridge #c0c0c0; }
+#r2 { border: 4px groove #c0c0c0; }
+#r3 { border-width: 1 4 8 12; border-color: #f00 #0f0 #00f #ff0; }
+#r4 { border: 2px solid #000; border-left: 8px solid #000080; }
+#side { place: left; width: 34; height: 360; background: linear-gradient(180deg, #000080, #1084d0); color: #fff;
+  font: Inter 20; writing-mode: sideways-lr; text-align: start; padding: 8 0; }
+#down { place: right; width: 34; height: 300; background: #800000; color: #fff; font: Inter 16; writing-mode: vertical-rl; text-align: center; }
+#flip { place: top; color: #fff; font: Inter 18; transform: rotate(180deg); }
+</style>
+<desktop>
+  <column id="panel">
+    <row id="row"><box id="s1" class="b">dashed</box><box id="s2" class="b">dotted</box><box id="s3" class="b">double</box><box id="s4" class="b">inset</box></row>
+    <row id="row2" style="direction: row; gap: 12"><box id="r1" class="b">ridge</box><box id="r2" class="b">groove</box><box id="r3" class="b">1 4 8 12</box><box id="r4" class="b">left 8</box></row>
+  </column>
+  <row id="pics" style="place: top-left; direction: row; gap: 16; padding: 16">
+    <image src="/tmp/egg.png" style="width: 96"/>
+    <svg viewBox="0 0 64 64" width="64" height="64"><rect x="4" y="4" width="26" height="26" fill="#f25022"/><rect x="34" y="4" width="26" height="26" fill="#7fba00"/><rect x="4" y="34" width="26" height="26" fill="#00a4ef"/><rect x="34" y="34" width="26" height="26" fill="#ffb900"/></svg>
+    <svg viewBox="0 0 100 100" style="width: 64; height: 64"><circle cx="50" cy="50" r="44" fill="none" stroke="#fff" stroke-width="8"/><path d="M30 52 L45 66 L72 36" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/></svg>
+    <image src="/nope/missing.png" style="width: 40; height: 40"/>
+  </row>
+  <box id="side">Mitaware 95</box><box id="down">top to bottom</box><box id="flip">upside down</box>
+  <taskbar><button class="w95" what="open:files">Start</button><spacer/><clock class="w95"/></taskbar>
+</desktop>
+</facet>

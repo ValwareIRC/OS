@@ -348,7 +348,9 @@ static const char *companion_system(void) {
              "[[ui:press #id]] clicks something (opens menus, runs its action). [[ui:open #id]] / [[ui:close #id]] "
              "shows or hides a menu, panel or element. [[ui:set #id attr=value]] changes an attribute (set text=... "
              "changes its words). [[ui:style SELECTOR { property: value; }]] restyles with Facet CSS, e.g. "
-             "[[ui:style dock { background: rgba(255,120,80,0.3); }]]. [[ui:add #parent <markup/>]] adds elements "
+             "[[ui:style dock { background: rgba(255,120,80,0.3); }]]. [[ui:unstyle SELECTOR]] takes your rules for that "
+             "exact selector out again ([[ui:unstyle SELECTOR { height; width }]] only those properties): use it "
+             "when rules fight, instead of piling on more. [[ui:add #parent <markup/>]] adds elements "
              "(e.g. <button what=\"open:notes\" icon=\"notes\">Notes</button>, <clock/>, <applist apps=\"files\"/>). "
              "[[ui:remove #id]] removes one. [[open:files]] (or notes, settings, about, terminal, companion) opens an app. "
              "[[capture:shot]] opens the screenshot bar ([[capture:record]] to record the screen, [[capture:now]] takes "
@@ -386,6 +388,17 @@ static const char *companion_system(void) {
              presence_prompt(), facet_prompt(), voice_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
     free(tree);
+    if (ai_sees_images(&A.cfg)) { /* a model that sees is shown its changes */
+        static const char blind[] = "You can't see the screen: after your tags the system checks the result and tells you "
+                                    "what looks wrong";
+        static const char sees[] = "After your tags that change how it looks you are shown pictures of the result: "
+                                   "look closely and fix what is off";
+        char *at = strstr(buf, blind);
+        if (at && strlen(buf) - strlen(blind) + strlen(sees) < sizeof buf) {
+            memmove(at + strlen(sees), at + strlen(blind), strlen(at + strlen(blind)) + 1);
+            memcpy(at, sees, strlen(sees));
+        }
+    }
     return buf;
 }
 
@@ -774,11 +787,26 @@ static void companion_update(void) {
         /* Its edits are measured like its designs (stylist.c): what one
          * breaks goes back to it once, and the tags of that answer count. */
         static bool repairing;
+        static int look_rounds; /* times she has been shown her change since they last spoke */
         bool repair = repairing;
         repairing = false;
+        if (person_said)
+            look_rounds = 0;
+        /* "[[ok]]": she looked and it is right */
+        for (char *ok; (ok = strstr(m->text, "[[ok]]"));)
+            memmove(ok, ok + 6, strlen(ok + 6) + 1);
         fm_doc *target = (from_person || repair) && has_look_tags(m->text) ? preview_target() : NULL;
         char *before = target ? fm_serialize(target) : NULL;
+        bool has_look_tags_ran = target != NULL;
         int ui_ran = run_ui_tags(m->text, from_person || repair);
+        {
+            const char *wr = actions_report(); /* [[write]] results join the note she reads next */
+            size_t tl = strlen(tag_report);
+            if (wr[0]) {
+                snprintf(tag_report + tl, sizeof tag_report - tl, "%s", wr);
+                ui_ran++;
+            }
+        }
         char *broke = before && ui_ran && preview_doc() == target ? stylist_check_edit(before, target) : NULL;
         free(before);
         if (repair && !m->text[strspn(m->text, " \t\r\n")]) { /* a quiet fix: nothing to show */
@@ -949,16 +977,39 @@ static void companion_update(void) {
                 repairing = true;
             }
         }
+        /* A model that sees is shown what its change looks like (twice at most per request) */
+        bool show = ui_ran && preview_doc() && has_look_tags_ran && ai_sees_images(&A.cfg) && look_rounds < 2 &&
+                    !(tag_failed && !repair && !broke);
         if (broke) {
             char note[2600];
             snprintf(note, sizeof note,
                      "(Measured on the screen after your change:\n%.2200sFix these now with ui tags; answer with "
-                     "the tags alone, no words.)",
-                     broke);
+                     "the tags alone, no words.%s)",
+                     broke, show ? " The pictures show it as it is now." : "");
             convo_add(c, "hidden", note);
+            if (show) {
+                char *a, *b;
+                stylist_pictures(preview_doc(), &a, &b);
+                convo_picture(c, a, b);
+                look_rounds++;
+            }
             convo_send(c, companion_system(), 1600);
             repairing = true;
             free(broke);
+        } else if (show) {
+            char *a, *b;
+            stylist_pictures(preview_doc(), &a, &b);
+            if (a || b) {
+                convo_add(c, "hidden", "(Here is how it looks now, after your change: the desktop, and its menu "
+                                       "open over a window. Look closely: colours, spacing, edges and bevels, text "
+                                       "that is hard to read, things that spill out or overlap. If something is "
+                                       "off, fix it with ui tags alone, no words. If it is right, answer [[ok]] "
+                                       "and nothing else.)");
+                convo_picture(c, a, b);
+                look_rounds++;
+                convo_send(c, companion_system(), 1600);
+                repairing = true;
+            }
         }
     }
 }
@@ -1868,6 +1919,24 @@ font *fm_host_font(const char *family, float px) {
     return font_get(family, A.prof.text_scale > 0.5f ? px * A.prof.text_scale : px);
 }
 color fm_host_wallpaper_tone(void) { return D.bg; }
+bool fm_host_wallpaper_range(rect r, color *dark, color *light) {
+    if (!A.wall || r.w <= 0 || r.h <= 0)
+        return false;
+    float lo = 2, hi = -1;
+    for (int j = 0; j < 6; j++)
+        for (int i = 0; i < 8; i++) {
+            int x = r.x + (r.w - 1) * i / 7, y = r.y + (r.h - 1) * j / 5;
+            if (x < 0 || y < 0 || x >= A.wall->w || y >= A.wall->h)
+                continue;
+            color c = A.wall->px[(size_t)y * (size_t)A.wall->w + (size_t)x] | 0xff000000u;
+            float l = color_luma(c);
+            if (l < lo)
+                lo = l, *dark = c;
+            if (l > hi)
+                hi = l, *light = c;
+        }
+    return hi >= 0;
+}
 
 /* The companion speaks about a hidden note of its own (alive.c, actions.c). */
 void companion_prompt(const char *note, int max_tokens) {

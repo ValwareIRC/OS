@@ -9,7 +9,8 @@ W, H = 1600, 900
 
 
 class Vm:
-    def __init__(self, out, replies, alive="proactive=0\n", design=None, qport=4474, aiport=8918):
+    def __init__(self, out, replies, alive="proactive=0\n", design=None, qport=4474, aiport=8918, model="fake",
+                 design_path=None):
         self.out, self.qport, self.aiport = out, qport, aiport
         self.script = os.path.join(out, "replies.json")
         json.dump(replies, open(self.script, "w"))
@@ -17,11 +18,11 @@ class Vm:
         open(self.ailog, "w").close()
         self.mind = os.path.join(out, "mind.json")
         open(self.mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{aiport}/v1",
-                                               "api_key": "", "model": "fake"}) + "\n")
+                                               "api_key": "", "model": model}) + "\n")
         self.alive = os.path.join(out, "alive.conf")
         open(self.alive, "w").write(alive)
-        self.desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes",
-                                 (design or os.environ.get("DESIGN", "starlit")) + ".xml")
+        self.desk = design_path or os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes",
+                                                (design or os.environ.get("DESIGN", "starlit")) + ".xml")
         self.log = os.path.join(out, "serial.log")
         if os.path.exists(self.log):
             os.remove(self.log)

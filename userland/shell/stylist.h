@@ -60,6 +60,9 @@ void stylist_clear_status(void);
  * before), malloc'd, or NULL if nothing. `before` is the document text
  * from just before the edit. */
 char *stylist_check_edit(const char *before, struct fm_doc *after);
+/* Pictures of a document as it would look (its desktop at rest; its main menu open over a window), for a model
+ * that sees: JPEG base64, malloc'd, either may be NULL. */
+void stylist_pictures(struct fm_doc *doc, char **rest, char **open);
 
 /* The design as it is being written, for the preview to show as it grows.
  * Set in the design job: `whole` false for the reply so far, true for a

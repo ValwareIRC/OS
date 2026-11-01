@@ -578,10 +578,10 @@ static float clamp_len(float v, fm_len mn, fm_len mx, float avail) {
 }
 
 static void edges(const fm_style *st, float *l, float *t, float *r, float *b) {
-    *l = st->pad[3] + st->border_w;
-    *t = st->pad[0] + st->border_w;
-    *r = st->pad[1] + st->border_w;
-    *b = st->pad[2] + st->border_w;
+    *l = st->pad[3] + FM_BW(st, 3);
+    *t = st->pad[0] + FM_BW(st, 0);
+    *r = st->pad[1] + FM_BW(st, 1);
+    *b = st->pad[2] + FM_BW(st, 2);
 }
 
 static void measure_text(fm_node *n, float aw) {
@@ -591,7 +591,10 @@ static void measure_text(fm_node *n, float aw) {
     fmi_text_for_draw(st, n->text, buf, sizeof buf);
     float w = (float)text_width(f, buf);
     float lh = (float)font_line_height(f) * st->line_height;
-    if (aw > 24 && w > aw && !st->nowrap) {
+    if (st->text_rot == 90 || st->text_rot == -90) { /* one line, standing up */
+        n->mw = lh;
+        n->mh = w;
+    } else if (aw > 24 && w > aw && !st->nowrap) {
         n->mw = aw;
         n->mh = (float)fmi_measure_block(f, (int)aw, buf, st);
     } else {
@@ -641,6 +644,18 @@ void fmi_measure(fm_doc *d, fm_node *n, float aw, float ah) {
         cw = ch = 1;
     } else if (tag_is(n, "canvas")) {
         cw = 240, ch = 160;
+    } else if (tag_is(n, "image") || tag_is(n, "svg")) {
+        float nw = 0, nh = 0;
+        if (!fmi_media_size(n, &nw, &nh) || nw <= 0 || nh <= 0)
+            nw = nh = 48;
+        if (fw >= 0 && fh < 0)
+            cw = fw - pl - pr, ch = cw * nh / nw;
+        else if (fh >= 0 && fw < 0)
+            ch = fh - pt - pb, cw = ch * nw / nh;
+        else
+            cw = nw, ch = nh;
+        if (fw < 0 && cw > caw && caw > 0) /* never wider than there is room for */
+            ch = ch * caw / cw, cw = caw;
     }
 
     fm_node *kids[256];

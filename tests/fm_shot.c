@@ -58,6 +58,7 @@ bool fm_host_bind(const char *key, char *out, size_t n) {
 }
 void fm_host_draw_view(const char *app, rect r) { stylist_placeholder_view(app, r); }
 /* her spot: empty, as on a desktop where she has no look yet (there are no stock ones) */
+bool fm_host_wallpaper_range(rect r, color *dark, color *light) { (void)r, (void)dark, (void)light; return false; }
 void fm_host_draw_orb(rect r, bool active) { (void)r, (void)active; }
 /* her portrait: a stand-in panel here (the figure draws only in the OS) */
 void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active) {

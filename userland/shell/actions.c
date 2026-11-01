@@ -10,6 +10,10 @@
  *                                  (at most three in a row)
  *   [[run:command]]                a shell command, only after they say yes
  *                                  on screen; never run on its own
+ *   [[write:~/path]]...[[/write]]  a file in their home, written as given:
+ *                                  never a hidden one (no way to run
+ *                                  code); a file it replaces is kept for
+ *                                  [[undo]]
  *   [[undo]]                       reverses its last change
  *
  * Acting tags only count in answer to something the person said, never in
@@ -23,6 +27,8 @@
 #include "../lib/json.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -80,11 +86,11 @@ int actions_recent(char out[][160], int max) {
 
 /* ---- undo: the last few changes, and how to take each back ---- */
 
-enum undo_kind { U_LIGHT, U_VOLUME, U_DARK, U_VOICE, U_TEXT, U_CONTRAST, U_MOTION, U_PREF, U_SENSE };
+enum undo_kind { U_LIGHT, U_VOLUME, U_DARK, U_VOICE, U_TEXT, U_CONTRAST, U_MOTION, U_PREF, U_SENSE, U_FILE };
 static struct undo {
     enum undo_kind kind;
-    char what[96]; /* light target, pref name */
-    float prev;
+    char what[300]; /* light target, pref name, a file's path */
+    float prev;     /* for a file: 1 if it was there before (kept as STATE_DIR/undo-file) */
 } undo[8];
 static int nundo;
 
@@ -382,12 +388,128 @@ bool actions_undo(void) {
         sense_set(sense_named(u.what), u.prev > 0.5f);
         alive_prefs_save();
         break;
+    case U_FILE: /* the file it wrote goes; one it replaced comes back */
+        if (u.prev > 0.5f)
+            rename(STATE_DIR "/undo-file", u.what);
+        else
+            unlink(u.what);
+        break;
     }
     static const char *const names[] = {"lights", "volume", "light/dark", "voice", "text size", "contrast", "movement",
-                                        "preference", "sense"};
+                                        "preference", "sense", "file"};
     actions_log("undid the last change to the %s%s%s", names[u.kind], u.what[0] ? " " : "", u.what);
     toast("Undone: %s.", names[u.kind]);
     return true;
+}
+
+/* ---- writing a file in their home ---- */
+
+#define HOME_DIR "/root"
+#define WRITE_MAX (512 * 1024)
+
+/* Where it may go: inside their home, nothing hidden on the way (no .bashrc, .config/autostart...), no "..".
+ * Returns the full path in out, or a reason it may not. */
+static const char *write_path(const char *given, char *out, size_t n) {
+    while (*given == ' ')
+        given++;
+    if (!strncmp(given, "~/", 2))
+        snprintf(out, n, HOME_DIR "/%s", given + 2);
+    else if (!strncmp(given, HOME_DIR "/", strlen(HOME_DIR) + 1))
+        snprintf(out, n, "%s", given);
+    else if (given[0] != '/' && given[0])
+        snprintf(out, n, HOME_DIR "/%s", given);
+    else
+        return "only files in their home folder (~/...)";
+    char *e = out + strlen(out);
+    while (e > out && (e[-1] == ' ' || e[-1] == '\n'))
+        *--e = 0;
+    if (strstr(out, "..") || strstr(out, "//"))
+        return "no .. in the path";
+    for (const char *p = out + strlen(HOME_DIR); *p; p++)
+        if (*p == '/' && p[1] == '.')
+            return "not a hidden file or folder";
+    if (out[strlen(out) - 1] == '/')
+        return "that is a folder, not a file";
+    return NULL;
+}
+
+static bool make_parents(const char *path) {
+    char d[700];
+    snprintf(d, sizeof d, "%s", path);
+    for (char *p = d + strlen(HOME_DIR) + 1; (p = strchr(p, '/')); p++) {
+        *p = 0;
+        if (mkdir(d, 0755) != 0 && errno != EEXIST)
+            return false;
+        *p = '/';
+    }
+    return true;
+}
+
+static char write_report[1200]; /* what [[write]] did, for the note she reads next (actions_report) */
+
+const char *actions_report(void) {
+    static char out[1200];
+    snprintf(out, sizeof out, "%s", write_report);
+    write_report[0] = 0;
+    return out;
+}
+
+/* Writes it; what happened, in words, for the summary she is told. */
+static const char *write_file(const char *given, const char *text, size_t len) {
+    static char said[400];
+    char path[700];
+    const char *no = write_path(given, path, sizeof path);
+    if (no) {
+        snprintf(said, sizeof said, "couldn't write %.100s: %s", given, no);
+        return said;
+    }
+    if (len > WRITE_MAX) {
+        snprintf(said, sizeof said, "couldn't write %.100s: it's over 512 KB", given);
+        return said;
+    }
+    struct stat st;
+    bool was = stat(path, &st) == 0;
+    if (was && !S_ISREG(st.st_mode)) {
+        snprintf(said, sizeof said, "couldn't write %.100s: something that isn't a file is there", given);
+        return said;
+    }
+    if (!make_parents(path)) {
+        snprintf(said, sizeof said, "couldn't make the folders for %.100s", given);
+        return said;
+    }
+    if (was) { /* kept, for [[undo]] */
+        unlink(STATE_DIR "/undo-file");
+        if (link(path, STATE_DIR "/undo-file") != 0) {
+            FILE *in = fopen(path, "rb"), *out = fopen(STATE_DIR "/undo-file", "wb");
+            char buf[8192];
+            size_t k;
+            while (in && out && (k = fread(buf, 1, sizeof buf, in)) > 0)
+                fwrite(buf, 1, k, out);
+            if (in) fclose(in);
+            if (out) fclose(out);
+        }
+    }
+    char tmp[720];
+    snprintf(tmp, sizeof tmp, "%s.new", path);
+    FILE *f = fopen(tmp, "wb");
+    bool ok = f && fwrite(text, 1, len, f) == len;
+    if (f)
+        fclose(f);
+    ok = ok && rename(tmp, path) == 0;
+    if (!ok) {
+        unlink(tmp);
+        snprintf(said, sizeof said, "couldn't write %.100s", given);
+        return said;
+    }
+    push_undo(U_FILE, path, was ? 1 : 0);
+    actions_log("%s %s (%zu bytes)", was ? "replaced" : "wrote", path, len);
+    LOG("write: %s %s (%zu bytes)\n", was ? "replaced" : "wrote", path, len);
+    snprintf(said, sizeof said, "%s ~%s (%zu bytes)%s", was ? "replaced" : "wrote", path + strlen(HOME_DIR), len,
+             was ? "; [[undo]] brings the old one back" : "");
+    if (was)
+        toast("%s replaced %s (it can be undone).", D.ai_name[0] ? D.ai_name : "Your companion",
+              path + strlen(HOME_DIR) + 1);
+    return said;
 }
 
 /* ---- running a command, only with their yes ---- */
@@ -758,6 +880,28 @@ bool actions_take(struct conversation *c, bool *from_person) {
         senses_note_notification(arg, body, D.ai_name);
         actions_log("notification: %.100s", arg);
         acted = true;
+    }
+    /* [[write:~/path]]...[[/write]] (what is written may hold "]]" of its own) */
+    for (char *o; (o = strstr(m->text, "[[write:"));) {
+        char *name_end = strstr(o, "]]");
+        char *close = name_end ? strstr(name_end, "[[/write]]") : NULL;
+        char name[400] = "";
+        if (name_end)
+            snprintf(name, sizeof name, "%.*s", (int)(name_end - o - 8) < 399 ? (int)(name_end - o - 8) : 399, o + 8);
+        char *body = name_end ? name_end + 2 : o + strlen(o);
+        if (close && *body == '\n')
+            body++; /* the line break after the tag is not the file's */
+        size_t len = close ? (size_t)(close - body) : 0;
+        if (*from_person && close) {
+            const char *r = write_file(name, body, len);
+            SAY("(%s) ", r), acted = true;
+            size_t wl = strlen(write_report);
+            snprintf(write_report + wl, sizeof write_report - wl, "- [[write:%.80s]] -> %s\n", name, r);
+        }
+        else if (*from_person && name_end)
+            SAY("(couldn't write %.80s: the [[/write]] that ends it is missing) ", name), acted = true;
+        char *after = close ? close + 10 : name_end ? name_end + 2 : o + strlen(o);
+        memmove(o, after, strlen(after) + 1);
     }
     while ((t = find_tag(m->text, "undo", arg, sizeof arg))) {
         cut_tag(t);

@@ -52,10 +52,28 @@ struct chat_job {
 
 static void chat_child(void *arg, char **result) {
     struct chat_job *j = arg;
-    struct ai_message m[MAX_MSGS] = {0}; /* no pictures in conversation */
+    struct ai_message m[MAX_MSGS] = {0};
+    /* pictures: only the newest, only while recent, only to a model that sees */
+    static struct ai_image pics[2];
+    int npics = 0, pic_at = -1;
+    if (j->c->picture[0] && j->c->picture_at >= j->c->n - 4 && ai_sees_images(&j->cfg)) {
+        for (int k = 0; k < 2; k++)
+            if (j->c->picture[k])
+                pics[npics++] = (struct ai_image){"image/jpeg", j->c->picture[k]};
+        pic_at = j->c->picture_at;
+    }
     int n = 0;
     for (int i = 0; i < j->c->n; i++) {
         const char *role = !strcmp(j->c->msgs[i].role, "assistant") ? "assistant" : "user";
+        if (i == pic_at && !strcmp(role, "user")) { /* merged into the turn before, or a turn of its own */
+            if (n && !strcmp(m[n - 1].role, "user")) {
+                m[n - 1].images = pics;
+                m[n - 1].nimages = npics;
+            } else {
+                m[n].images = pics;
+                m[n].nimages = npics;
+            }
+        }
         /* Providers want alternating turns: merge consecutive user lines. */
         if (n && !strcmp(m[n - 1].role, role) && !strcmp(role, "user")) {
             size_t a = strlen(m[n - 1].text), b = strlen(j->c->msgs[i].text);
@@ -117,12 +135,35 @@ void strip_markdown(char *s) {
     *w = 0;
 }
 
+static void drop_pictures(struct conversation *c) {
+    free(c->picture[0]);
+    free(c->picture[1]);
+    c->picture[0] = c->picture[1] = NULL;
+    c->picture_at = -1;
+}
+
+void convo_picture(struct conversation *c, char *a, char *b) {
+    drop_pictures(c);
+    if ((a || b) && c->n) {
+        c->picture[0] = a ? a : b;
+        c->picture[1] = a ? b : NULL;
+        c->picture_at = c->n - 1;
+    } else {
+        free(a);
+        free(b);
+    }
+}
+
 void convo_add(struct conversation *c, const char *role, const char *text) {
     if (c->n == MAX_MSGS) {
         free(c->msgs[1].text); /* keep the first (setup) message */
         memmove(&c->msgs[1], &c->msgs[2], sizeof c->msgs[0] * (MAX_MSGS - 2));
         c->n--;
+        if (c->picture[0] && --c->picture_at < 1)
+            drop_pictures(c);
     }
+    if (!c->picture[0])
+        c->picture_at = -1;
     snprintf(c->msgs[c->n].role, sizeof c->msgs[c->n].role, "%s", role);
     c->msgs[c->n].text = strdup(text);
     c->n++;
@@ -184,6 +225,7 @@ int convo_load(struct conversation *c, const char *path) {
 void convo_clear(struct conversation *c) {
     for (int i = 0; i < c->n; i++)
         free(c->msgs[i].text);
+    drop_pictures(c);
     c->n = 0;
     job_free(c->pending);
     c->pending = NULL;

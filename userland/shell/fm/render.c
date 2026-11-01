@@ -389,6 +389,61 @@ static color guard(canvas *c, rect r, color col, float px) {
     return best;
 }
 
+/* A line of text turned a quarter (or half) way: drawn white on a canvas of its own, its coverage then
+ * laid down in the text's colour, turned. Starts where reading starts (top for 90, bottom for -90). */
+static void draw_text_turned(canvas *c, font *f, rect r, const char *buf, color col, const fm_style *st, float s) {
+    int rot = st->text_rot;
+    int tw = text_width(f, buf), lh = (int)(font_line_height(f) * st->line_height);
+    if (tw <= 0 || lh <= 0)
+        return;
+    canvas *m = canvas_new(tw + 2, lh + 2);
+    if (!m)
+        return;
+    fm_style plain = *st;
+    plain.tshadow = 0;
+    plain.text_align = FM_T_START;
+    plain.text_rot = 0;
+    fmi_draw_line_in(m, f, (rect){1, 1, tw, lh}, buf, 0xffffffffu, &plain, s);
+    bool side = rot == 90 || rot == -90;
+    int W = side ? m->h : m->w, H = side ? m->w : m->h;
+    int ox = r.x + (r.w - W) / 2, oy = r.y;
+    int along = side ? r.h - H : r.w - W; /* room along the line, used as text-align says */
+    if (along > 0) {
+        int shift = st->text_align == FM_T_CENTER ? along / 2 : st->text_align == FM_T_END ? along : 0;
+        if (rot == -90 || rot == 180)
+            shift = along - shift; /* reading starts at the far end */
+        if (side)
+            oy += shift;
+        else
+            ox = r.x + shift;
+    } else if (!side) {
+        ox = r.x;
+    }
+    if (!side)
+        oy = r.y + (r.h - H) / 2;
+    float ca = C_A(col) / 255.0f;
+    for (int y = 0; y < m->h; y++)
+        for (int x = 0; x < m->w; x++) {
+            uint32_t p = m->px[(size_t)y * (size_t)m->w + (size_t)x];
+            float cov = (float)C_R(p) / 255.0f * ca;
+            if (cov <= 0.004f)
+                continue;
+            int dx, dy;
+            if (rot == 90)
+                dx = ox + (m->h - 1 - y), dy = oy + x;
+            else if (rot == -90)
+                dx = ox + y, dy = oy + (m->w - 1 - x);
+            else
+                dx = ox + (m->w - 1 - x), dy = oy + (m->h - 1 - y);
+            if (dx < c->cx0 || dy < c->cy0 || dx >= c->cx1 || dy >= c->cy1)
+                continue;
+            uint32_t *d = &c->px[(size_t)dy * (size_t)c->w + (size_t)dx];
+            *d = RGBA((int)(C_R(col) * cov + C_R(*d) * (1 - cov)), (int)(C_G(col) * cov + C_G(*d) * (1 - cov)),
+                      (int)(C_B(col) * cov + C_B(*d) * (1 - cov)), (int)C_A(*d) > (int)(cov * 255) ? (int)C_A(*d) : (int)(cov * 255));
+        }
+    canvas_free(m);
+}
+
 static void draw_text_node(canvas *c, fm_node *t, float op) {
     fm_node *p = t->parent;
     const fm_style *st = p ? &p->st : &t->st;
@@ -403,6 +458,10 @@ static void draw_text_node(canvas *c, fm_node *t, float op) {
     char buf[512];
     fmi_text_for_draw(st, t->text, buf, sizeof buf);
     rect r = t->vis;
+    if (st->text_rot) {
+        draw_text_turned(c, f, r, buf, guard(c, r, col, st->font_size * s), st, s);
+        return;
+    }
     int tw = text_width(f, buf), lh = (int)(font_line_height(f) * st->line_height);
     if (fm_text_probe)
         fm_text_probe(c, t, (rect){r.x, r.y, tw < r.w ? tw : r.w, lh}, col, st->font_size * s);
@@ -576,6 +635,83 @@ static bool is_symbol_name(const char *name) {
 
 /* ---- elements ---- */
 
+/* Borders side by side: each its own width and colour, dashed, dotted, double, or carved (inset, outset,
+ * ridge, groove: lit from the top left). Square-cornered, as such borders are. */
+static void dash_rect(canvas *c, rect band, bool across, int on, int off, color col) {
+    int len = across ? band.w : band.h;
+    for (int t = 0; t < len; t += on + off) {
+        int n = t + on > len ? len - t : on;
+        fill_rect(c, across ? (rect){band.x + t, band.y, n, band.h} : (rect){band.x, band.y + t, band.w, n}, col);
+    }
+}
+
+static void draw_sides(canvas *c, rect r, const fm_style *s, float sc, float op) {
+    int w[4];
+    color col[4], light[4], dark[4];
+    for (int k = 0; k < 4; k++) {
+        w[k] = (int)lroundf(FM_BW(s, k) * sc);
+        col[k] = s->bsides ? s->bcol[k] : s->border;
+        light[k] = color_mix(col[k] | 0xff000000u, 0xffffffffu, 0.55f) & 0x00ffffffu;
+        light[k] |= col[k] & 0xff000000u;
+        dark[k] = color_mix(col[k] | 0xff000000u, 0xff000000u, 0.5f) & 0x00ffffffu;
+        dark[k] |= col[k] & 0xff000000u;
+    }
+    /* bands: top and left first, so bottom and right take the far corners (as carved edges do) */
+    rect band[4] = {{r.x, r.y, r.w, w[0]}, {r.x + r.w - w[1], r.y, w[1], r.h},
+                    {r.x, r.y + r.h - w[2], r.w, w[2]}, {r.x, r.y, w[3], r.h}};
+    static const int order[4] = {0, 3, 1, 2};
+    for (int o = 0; o < 4; o++) {
+        int k = order[o];
+        if (w[k] <= 0)
+            continue;
+        bool lit_side = k == 0 || k == 3; /* top and left face the light */
+        rect b = band[k];
+        bool across = k == 0 || k == 2;
+        switch (s->bstyle) {
+        case 'd':
+            dash_rect(c, b, across, w[k] * 3, w[k] * 2, color_alpha(col[k], op));
+            break;
+        case 'o':
+            dash_rect(c, b, across, w[k], w[k], color_alpha(col[k], op));
+            break;
+        case '2': { /* two lines, a gap between */
+            int t = w[k] / 3 > 0 ? w[k] / 3 : 1;
+            rect outer = b, inner = b;
+            if (across)
+                outer.h = inner.h = t, inner.y = k == 0 ? b.y + w[k] - t : b.y, outer.y = k == 0 ? b.y : b.y + w[k] - t;
+            else
+                outer.w = inner.w = t, inner.x = k == 3 ? b.x + w[k] - t : b.x, outer.x = k == 3 ? b.x : b.x + w[k] - t;
+            fill_rect(c, outer, color_alpha(col[k], op));
+            fill_rect(c, inner, color_alpha(col[k], op));
+            break;
+        }
+        case 'i':
+        case 'u':
+            fill_rect(c, b, color_alpha((s->bstyle == 'u') == lit_side ? light[k] : dark[k], op));
+            break;
+        case 'r':
+        case 'g': { /* the outer half one way, the inner half the other */
+            bool out_lit = (s->bstyle == 'r') == lit_side;
+            rect outer = b, inner = b;
+            int h1 = w[k] / 2 > 0 ? w[k] / 2 : 1;
+            if (across) {
+                outer.h = h1, inner.h = w[k] - h1;
+                if (k == 0) inner.y = b.y + h1; else outer.y = b.y + w[k] - h1;
+            } else {
+                outer.w = h1, inner.w = w[k] - h1;
+                if (k == 3) inner.x = b.x + h1; else outer.x = b.x + w[k] - h1;
+            }
+            fill_rect(c, outer, color_alpha(out_lit ? light[k] : dark[k], op));
+            if (inner.w > 0 && inner.h > 0)
+                fill_rect(c, inner, color_alpha(out_lit ? dark[k] : light[k], op));
+            break;
+        }
+        default:
+            fill_rect(c, b, color_alpha(col[k], op));
+        }
+    }
+}
+
 static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha);
 
 static void draw_children(fm_doc *d, canvas *c, fm_node *n, float op) {
@@ -672,7 +808,27 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
         stroke_round_vgradient(c, rect_inset(r, 1), r0 > 1 ? r0 - 1 : 0, 1, RGBA(255, 255, 255, (int)(46 * op)),
                                RGBA(255, 255, 255, 0));
 
-    if (s->border_w > 0) {
+    /* inset shadows without blur: edges inside the border, the first on top (how 98.css draws bevels) */
+    if (s->ninset) {
+        rect in = {r.x + (int)(FM_BW(s, 3) * sc), r.y + (int)(FM_BW(s, 0) * sc),
+                   r.w - (int)((FM_BW(s, 1) + FM_BW(s, 3)) * sc), r.h - (int)((FM_BW(s, 0) + FM_BW(s, 2)) * sc)};
+        for (int i = s->ninset - 1; i >= 0; i--) {
+            int dx = (int)lroundf(s->inset_x[i] * sc), dy = (int)lroundf(s->inset_y[i] * sc);
+            color col = color_alpha(s->inset_c[i], op);
+            if (dy > 0)
+                fill_rect(c, (rect){in.x, in.y, in.w, dy}, col);
+            else if (dy < 0)
+                fill_rect(c, (rect){in.x, in.y + in.h + dy, in.w, -dy}, col);
+            if (dx > 0)
+                fill_rect(c, (rect){in.x, in.y, dx, in.h}, col);
+            else if (dx < 0)
+                fill_rect(c, (rect){in.x + in.w + dx, in.y, -dx, in.h}, col);
+        }
+    }
+
+    if (s->border_w > 0 && (s->bsides || s->bstyle)) {
+        draw_sides(c, r, s, sc, op);
+    } else if (s->border_w > 0) {
         float bw = s->border_w * sc;
         if (s->border_bg.kind == FM_BG_LINEAR)
             stroke_round_vgradient(c, r, r0, bw, color_alpha(s->border_bg.a, op), color_alpha(s->border_bg.b, op));
@@ -712,6 +868,13 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     } else if (tag_is(n, "canvas")) {
         clipbox cc = clip_push(c, r);
         fmi_canvas_draw(d, c, n, r, op);
+        clip_pop(c, cc);
+    } else if (tag_is(n, "image") || tag_is(n, "svg")) {
+        float pl = s->pad[3] + FM_BW(s, 3), pt = s->pad[0] + FM_BW(s, 0);
+        rect in = {r.x + (int)(pl * sc), r.y + (int)(pt * sc), r.w - (int)((pl + s->pad[1] + FM_BW(s, 1)) * sc),
+                   r.h - (int)((pt + s->pad[2] + FM_BW(s, 2)) * sc)};
+        clipbox cc = clip_push(c, r);
+        fmi_media_draw(c, n, in, op);
         clip_pop(c, cc);
     } else if (tag_is(n, "divider")) {
         if (bg.kind == FM_BG_NONE)

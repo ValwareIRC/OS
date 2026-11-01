@@ -433,7 +433,7 @@ static fm_doc *parse_into(fm_doc *d, const char *text, size_t len, fm_node *top)
         fm_append(cur, n);
         if (self_close)
             continue;
-        if (!strcmp(name, "style") || !strcmp(name, "canvas")) { /* raw text up to the closing tag */
+        if (!strcmp(name, "style") || !strcmp(name, "canvas") || !strcmp(name, "svg")) { /* raw text up to the closing tag */
             char closing[16];
             snprintf(closing, sizeof closing, "</%s", name);
             const char *e = strcasestr(ps.p, closing);
@@ -604,8 +604,8 @@ static void ser(sbuf *b, const fm_node *n, int depth, const fm_doc *d) {
         for (int i = 0; i < depth; i++)
             sb_add(b, "  ");
         if (n->kind == FM_TEXT) {
-            if (n->parent && !strcmp(n->parent->tag, "canvas"))
-                sb_add(b, n->text); /* a script: kept verbatim */
+            if (n->parent && (!strcmp(n->parent->tag, "canvas") || !strcmp(n->parent->tag, "svg")))
+                sb_add(b, n->text); /* a script or a drawing: kept verbatim */
             else
                 escape(b, n->text, false);
             sb_add(b, "\n");

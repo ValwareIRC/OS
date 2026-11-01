@@ -40,6 +40,41 @@ static fm_node *hit_in(fm_node *n, int x, int y) {
     return n;
 }
 
+/* Small controls are easy to miss: one smaller than 24x24 can also be clicked a little around it (up to 24x24,
+ * centred), when the click lands on nothing that does something itself. So a design can keep 14px title-bar
+ * buttons and still be comfortable to use. The nearest one wins. */
+#define SLOP 24
+static bool clickable(const fm_node *n) {
+    return fmi_action_of(n) || tag_is(n, "button") || tag_is(n, "item") || tag_is(n, "input") || tag_is(n, "search");
+}
+
+static void slop_in(fm_node *n, int x, int y, fm_node **best, float *best_d) {
+    if (n->kind != FM_ELEM || n->st.hidden || !n->laid_out || is_meta(n) || is_popover(n))
+        return;
+    rect v = n->vis;
+    if (clickable(n) && (v.w < SLOP || v.h < SLOP) && v.w > 0 && v.h > 0) {
+        int gw = v.w < SLOP ? (SLOP - v.w + 1) / 2 : 0, gh = v.h < SLOP ? (SLOP - v.h + 1) / 2 : 0;
+        rect g = {v.x - gw, v.y - gh, v.w + 2 * gw, v.h + 2 * gh};
+        if (pt_in(g, x, y)) {
+            float dx = x - (v.x + v.w / 2.0f), dy = y - (v.y + v.h / 2.0f), d2 = dx * dx + dy * dy;
+            if (d2 < *best_d)
+                *best = n, *best_d = d2;
+        }
+    }
+    for (fm_node *k = n->first; k; k = k->next)
+        if (k->kind == FM_ELEM && !tag_is(k, "tip"))
+            slop_in(k, x, y, best, best_d);
+}
+
+static fm_node *with_slop(fm_node *top, fm_node *h, int x, int y) {
+    if (h && clickable(h))
+        return h;
+    fm_node *best = NULL;
+    float d = 1e9f;
+    slop_in(top, x, y, &best, &d);
+    return best ? best : h;
+}
+
 static fm_node *hit_popovers(fm_node *n, int x, int y) {
     fm_node *found = NULL;
     for (; n; n = n->next) {
@@ -47,6 +82,8 @@ static fm_node *hit_popovers(fm_node *n, int x, int y) {
             continue;
         if (is_popover(n) && n->open && n->laid_out) {
             fm_node *h = hit_in(n, x, y);
+            if (h || pt_in(n->vis, x, y))
+                h = with_slop(n, h, x, y);
             if (h)
                 found = h; /* later ones are on top */
         }
@@ -68,6 +105,8 @@ static fm_node *hit_layer(fm_doc *d, int layer, int x, int y) {
         if (k->kind != FM_ELEM || is_meta(k) || is_popover(k) || fm_layer_of(k) != layer)
             continue;
         fm_node *h = hit_in(k, x, y);
+        if (h || pt_in(k->vis, x, y))
+            h = with_slop(k, h, x, y);
         if (h && k->st.z >= best_z) {
             found = h;
             best_z = k->st.z;
@@ -415,6 +454,8 @@ bool fm_window_input(fm_doc *d, int win, rect r, bool focused) {
         return false;
     }
     fm_node *hit = hit_in(root, in->mx, in->my);
+    if (pt_in(root->vis, in->mx, in->my))
+        hit = with_slop(root, hit, in->mx, in->my); /* 14px title-bar buttons, clickable around them */
     d->hover_win = pt_in(root->vis, in->mx, in->my) ? win : -1;
     clear_hover(root);
     for (fm_node *p = hit; p && p != root->parent; p = p->parent)
@@ -477,7 +518,13 @@ static void describe_rec(fm_doc *d, sbuf *b, fm_node *n, int depth) {
                 sb_printf(b, " %s=\"%s\"", keys[i], v);
         }
         char *t = NULL;
-        for (fm_node *c = tag_is(n, "canvas") ? NULL : n->first; c; c = c->next)
+        if ((tag_is(n, "image") || tag_is(n, "svg")) && n->laid_out) {
+            float iw, ih;
+            if (!fmi_media_size(n, &iw, &ih))
+                sb_add(b, tag_is(n, "svg") ? " [the drawing can't be read]"
+                                           : " [can't be shown: no such picture here, or not a PNG, JPEG, GIF, BMP or SVG]");
+        }
+        for (fm_node *c = tag_is(n, "canvas") || tag_is(n, "svg") ? NULL : n->first; c; c = c->next)
             if (c->kind == FM_TEXT && !c->generated && !is_blank_text(c)) {
                 t = fm_text_of(n);
                 break;
@@ -485,6 +532,33 @@ static void describe_rec(fm_doc *d, sbuf *b, fm_node *n, int depth) {
         if (t) {
             sb_printf(b, " \"%.60s\"", t);
             free(t);
+            /* what is under its text: the nearest solid background, else the wallpaper there */
+            if (n->laid_out && !n->st.hidden && n->box.w > 0) {
+                color under = 0;
+                bool solid = false;
+                for (fm_node *a = n; a && !solid; a = a->parent)
+                    if (a->kind == FM_ELEM && a->st.bg.kind == FM_BG_SOLID && C_A(a->st.bg.a) > 200)
+                        under = a->st.bg.a, solid = true;
+                color dark = 0, light = 0;
+                float worst;
+                if (solid) {
+                    worst = color_contrast(n->st.color | 0xff000000u, under | 0xff000000u);
+                } else if (fm_host_wallpaper_range(n->box, &dark, &light)) {
+                    float a1 = color_contrast(n->st.color | 0xff000000u, dark), a2 = color_contrast(n->st.color | 0xff000000u, light);
+                    worst = a1 < a2 ? a1 : a2;
+                } else {
+                    worst = 99;
+                }
+                if (worst < 4.5f) {
+                    sb_printf(b, " [text #%06x", (unsigned)(n->st.color & 0xffffff));
+                    if (solid)
+                        sb_printf(b, " on #%06x", (unsigned)(under & 0xffffff));
+                    else
+                        sb_printf(b, " over wallpaper #%06x..#%06x", (unsigned)(dark & 0xffffff),
+                                  (unsigned)(light & 0xffffff));
+                    sb_printf(b, ": %.1f:1, hard to read; 4.5 needed]", (double)worst);
+                }
+            }
         }
         if (is_popover(n))
             sb_add(b, n->open ? " [open]" : " [closed]");
@@ -584,9 +658,35 @@ const char *fm_command(fm_doc *d, const char *cmd, fm_node **touched) {
             snprintf(res, sizeof res, "style needs a rule like: .x { color: #fff }");
             return res;
         }
+        /* The whole sheet is read again; its old problems would come back too and fill the list, so the
+         * list starts empty for the reading and only problems that weren't there before are new. */
         int before = d->nproblems;
+        fm_problem *old = before ? malloc(sizeof *old * (size_t)before) : NULL;
+        if (old)
+            memcpy(old, d->problems, sizeof *old * (size_t)before);
+        d->nproblems = 0;
         fm_css_patch(d, cmd);
         d->changed = true;
+        fm_problem fresh[FM_MAX_PROBLEMS];
+        int nfresh = 0;
+        for (int i = 0; i < d->nproblems; i++) {
+            bool known = false;
+            for (int k = 0; k < before && !known; k++)
+                known = !strcmp(old[k].msg, d->problems[i].msg);
+            for (int k = 0; k < nfresh && !known; k++)
+                known = !strcmp(fresh[k].msg, d->problems[i].msg);
+            if (!known)
+                fresh[nfresh++] = d->problems[i];
+        }
+        d->nproblems = 0;
+        for (int k = 0; k < before && d->nproblems < FM_MAX_PROBLEMS; k++)
+            d->problems[d->nproblems++] = old[k];
+        for (int k = 0; k < nfresh; k++) { /* the newest matter most: room is made for them */
+            if (d->nproblems == FM_MAX_PROBLEMS)
+                memmove(d->problems, d->problems + 1, sizeof d->problems[0] * (FM_MAX_PROBLEMS - 1)), d->nproblems--;
+            d->problems[d->nproblems++] = fresh[k];
+        }
+        free(old);
         char sel[128];
         snprintf(sel, sizeof sel, "%.*s", (int)(strchr(cmd, '{') - cmd), cmd);
         { char *s0 = sel; while (*s0 == 0x20) s0++; memmove(sel, s0, strlen(s0) + 1); }
@@ -595,10 +695,45 @@ const char *fm_command(fm_doc *d, const char *cmd, fm_node **touched) {
         fm_node *n = fm_find(d, sel);
         if (touched)
             *touched = n;
-        if (d->nproblems > before)
-            snprintf(res, sizeof res, "styled, with a problem: %s", d->problems[d->nproblems - 1].msg);
+        char wins[700];
+        int nwins = fm_css_who_wins(d, n, sel, wins, sizeof wins);
+        if (nfresh || nwins) {
+            static char many[2000];
+            size_t l = (size_t)snprintf(many, sizeof many, "styled %s, but:", sel);
+            for (int k = 0; k < nfresh && l < sizeof many - 1; k++)
+                l += (size_t)snprintf(many + l, sizeof many - l, "%s %s", k ? ";" : "", fresh[k].msg);
+            if (nwins && l < sizeof many - 1)
+                snprintf(many + l, sizeof many - l,
+                         "%s on %s these still win: %s (take them out with [[ui:unstyle SELECTOR { property }]], "
+                         "or add !important)",
+                         nfresh ? ";" : "", sel, wins);
+            return many;
+        }
+        snprintf(res, sizeof res, "styled %s", sel);
+        return res;
+    }
+    if (!strcmp(verb, "unstyle")) { /* [[ui:unstyle SELECTOR]] or [[ui:unstyle SELECTOR { height; width }]] */
+        char sel[128];
+        const char *brace = strchr(cmd, '{');
+        snprintf(sel, sizeof sel, "%.*s", brace ? (int)(brace - cmd) : (int)strlen(cmd), cmd);
+        for (char *e = sel + strlen(sel); e > sel && e[-1] == ' ';)
+            *--e = 0;
+        memmove(sel, sel + strspn(sel, " "), strlen(sel + strspn(sel, " ")) + 1);
+        char props[300] = "";
+        if (brace) {
+            const char *end = strchr(brace, '}');
+            snprintf(props, sizeof props, "%.*s", end ? (int)(end - brace - 1) : (int)strlen(brace + 1), brace + 1);
+        }
+        int k = fm_css_unstyle(d, sel, props[0] ? props : NULL);
+        d->changed = k > 0;
+        if (touched)
+            *touched = fm_find(d, sel);
+        if (!k)
+            snprintf(res, sizeof res, "FAILED: no rule is written for %.100s (rules are taken out by their exact "
+                     "selector)", sel);
         else
-            snprintf(res, sizeof res, "styled %s", sel);
+            snprintf(res, sizeof res, "took %s out of %d rule%s for %.100s", props[0] ? "those properties" : "them", k,
+                     k == 1 ? "" : "s", sel);
         return res;
     }
     char target[128];

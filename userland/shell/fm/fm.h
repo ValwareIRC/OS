@@ -50,6 +50,9 @@ enum fm_justify { FM_J_START, FM_J_CENTER, FM_J_END, FM_J_BETWEEN, FM_J_AROUND, 
 enum fm_overflow { FM_OV_VISIBLE, FM_OV_CLIP, FM_OV_SCROLL };
 enum fm_textalign { FM_T_START, FM_T_CENTER, FM_T_END };
 
+/* A side's border width: 0 top, 1 right, 2 bottom, 3 left */
+#define FM_BW(st, k) ((st)->bsides ? (st)->bside[k] : (st)->border_w)
+
 typedef struct fm_style {
     bool hidden;              /* display: none */
     int mode;                 /* FM_FLEX, FM_GRID, FM_STACK, FM_ORBIT */
@@ -70,9 +73,16 @@ typedef struct fm_style {
     fm_bg bg;
     float blur;               /* backdrop blur: frosted glass */
     float saturate;           /* backdrop vibrancy, 1 = none */
-    float border_w;
+    float border_w;           /* every side's (the widest, when they differ) */
     color border;
     fm_bg border_bg;          /* gradient borders */
+    bool bsides;              /* the sides differ: bside/bcol hold each (top right bottom left) */
+    float bside[4];
+    color bcol[4];
+    char bstyle;              /* 0 solid, 'd'ashed, 'o' dotted, '2' double, 'i'nset, 'u' outset, 'r'idge, 'g'roove */
+    int ninset;               /* inset box-shadows without blur: edges drawn inside the border (bevels) */
+    float inset_x[6], inset_y[6];
+    color inset_c[6];
     float radius[4];          /* tl tr br bl */
     float shadow_x, shadow_y, shadow_blur;
     color shadow;
@@ -84,6 +94,7 @@ typedef struct fm_style {
     char font[32];
     float font_size;
     enum fm_textalign text_align;
+    short text_rot;           /* text turned: 90 reads top to bottom, -90 bottom to top, 180 upside down (inherited) */
     float line_height;        /* multiple of the font's line */
     bool uppercase;
     /* typography (fm/type.c): all inherited, like CSS */
@@ -229,6 +240,10 @@ char *fm_text_of(const fm_node *n); /* concatenated text content (malloc'd) */
 void fm_css_load(fm_doc *d);
 /* Adds or replaces rules from CSS text (used by companion edits). */
 void fm_css_patch(fm_doc *d, const char *css);
+/* After a patched rule for `sel`: the rules that still win on n for its properties, named in out. */
+int fm_css_who_wins(fm_doc *d, fm_node *n, const char *sel, char *out, size_t cap);
+/* Takes a selector's rules (or some of their properties: "height; width") out of the design's own sheet. */
+int fm_css_unstyle(fm_doc *d, const char *selector, const char *props);
 /* Resolves styles for the whole tree for the current states. */
 void fm_style_tree(fm_doc *d);
 const char *fm_var(const fm_doc *d, const char *name);
@@ -303,6 +318,8 @@ void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover);
 font *fm_host_font(const char *family, float px);
 color fm_host_wallpaper_tone(void);      /* average wallpaper colour */
+/* The darkest and lightest of the wallpaper under r (false if there is no picture of it). */
+bool fm_host_wallpaper_range(rect r, color *dark, color *light);
 /* Tray elements (volume, network, notifications, quicksettings; tray.c):
  * width beside the icon for their label, and drawing them in `col`. */
 float fm_host_tray_extra(const fm_node *n);

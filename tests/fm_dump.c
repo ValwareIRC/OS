@@ -18,7 +18,11 @@ bool fm_host_window_focused(int i) { return i == 0; }
 void fm_host_action(fm_doc *d, fm_node *src, const char *action) { (void)d, (void)src; printf("ACTION %s\n", action); }
 bool fm_host_bind(const char *key, char *out, size_t n) { snprintf(out, n, "<%s>", key); return true; }
 void fm_host_draw_view(const char *app, rect r) { (void)app, (void)r; }
+bool fm_host_wallpaper_range(rect r, color *dark, color *light) { (void)r, (void)dark, (void)light; return false; }
 void fm_host_draw_orb(rect r, bool active) { (void)r, (void)active; }
+void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active) { (void)r, (void)frame, (void)tint, (void)shot, (void)active; }
+float fm_host_tray_extra(const fm_node *n) { (void)n; return 0; }
+void fm_host_draw_tray(fm_node *n, rect r, color col, float op) { (void)n, (void)r, (void)col, (void)op; }
 const char *clipboard_text(void) { return ""; }
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover) { (void)r, (void)app, (void)st, (void)hover; }
 font *fm_host_font(const char *family, float px) { return font_get(family, px); }

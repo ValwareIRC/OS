@@ -41,10 +41,14 @@ static inline bool is_blank_text(const fm_node *n) {
     return true;
 }
 
+/* Pictures (fm/media.c): <image src> and inline <svg> */
+bool fmi_media_size(const fm_node *n, float *w, float *h);
+bool fmi_media_draw(canvas *c, const fm_node *n, rect r, float op);
+
 /* In the flow of its parent's layout? */
 static inline bool in_flow(const fm_node *n) {
     if (n->kind == FM_TEXT) /* a canvas script is not text to show */
-        return !is_blank_text(n) && !(n->parent && tag_is(n->parent, "canvas"));
+        return !is_blank_text(n) && !(n->parent && (tag_is(n->parent, "canvas") || tag_is(n->parent, "svg")));
     return !n->st.hidden && !is_popover(n) && !is_meta(n) && !n->st.absolute;
 }
 

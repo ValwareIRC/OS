@@ -46,6 +46,8 @@ struct conversation {
     uint64_t pending_since;
     char error[300];
     int errors; /* consecutive failures; reset by a successful reply */
+    char *picture[2]; /* the newest pictures (JPEG, base64), sent with message picture_at to a model that sees */
+    int picture_at;   /* -1: none */
 };
 
 enum window_id { WIN_FILES, WIN_COMPANION, WIN_NOTES, WIN_SETTINGS, WIN_ABOUT, WIN_TERMINAL, WIN_PREVIEW, WIN_COUNT };
@@ -150,6 +152,8 @@ void convo_add(struct conversation *c, const char *role, const char *text);
 void convo_send(struct conversation *c, const char *system, int max_tokens);
 /* Returns true when a reply arrived (appended) or failed (c->error set). */
 bool convo_poll(struct conversation *c);
+/* Puts pictures on the newest message (they replace any before; NULLs are fine; it takes them). */
+void convo_picture(struct conversation *c, char *a, char *b);
 void convo_clear(struct conversation *c);
 void convo_save(const struct conversation *c, const char *path);
 int convo_load(struct conversation *c, const char *path); /* returns messages read */
@@ -200,6 +204,8 @@ void their_name_keep(const char *name);
  * (`act`: its ui tags run); and its replies taken in, off the desktop. */
 void companion_tell(const char *text);
 void companion_note(const char *note, bool act);
+/* What [[write]] tags did in the reply just taken (actions.c); read once. */
+const char *actions_report(void);
 void companion_tick(void);
 /* The design job (onboard.c): takes in a finished design, a failure, or
  * starts a retry. */

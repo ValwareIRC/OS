@@ -265,7 +265,7 @@ static bool drawn_elem(const fm_node *k) {
 static bool drawn_text(const fm_node *k) { return k->kind == FM_TEXT && in_flow(k) && k->laid_out; }
 
 static bool is_leaf_tag(const fm_node *n) {
-    static const char *const leaves[] = {"icon", "orb", "avatar", "clock", "canvas", "view", "spacer", "divider", "slot",
+    static const char *const leaves[] = {"icon", "orb", "avatar", "clock", "canvas", "image", "svg", "view", "spacer", "divider", "slot",
                                          "search", "input", "text", "label", "title", NULL};
     for (int i = 0; leaves[i]; i++)
         if (tag_is(n, leaves[i]))
@@ -450,10 +450,12 @@ static void check_elem(fm_node *n, fm_node *parent, bool *off) {
         (tag_is(n, "button") || tag_is(n, "icon")) && n->box.w > n->mw * 3 + 80)
         add(K_STRETCH, 2, path, "%s stretches to %dpx wide in a row; set grow:0 on it", path, n->box.w);
     const char *act = fmi_action_of(n);
-    if ((act || tag_is(n, "search") || tag_is(n, "input")) && !thin && (v.w < 24 || v.h < 24)) {
+    /* Under 24px is fine to look at: the system lets it be clicked up to 24x24 around it. Only what is too
+     * small to see and aim at is worth a word. */
+    if ((act || tag_is(n, "search") || tag_is(n, "input")) && !thin && (v.w < 10 || v.h < 10)) {
         char key[180];
         snprintf(key, sizeof key, "%s", path);
-        add(K_TARGET, 2, key, "%s is a %dx%dpx click target; make it at least 24x24 (padding or size)", path, v.w,
+        add(K_TARGET, 2, key, "%s is only %dx%dpx, too small to see and aim at; make it at least 12x12", path, v.w,
             v.h);
     }
     if (!has_kids && !is_leaf_tag(n) && !act) {

@@ -90,7 +90,10 @@ class H(BaseHTTPRequestHandler):
                 reply, call = (item["reply"] if isinstance(item, dict) else item), None
             with open(log, "a") as f:
                 tail = [m for m in msgs[-4:] if m.get("role") != "system"]
-                f.write(json.dumps({"tail": tail, "reply": reply[:200], "model": req.get("model"),
+                pics = sum(1 for m in msgs if isinstance(m.get("content"), list)
+                           for p in m["content"] if isinstance(p, dict) and p.get("type") in ("image_url", "image"))
+                f.write(json.dumps({"tail": [dict(t, content=text_of(t.get("content"))) for t in tail],
+                                    "pictures": pics, "reply": reply[:200], "model": req.get("model"),
                                     "tools": [t.get("function", {}).get("name") for t in req.get("tools", [])],
                                     "tool_call": call}) + "\n")
         finish = "tool_calls" if call else "stop"

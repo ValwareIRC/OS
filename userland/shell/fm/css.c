@@ -36,10 +36,12 @@ struct selector {
 struct decl {
     char prop[32];
     char *value;
+    bool important; /* !important: after everything else, the element's own style too */
 };
 
 struct fm_rule {
     struct selector sel;
+    char text[100]; /* the selector as written, for telling the writer which rule wins */
     struct decl *decls;
     int ndecls;
     int order;
@@ -355,6 +357,94 @@ static void parse_font_family(const char *v, char *out, size_t n) {
 
 /* Applies one declaration. Returns false for unknown properties or values
  * it can't read (the caller reports those to the AI). */
+/* ---- borders ---- */
+
+static bool border_style_of(const char *v, char out[4]) {
+    static const char *const names[] = {"solid", "dashed", "dotted", "double", "inset", "outset", "ridge", "groove"};
+    static const char codes[] = {0, 'd', 'o', '2', 'i', 'u', 'r', 'g'};
+    for (size_t i = 0; i < 8; i++)
+        if (!strncasecmp(v, names[i], strlen(names[i]))) {
+            out[0] = codes[i];
+            return true;
+        }
+    if (!strncasecmp(v, "none", 4) || !strncasecmp(v, "hidden", 6)) {
+        out[0] = 0;
+        return true;
+    }
+    return false;
+}
+
+static void sides_from_all(fm_style *st) {
+    if (st->bsides)
+        return;
+    for (int k = 0; k < 4; k++)
+        st->bside[k] = st->border_w, st->bcol[k] = st->border;
+    st->bsides = true;
+}
+
+/* "2px solid #fff" for every side (side < 0) or one */
+static void border_words(fm_style *st, const char *p, int side) {
+    while (*p) {
+        color c;
+        char s4[4];
+        const char *q = p;
+        if (parse_color(&q, &c)) {
+            if (side < 0)
+                st->border = c;
+            else
+                st->bcol[side] = c;
+            p = q;
+        } else if (isdigit((unsigned char)*p) || *p == '.') {
+            bool k;
+            float w = parse_num(&p, &k);
+            if (side < 0)
+                st->border_w = w;
+            else
+                st->bside[side] = w;
+        } else {
+            if (border_style_of(p, s4))
+                st->bstyle = s4[0];
+            if (side >= 0 && !strncasecmp(p, "none", 4))
+                st->bside[side] = 0;
+            while (*p && !isspace((unsigned char)*p))
+                p++;
+        }
+        p = skip_ws(p);
+    }
+}
+
+static int numbers(const char *v, float *out, int max) {
+    int n = 0;
+    const char *p = skip_ws(v);
+    while (*p && n < max) {
+        if (!(isdigit((unsigned char)*p) || *p == '.' || *p == '-'))
+            break;
+        bool k;
+        out[n++] = parse_num(&p, &k);
+        p = skip_ws(p);
+    }
+    return n;
+}
+
+static void expand4(float *w, int n) { /* CSS's 1-4 values: top right bottom left */
+    if (n == 2)
+        w[2] = w[0], w[3] = w[1];
+    else if (n == 3)
+        w[3] = w[1];
+}
+
+static int side_prop(const char *prop) {
+    if (strstr(prop, "radius"))
+        return -1;
+    static const char *const s[] = {"border-top", "border-right", "border-bottom", "border-left"};
+    for (int k = 0; k < 4; k++) {
+        size_t l = strlen(s[k]);
+        if (!strncmp(prop, s[k], l) && (prop[l] == 0 || prop[l] == '-'))
+            return k;
+    }
+    return -1;
+}
+
 static bool apply(fm_style *st, const char *prop, const char *v) {
     bool ok = true;
     float nums[4];
@@ -448,29 +538,74 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
         st->saturate = strtof(v, NULL);
     } else if (IS("border")) {
         const char *p = skip_ws(v);
-        if (!strncasecmp(p, "none", 4)) {
+        st->bsides = false;
+        if (!strncasecmp(p, "none", 4) || (!strncmp(p, "0", 1) && !isdigit((unsigned char)p[1]) && p[1] != '.')) {
             st->border_w = 0;
         } else {
-            while (*p) {
-                color c;
-                const char *q = p;
-                if (parse_color(&q, &c)) {
-                    st->border = c;
-                    p = q;
-                } else if (isdigit((unsigned char)*p) || *p == '.') {
-                    bool k;
-                    st->border_w = parse_num(&p, &k);
-                } else {
-                    while (*p && !isspace((unsigned char)*p))
-                        p++;
-                }
-                p = skip_ws(p);
-            }
+            border_words(st, p, -1);
         }
+    } else if (IS("border-style")) {
+        char s4[4];
+        ok = border_style_of(skip_ws(v), s4);
+        if (ok)
+            st->bstyle = s4[0];
     } else if (IS("border-width")) {
-        st->border_w = strtof(v, NULL);
+        float w[4];
+        int n = numbers(v, w, 4);
+        ok = n > 0;
+        if (n == 1) {
+            st->border_w = w[0];
+            if (st->bsides)
+                for (int k = 0; k < 4; k++)
+                    st->bside[k] = w[0];
+        } else if (n > 1) {
+            sides_from_all(st);
+            expand4(w, n);
+            for (int k = 0; k < 4; k++)
+                st->bside[k] = w[k];
+            st->border_w = fmaxf(fmaxf(w[0], w[1]), fmaxf(w[2], w[3]));
+        }
     } else if (IS("border-color")) {
-        ok = parse_color(&v, &st->border);
+        color cs[4];
+        int n = 0;
+        const char *p = skip_ws(v);
+        while (*p && n < 4 && parse_color(&p, &cs[n]))
+            n++, p = skip_ws(p);
+        ok = n > 0;
+        if (n == 1) {
+            st->border = cs[0];
+            if (st->bsides)
+                for (int k = 0; k < 4; k++)
+                    st->bcol[k] = cs[0];
+        } else if (n > 1) {
+            sides_from_all(st);
+            if (n == 2)
+                cs[2] = cs[0], cs[3] = cs[1];
+            else if (n == 3)
+                cs[3] = cs[1];
+            for (int k = 0; k < 4; k++)
+                st->bcol[k] = cs[k];
+            st->border = cs[0];
+        }
+    } else if (side_prop(prop) >= 0) { /* border-top, border-left-color, border-bottom-width, ... */
+        int k = side_prop(prop);
+        const char *what = strchr(prop + 7, '-');
+        sides_from_all(st);
+        if (!what) {
+            border_words(st, skip_ws(v), k);
+        } else if (!strcmp(what, "-width")) {
+            st->bside[k] = strtof(v, NULL);
+        } else if (!strcmp(what, "-color")) {
+            ok = parse_color(&v, &st->bcol[k]);
+        } else if (!strcmp(what, "-style")) {
+            char s4[4];
+            ok = border_style_of(skip_ws(v), s4);
+            if (ok)
+                st->bstyle = s4[0];
+        } else {
+            ok = false;
+        }
+        st->border_w = fmaxf(fmaxf(st->bside[0], st->bside[1]), fmaxf(st->bside[2], st->bside[3]));
     } else if (IS("border-image") || IS("border-gradient")) {
         ok = parse_bg(v, &st->border_bg);
     } else if (IS("radius") || IS("border-radius") || IS("corner-radius")) {
@@ -488,28 +623,47 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
             st->shadow_blur = 0;
             st->shadow = 0;
         } else {
-            float f[4];
-            int k = 0;
-            color c = RGBA(0, 0, 0, 90);
-            while (*p && *p != ',') { /* first shadow only */
-                const char *q = p;
-                if (parse_color_raw(&q, &c)) {
-                    p = q;
-                } else if (isdigit((unsigned char)*p) || *p == '-' || *p == '.') {
-                    bool kk;
-                    float val = parse_num(&p, &kk);
-                    if (k < 4)
-                        f[k++] = val;
-                } else {
-                    while (*p && !isspace((unsigned char)*p) && *p != ',')
-                        p++;
+            bool outer = false;
+            st->ninset = 0;
+            while (*p) { /* each shadow of the list */
+                float f[4];
+                int k = 0;
+                color c = RGBA(0, 0, 0, 90);
+                bool inset = false;
+                while (*p && *p != ',') {
+                    const char *q = p;
+                    if (!strncasecmp(p, "inset", 5)) {
+                        inset = true;
+                        p += 5;
+                    } else if (parse_color_raw(&q, &c)) {
+                        p = q;
+                    } else if (isdigit((unsigned char)*p) || *p == '-' || *p == '.') {
+                        bool kk;
+                        float val = parse_num(&p, &kk);
+                        if (k < 4)
+                            f[k++] = val;
+                    } else {
+                        while (*p && !isspace((unsigned char)*p) && *p != ',')
+                            p++;
+                    }
+                    p = skip_ws(p);
                 }
-                p = skip_ws(p);
+                if (inset && st->ninset < 6) {
+                    st->inset_x[st->ninset] = k > 0 ? f[0] : 0;
+                    st->inset_y[st->ninset] = k > 1 ? f[1] : 0;
+                    st->inset_c[st->ninset++] = c;
+                } else if (!inset && !outer) {
+                    outer = true;
+                    st->shadow_x = k > 0 ? f[0] : 0;
+                    st->shadow_y = k > 1 ? f[1] : 0;
+                    st->shadow_blur = k > 2 ? f[2] : 12;
+                    st->shadow = c;
+                }
+                if (*p == ',')
+                    p = skip_ws(p + 1);
             }
-            st->shadow_x = k > 0 ? f[0] : 0;
-            st->shadow_y = k > 1 ? f[1] : 0;
-            st->shadow_blur = k > 2 ? f[2] : 12;
-            st->shadow = c;
+            if (!outer)
+                st->shadow_blur = 0, st->shadow = 0;
         }
     } else if (IS("glow")) {
         const char *p = skip_ws(v);
@@ -609,7 +763,30 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
         st->line_height = lh > 4 ? lh / 16 : lh;
     } else if (IS("text-transform")) {
         st->uppercase = strstr(v, "upper") != NULL;
+    } else if (IS("writing-mode")) {
+        v = skip_ws(v);
+        if (!strncasecmp(v, "sideways-lr", 11))
+            st->text_rot = -90; /* bottom to top, like a book's spine on the left */
+        else if (!strncasecmp(v, "vertical", 8) || !strncasecmp(v, "sideways-rl", 11) || !strncasecmp(v, "tb", 2))
+            st->text_rot = 90;
+        else if (!strncasecmp(v, "horizontal", 10) || !strncasecmp(v, "lr", 2))
+            st->text_rot = 0;
+        else
+            ok = false;
+    } else if (IS("text-rotate") || IS("rotate")) { /* "rotate: -90deg": the text in it turns */
+        float a = strtof(skip_ws(v), NULL);
+        int q = ((int)lroundf(a / 90.0f) % 4 + 4) % 4;
+        ok = fabsf(a - 90.0f * lroundf(a / 90.0f)) < 1;
+        st->text_rot = (short)(q == 1 ? 90 : q == 2 ? 180 : q == 3 ? -90 : 0);
     } else if (IS("transform")) {
+        const char *rot = strstr(v, "rotate(");
+        if (rot) { /* quarter turns turn the text; anything else is reported (no_effect) */
+            float a = strtof(rot + 7, NULL);
+            if (fabsf(a - 90.0f * lroundf(a / 90.0f)) < 1) {
+                int q = ((int)lroundf(a / 90.0f) % 4 + 4) % 4;
+                st->text_rot = (short)(q == 1 ? 90 : q == 2 ? 180 : q == 3 ? -90 : 0);
+            }
+        }
         const char *sc = strstr(v, "scale(");
         if (sc)
             st->scale = strtof(sc + 6, NULL);
@@ -703,6 +880,38 @@ static bool apply(fm_style *st, const char *prop, const char *v) {
     }
 #undef IS
     return ok;
+}
+
+/* "unset" (or initial, revert): what came before for this property is dropped */
+static bool is_unset(const char *v) {
+    v = skip_ws(v);
+    return !strncasecmp(v, "unset", 5) || !strncasecmp(v, "initial", 7) || !strncasecmp(v, "revert", 6);
+}
+
+/* Properties taken without complaint (designs copied from the web are full of them) that draw nothing here:
+ * the one who wrote them is told, with what works instead. */
+static const char *no_effect(const char *prop, const char *v) {
+    static const char *const t[][2] = {
+        {"filter", "colours, opacity or saturate"},       {"outline", "border or box-shadow"},
+        {"text-decoration", "a border-bottom"},           {"animation", "transition"},
+        {"cursor", ""},                                   {"pointer-events", ""},
+        {"user-select", ""},                              {"box-sizing", "(sizes here already include padding)"},
+        {"content", "text in the markup"},                {"will-change", ""},
+        {"align-content", "align-items"},                 {"flex-shrink", "min-width / max-width"},
+        {"flex-basis", "width"},                          {"object-fit", ""},
+        {"vertical-align", "align-items on the row"},     {"list-style", ""},
+    };
+    for (size_t i = 0; i < sizeof t / sizeof t[0]; i++)
+        if (!strcasecmp(prop, t[i][0]))
+            return t[i][1];
+    if (!strcasecmp(prop, "transform") && strstr(v, "rotate(")) {
+        float a = strtof(strstr(v, "rotate(") + 7, NULL);
+        if (fabsf(a - 90.0f * lroundf(a / 90.0f)) >= 1)
+            return "quarter turns only (rotate(90deg), rotate(-90deg), 180deg): they turn the text in it";
+    }
+    if (!strcasecmp(prop, "transform") && (strstr(v, "skew") || strstr(v, "matrix")))
+        return "scale(), translate() and quarter-turn rotate()";
+    return NULL;
 }
 
 /* ---- selectors ---- */
@@ -1030,8 +1239,11 @@ static void load_sheet(fm_doc *d, const char *css, bool report, int *order, bool
                 while (vl && isspace((unsigned char)val[vl - 1]))
                     val[--vl] = 0;
                 char *imp = strstr(val, "!important");
-                if (imp)
+                if (imp) {
                     *imp = 0;
+                    for (char *e = imp; e > val && isspace((unsigned char)e[-1]);)
+                        *--e = 0;
+                }
                 if (prop[0] == '-' && prop[1] == '-') {
                     if (pass == 0)
                         set_var(d, prop, val);
@@ -1040,6 +1252,7 @@ static void load_sheet(fm_doc *d, const char *css, bool report, int *order, bool
                 if (pass == 1 && nd < 64) {
                     snprintf(decls[nd].prop, sizeof decls[nd].prop, "%s", prop);
                     decls[nd].value = strdup(val);
+                    decls[nd].important = imp != NULL;
                     nd++;
                 }
             }
@@ -1056,8 +1269,12 @@ static void load_sheet(fm_doc *d, const char *css, bool report, int *order, bool
                      * properties of its own (palette, caret-color, ...) */
                     bool term = !strncasecmp(skip_ws(selectors), "terminal", 8) &&
                                 !skip_ws(skip_ws(selectors) + 8)[0];
-                    if (report && !term && !apply(&scratch, decls[k].prop, r))
+                    const char *instead;
+                    if (report && !term && !is_unset(r) && !apply(&scratch, decls[k].prop, r))
                         fm_report(d, line_at(clean, p), false, "can't use \"%s: %s\"", decls[k].prop, r);
+                    else if (report && !term && (instead = no_effect(decls[k].prop, r)))
+                        fm_report(d, line_at(clean, p), false, "\"%s: %.40s\" has no effect here%s%s",
+                                  decls[k].prop, r, instead[0] ? "; use " : "", instead);
                 }
                 for (char *save, *sel = strtok_r(selectors, ",", &save); sel; sel = strtok_r(NULL, ",", &save)) {
                     struct selector s;
@@ -1069,6 +1286,13 @@ static void load_sheet(fm_doc *d, const char *css, bool report, int *order, bool
                     d->rules = realloc(d->rules, sizeof *d->rules * (size_t)(d->nrules + 1));
                     struct fm_rule *r = &d->rules[d->nrules++];
                     r->sel = s;
+                    {
+                        const char *t0 = skip_ws(sel);
+                        size_t tl = strlen(t0);
+                        while (tl && isspace((unsigned char)t0[tl - 1]))
+                            tl--;
+                        snprintf(r->text, sizeof r->text, "%.*s", (int)tl, t0);
+                    }
                     r->order = (*order)++;
                     r->ndecls = nd;
                     r->decls = malloc(sizeof *r->decls * (size_t)nd);
@@ -1176,6 +1400,7 @@ static void initial(fm_style *st, const fm_style *parent) {
         memcpy(st->font, parent->font, sizeof st->font);
         st->font_size = parent->font_size;
         st->text_align = parent->text_align;
+        st->text_rot = parent->text_rot;
         st->uppercase = parent->uppercase;
         memcpy(st->icon_style, parent->icon_style, sizeof st->icon_style);
         memcpy(st->icon_shape, parent->icon_shape, sizeof st->icon_shape);
@@ -1208,21 +1433,49 @@ static void style_node(fm_doc *d, fm_node *n, const fm_style *parent) {
             continue;
         }
         initial(&n->st, parent);
+        /* what applies to it, in cascade order; "unset" drops a property's earlier declarations, and
+         * !important ones come after everything (its own style="" too) */
+        static const struct decl *got[768];
+        int ng = 0;
+        bool any_unset = false, any_important = false;
         for (int i = 0; i < d->nrules; i++) {
             struct fm_rule *r = &d->rules[i];
             if (!match_from(n, &r->sel, r->sel.n - 1))
                 continue;
-            for (int k = 0; k < r->ndecls; k++)
-                apply(&n->st, r->decls[k].prop, r->decls[k].value);
+            for (int k = 0; k < r->ndecls; k++) {
+                if (ng < (int)(sizeof got / sizeof got[0]))
+                    got[ng++] = &r->decls[k];
+                else
+                    apply(&n->st, r->decls[k].prop, r->decls[k].value);
+                any_unset |= is_unset(r->decls[k].value);
+                any_important |= r->decls[k].important;
+            }
         }
-        const char *hid = fm_attr_get(n, "hidden");
-        if (hid)
-            n->st.hidden = strcasecmp(hid, "false") && strcmp(hid, "0");
-        const char *inl = fm_attr_get(n, "style");
-        if (inl) {
-            char *res = resolve_vars(d, inl, 0);
-            apply_inline(&n->st, res);
-            free(res);
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass == 1) {
+                const char *hid = fm_attr_get(n, "hidden");
+                if (hid)
+                    n->st.hidden = strcasecmp(hid, "false") && strcmp(hid, "0");
+                const char *inl = fm_attr_get(n, "style");
+                if (inl) {
+                    char *res = resolve_vars(d, inl, 0);
+                    apply_inline(&n->st, res);
+                    free(res);
+                }
+                if (!any_important)
+                    break;
+            }
+            for (int i = 0; i < ng; i++) {
+                const struct decl *x = got[i];
+                if (x->important != (pass == 1) || is_unset(x->value))
+                    continue;
+                bool dropped = false;
+                for (int j = i + 1; any_unset && j < ng && !dropped; j++)
+                    dropped = is_unset(got[j]->value) && !strcmp(got[j]->prop, x->prop) &&
+                              (got[j]->important || !x->important);
+                if (!dropped)
+                    apply(&n->st, x->prop, x->value);
+            }
         }
         if (n->st.opacity < 0) n->st.opacity = 0;
         if (n->st.opacity > 1) n->st.opacity = 1;
@@ -1249,6 +1502,142 @@ void fmi_style_subtree(fm_doc *d, fm_node *n) {
 
 bool fm_parse_color(const char *s, color *out) { return parse_color(&s, out); }
 bool fm_parse_color_raw(const char *s, color *out) { return parse_color_raw(&s, out); }
+
+/* After `sel { ... }` was added: for each property it sets, a rule that still wins on node n (more specific,
+ * or !important) is named in out. Returns how many. */
+int fm_css_who_wins(fm_doc *d, fm_node *n, const char *sel, char *out, size_t cap) {
+    out[0] = 0;
+    if (!n)
+        return 0;
+    int mine = -1;
+    for (int i = 0; i < d->nrules; i++)
+        if (!strcmp(d->rules[i].text, sel) && (mine < 0 || d->rules[i].order > d->rules[mine].order))
+            mine = i;
+    if (mine < 0 || !match_from(n, &d->rules[mine].sel, d->rules[mine].sel.n - 1))
+        return 0;
+    const struct fm_rule *me = &d->rules[mine];
+    int found = 0;
+    size_t l = 0;
+    for (int k = 0; k < me->ndecls; k++) {
+        const struct decl *x = &me->decls[k];
+        for (int i = 0; i < d->nrules; i++) {
+            const struct fm_rule *r = &d->rules[i];
+            if (i == mine || !match_from(n, &r->sel, r->sel.n - 1))
+                continue;
+            for (int j = 0; j < r->ndecls; j++) {
+                const struct decl *y = &r->decls[j];
+                if (strcmp(y->prop, x->prop) || is_unset(y->value))
+                    continue;
+                bool beats = y->important ? !x->important || i > mine : !x->important && i > mine;
+                if (beats && l < cap - 1) {
+                    l += (size_t)snprintf(out + l, cap - l, "%s\"%s { %s }\" %s", found ? "; " : "", r->text,
+                                          y->prop, y->important ? "(!important)" : "(more specific)");
+                    found++;
+                }
+            }
+        }
+    }
+    return found;
+}
+
+static void squash_ws(const char *in, size_t n, char *out, size_t cap) {
+    size_t o = 0;
+    bool sp = false;
+    for (size_t i = 0; i < n && o < cap - 1; i++) {
+        if (isspace((unsigned char)in[i])) {
+            sp = o > 0;
+            continue;
+        }
+        if (sp && o < cap - 1)
+            out[o++] = ' ';
+        sp = false;
+        out[o++] = in[i];
+    }
+    out[o] = 0;
+}
+
+/* Takes `selector`'s rules out of the design's own sheet: all of them, or (props: "height; width") only
+ * those properties. A rule written for several selectors keeps the others. Returns how many rules changed. */
+int fm_css_unstyle(fm_doc *d, const char *selector, const char *props) {
+    if (!d->css)
+        return 0;
+    char want[128];
+    squash_ws(selector, strlen(selector), want, sizeof want);
+    sbuf o;
+    sb_init(&o);
+    int changed = 0;
+    const char *p = d->css;
+    while (*p) {
+        const char *open = strchr(p, '{');
+        if (!open) {
+            sb_add(&o, p);
+            break;
+        }
+        const char *head = p;
+        while (head < open && isspace((unsigned char)*head))
+            sb_addn(&o, head++, 1);
+        if (*head == '@' || (head + 1 < open && head[0] == '/' && head[1] == '*')) { /* at-rules stay as they are */
+            const char *end = *head == '@' ? block_end(open) : strchr(open, '}');
+            end = end && *end ? end + 1 : open + strlen(open);
+            sb_addn(&o, head, (size_t)(end - head));
+            p = end;
+            continue;
+        }
+        const char *close = strchr(open, '}');
+        if (!close)
+            close = open + strlen(open);
+        /* the selectors, one by one */
+        char others[600] = "";
+        bool hit = false;
+        for (const char *s = head; s < open;) {
+            const char *comma = memchr(s, ',', (size_t)(open - s));
+            const char *e = comma ? comma : open;
+            char one[128];
+            squash_ws(s, (size_t)(e - s), one, sizeof one);
+            if (!strcmp(one, want))
+                hit = true;
+            else if (one[0])
+                snprintf(others + strlen(others), sizeof others - strlen(others), "%s%s", others[0] ? ", " : "", one);
+            s = comma ? comma + 1 : open;
+        }
+        const char *after = *close ? close + 1 : close;
+        if (!hit) {
+            sb_addn(&o, head, (size_t)(after - head));
+            p = after;
+            continue;
+        }
+        changed++;
+        char *body = strndup(open + 1, (size_t)(close - open - 1));
+        if (others[0])
+            sb_printf(&o, "%s {%s}", others, body);
+        if (props && *props) { /* the rest of its declarations stay, for it alone */
+            sbuf keep;
+            sb_init(&keep);
+            for (char *save, *t = strtok_r(body, ";", &save); t; t = strtok_r(NULL, ";", &save)) {
+                char name[40] = "";
+                const char *colon = strchr(t, ':');
+                if (!colon || sscanf(t, " %39[^: \t\n]", name) != 1)
+                    continue;
+                bool drop = false;
+                char list[300];
+                snprintf(list, sizeof list, "%s", props);
+                for (char *s2, *q = strtok_r(list, ";, ", &s2); q && !drop; q = strtok_r(NULL, ";, ", &s2))
+                    drop = !strcasecmp(q, name);
+                if (!drop)
+                    sb_printf(&keep, " %s;", skip_ws(t));
+            }
+            if (keep.p)
+                sb_printf(&o, "%s%s {%s }", others[0] ? "\n" : "", want, keep.p);
+            free(keep.p);
+        }
+        free(body);
+        p = after;
+    }
+    free(d->css);
+    d->css = o.p ? o.p : strdup("");
+    fm_css_load(d);
+    return changed;
+}
 
 /* A value from a rule for something that is not an element (`terminal {
  * background: #000 }`): the last plain `tag { }` rule that sets prop. */

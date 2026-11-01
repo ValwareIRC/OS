@@ -527,8 +527,10 @@ const char *alive_prompt(void) {
              "answer from it and say where it came from. Use them for news, facts you aren't sure of, and anything "
              "recent.\n"
              "[[run:command]] runs a shell command (busybox) after they confirm it on screen; nothing runs without "
-             "their yes, so never say it ran until you're told. [[undo]] reverses your last change to the lights or "
-             "settings.\n");
+             "their yes, so never say it ran until you're told. [[write:~/path/name.ext]]the file's whole text"
+             "[[/write]] writes a file in their home folder without asking (a logo as ~/Pictures/logo.svg for an "
+             "<image src>, notes, a script for them to look at); not hidden files, at most 512 KB; one it replaces "
+             "can be brought back. [[undo]] reverses your last change to the lights, settings or a file.\n");
     return buf;
 }
 

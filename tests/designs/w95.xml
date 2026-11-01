@@ -1,0 +1,28 @@
+<facet>
+<meta ai-name="Test" user-name="T"/>
+<style>
+:root { --accent:#000080; --bg:#008080; --surface:#c0c0c0; --text:#000000; }
+desktop { background: #008080; }
+taskbar { height: 28; background: #c0c0c0; padding: 2; gap: 4; box-shadow: inset 0 1px #ffffff; font: Inter 12; color: #000; }
+taskbar windowlist { height: 22px; min-height: 0; margin: 0; padding: 0; }
+taskbar windowlist button { height: 20px; min-height: 0; max-height: 20px; padding: 0 6px; font-size: 11px; margin: 0;
+  background: #c0c0c0; color: #000000; box-shadow: inset -1px -1px #404040, inset 1px 1px #ffffff; }
+#start { height: 22; padding: 0 6; box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf; }
+frame { direction: column; background: #c0c0c0; padding: 3;
+  box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #dfdfdf, inset -2px -2px #808080, inset 2px 2px #ffffff; }
+titlebar { height: 18px; min-height: 18px; padding: 0 3px; font-size: 11px; background: linear-gradient(90deg, #000080, #1084d0); color: #fff; gap: 2; }
+titlebar button { width: 14px; height: 14px; min-width: 14px; min-height: 14px; padding: 0; margin: 0; font-size: 9px; line-height: 12px;
+  background: #c0c0c0; color: #000; box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #ffffff; }
+</style>
+<desktop>
+  <taskbar id="bar" dock="bottom" width="full">
+    <button id="start" icon="grid" what="toggle:#startmenu">Start</button>
+    <windowlist/><spacer/><clock format="time12"/>
+  </taskbar>
+  <popover id="startmenu" placement="above" align="start"><applist apps="files,notes"/></popover>
+</desktop>
+<template id="window"><frame>
+  <titlebar drag="window"><text bind="window.title"/><spacer/><button what="window:minimize" icon="minimize"/><button what="window:maximize" icon="maximize"/><button id="x" what="window:close" icon="close"/></titlebar>
+  <slot/>
+</frame></template>
+</facet>
