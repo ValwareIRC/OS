@@ -256,6 +256,18 @@ void convo_send(struct conversation *c, const char *system, int max_tokens) {
 
 bool convo_poll(struct conversation *c) {
     char *res = NULL;
+    /* the mind on this computer ended under the question (crashed, or out of memory): say so, don't wait forever */
+    char why[240];
+    if (c->pending && !strcmp(A.cfg.provider, "builtin") && mind_builtin_died(why, sizeof why)) {
+        job_free(c->pending);
+        c->pending = NULL;
+        LOG("ai-error the mind on this computer ended: %s\n", why);
+        snprintf(c->error, sizeof c->error, "%s", why);
+        c->errors++;
+        if (strstr(why, "while answering"))
+            mind_builtin_start(); /* it loaded once: it can again */
+        return true;
+    }
     if (c->pending && !job_poll(c->pending, &res)) {
         /* the mind on this computer: what it's doing, on the console, while it thinks */
         static uint64_t said;

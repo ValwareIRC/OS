@@ -67,6 +67,24 @@ SYSCALL(mmap) {
             file_put(f);
             return -ENODEV;
         }
+        if (!shared && !fixed && len >= (64u << 20) && f->vnode->ops->mmap_shared) {
+            /* A big private map of an in-memory file (a model's weights, read in place): the file's own
+             * pages, copy-on-write, rather than a copy of gigabytes made now. Small ones (libraries, which
+             * the loader maps over and protects piece by piece) stay plain copies. */
+            int r = f->vnode->ops->mmap_shared(f->vnode, PROT_READ, &obj);
+            if (r == 0) {
+                file_put(f);
+                int64_t a = mm_map_private_obj(mm, addr, len, (uint32_t)prot, obj, off / PAGE_SIZE);
+                pageobj_put(obj);
+                if (name) {
+                    if (a >= 0)
+                        mm_set_name(mm, (uint64_t)a, (uint64_t)a + len, name, off / PAGE_SIZE);
+                    vma_name_put(name);
+                }
+                return a;
+            }
+            obj = NULL;
+        }
         if (shared && f->vnode->ops->mmap_shared) {
             /* The pages are the file's own, so writing through them is
              * writing the file: that needs a descriptor open for writing. */

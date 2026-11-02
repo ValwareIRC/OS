@@ -25,6 +25,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <limits.h>
+#include <sched.h>
+#include <sys/mount.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/wait.h>
@@ -179,6 +183,192 @@ static void remember(char kind, const char *a, const char *b) {
     njournal++;
 }
 
+/* ---------------------------------------------------------------------
+ * What the companion may not touch: in its state folder, the things that decide what apps may do and the keys
+ * to the person's accounts. It runs as the person, as the desktop does, so permissions alone don't keep it out:
+ * its tools refuse these paths, and its shell runs in a view of the system where they aren't there (fence).
+ * ------------------------------------------------------------------- */
+
+/* NAME, directly in the state folder, is the system's alone */
+bool agent_state_private(const char *name) {
+    size_t l = strlen(name);
+    return !strcmp(name, "security.conf") || !strcmp(name, "app-grants") || !strcmp(name, "secrets.conf") ||
+           !strncmp(name, "mind.", 5) || (l > 4 && !strcmp(name + l - 4, ".key")) || !strcmp(name, "keys");
+}
+
+/* PATH (absolute) is, or is inside, something private in the state folder: links and ".." followed */
+static bool path_private(const char *path) {
+    char real[PATH_MAX], probe[PATH_MAX];
+    snprintf(probe, sizeof probe, "%s", path);
+    const char *rest = "";
+    char *slash = NULL;
+    /* the deepest part that exists, resolved; what follows it can't change where it is */
+    while (!realpath(probe, real)) {
+        slash = strrchr(probe, '/');
+        if (!slash || slash == probe) {
+            snprintf(real, sizeof real, "/");
+            break;
+        }
+        *slash = 0;
+        rest = path + (slash - probe);
+    }
+    char full[PATH_MAX * 2];
+    snprintf(full, sizeof full, "%s%s", strcmp(real, "/") ? real : "", rest);
+    static const char dir[] = STATE_DIR "/";
+    if (strncmp(full, dir, sizeof dir - 1))
+        return false;
+    char name[256];
+    snprintf(name, sizeof name, "%s", full + sizeof dir - 1);
+    name[strcspn(name, "/")] = 0;
+    return agent_state_private(name);
+}
+
+/* Its shell's view: the state folder as it is, less the private things (a fresh, empty folder in their place
+ * that nothing is kept from). A user and mount namespace of its own, so this needs no privilege and touches
+ * nothing outside it. False (and nothing runs) if the view couldn't be made. */
+static bool fence(void) {
+    uid_t uid = getuid();
+    gid_t gid = getgid();
+    if (uid == 0)
+        return false; /* the desktop always runs as the person (session.inc) */
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS) != 0)
+        return false;
+    char map[64];
+    int fd = open("/proc/self/setgroups", O_WRONLY);
+    if (fd >= 0) {
+        if (write(fd, "deny", 4) != 4) {
+        }
+        close(fd);
+    }
+    snprintf(map, sizeof map, "%u %u 1", (unsigned)uid, (unsigned)uid);
+    fd = open("/proc/self/uid_map", O_WRONLY);
+    if (fd < 0 || write(fd, map, strlen(map)) != (ssize_t)strlen(map))
+        return false;
+    close(fd);
+    snprintf(map, sizeof map, "%u %u 1", (unsigned)gid, (unsigned)gid);
+    fd = open("/proc/self/gid_map", O_WRONLY);
+    if (fd < 0 || write(fd, map, strlen(map)) != (ssize_t)strlen(map))
+        return false;
+    close(fd);
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0)
+        return false;
+    if (access(STATE_DIR, F_OK) != 0)
+        return true; /* nothing kept yet: nothing to hide */
+    /* the folder as it is, reachable from a place of its own; a new, empty folder over it; what isn't private
+     * brought back, each where it was (so changes to them are real); the place of its own let go. What it makes
+     * new in the folder is copied over when the command is done (fence_keep); a private name can't be made. */
+    char keep[64];
+    snprintf(keep, sizeof keep, "/tmp/.fence-%d", (int)getpid());
+    if (mkdir(keep, 0700) != 0 && errno != EEXIST)
+        return false;
+    if (mount(STATE_DIR, keep, NULL, MS_BIND | MS_REC, NULL) != 0)
+        return false;
+    if (mount("none", STATE_DIR, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0700") != 0)
+        return false;
+    DIR *d = opendir(keep);
+    if (!d)
+        return false;
+    struct dirent *e;
+    bool ok = true;
+    while ((e = readdir(d)) && ok) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || agent_state_private(e->d_name))
+            continue;
+        char from[512], to[512];
+        snprintf(from, sizeof from, "%s/%s", keep, e->d_name);
+        snprintf(to, sizeof to, STATE_DIR "/%s", e->d_name);
+        struct stat st;
+        if (lstat(from, &st) != 0)
+            continue;
+        if (S_ISLNK(st.st_mode))
+            continue; /* (none are made there; a link could point anywhere) */
+        if (S_ISDIR(st.st_mode))
+            ok = mkdir(to, 0700) == 0;
+        else {
+            int f = open(to, O_WRONLY | O_CREAT | O_EXCL, 0600);
+            ok = f >= 0;
+            if (f >= 0)
+                close(f);
+        }
+        ok = ok && mount(from, to, NULL, MS_BIND | MS_REC, NULL) == 0;
+    }
+    closedir(d);
+    if (umount2(keep, MNT_DETACH) != 0)
+        ok = false;
+    rmdir(keep);
+    return ok;
+}
+
+/* Copies `name` (new in the fence's folder `from`) into the real folder `to`, folders whole. Never over
+ * anything: what exists already was the real one, changed in place. */
+static void keep_entry(int from, int to, const char *name, int depth) {
+    struct stat st;
+    if (depth > 16 || fstatat(from, name, &st, AT_SYMLINK_NOFOLLOW) != 0)
+        return;
+    if (S_ISDIR(st.st_mode)) {
+        if (mkdirat(to, name, 0700) != 0 && errno != EEXIST)
+            return;
+        int f = openat(from, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        int t = openat(to, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        DIR *d = f >= 0 ? fdopendir(f) : NULL;
+        struct dirent *e;
+        while (d && t >= 0 && (e = readdir(d)))
+            if (strcmp(e->d_name, ".") && strcmp(e->d_name, ".."))
+                keep_entry(f, t, e->d_name, depth + 1);
+        if (d)
+            closedir(d);
+        else if (f >= 0)
+            close(f);
+        if (t >= 0)
+            close(t);
+        return;
+    }
+    if (!S_ISREG(st.st_mode))
+        return;
+    int in = openat(from, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    int out = in >= 0 ? openat(to, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, st.st_mode & 0700) : -1;
+    char b[16384];
+    ssize_t n;
+    while (out >= 0 && (n = read(in, b, sizeof b)) > 0)
+        if (write(out, b, (size_t)n) != n)
+            break;
+    if (in >= 0)
+        close(in);
+    if (out >= 0)
+        close(out);
+}
+
+/* After the command, in the fence: what it made new in the state folder (its memory, a note) becomes real.
+ * Nothing it left running sees this happen, and the real folder is reached only now, once the cover is off. */
+static void fence_keep(void) {
+    signal(SIGTERM, SIG_IGN);
+    kill(0, SIGTERM); /* what it left running in the background (this process ignores it) */
+    int cover = open(STATE_DIR, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (cover < 0)
+        return;
+    struct stat a, b;
+    if (umount2(STATE_DIR, MNT_DETACH) != 0) { /* (no cover: there was no folder to hide) */
+        close(cover);
+        return;
+    }
+    int real = open(STATE_DIR, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (real < 0 || fstat(real, &a) != 0 || fstat(cover, &b) != 0 || (a.st_dev == b.st_dev && a.st_ino == b.st_ino)) {
+        if (real >= 0)
+            close(real);
+        close(cover);
+        return;
+    }
+    DIR *d = fdopendir(dup(cover));
+    struct dirent *e;
+    while (d && (e = readdir(d)))
+        if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..") && !agent_state_private(e->d_name) &&
+            faccessat(real, e->d_name, F_OK, AT_SYMLINK_NOFOLLOW) != 0)
+            keep_entry(cover, real, e->d_name, 0);
+    if (d)
+        closedir(d);
+    close(real);
+    close(cover);
+}
+
 static void expand(const char *in, char *out, size_t n) {
     while (*in == ' ')
         in++;
@@ -191,6 +381,9 @@ static void expand(const char *in, char *out, size_t n) {
     size_t l = strlen(out);
     while (l > 1 && (out[l - 1] == ' ' || out[l - 1] == '\n' || out[l - 1] == '\r'))
         out[--l] = 0;
+    if (path_private(out)) /* every tool fails on it, saying why */
+        snprintf(out, n, "/(private to the system: what apps may do and the keys to their accounts aren't yours to "
+                         "read or change)");
 }
 
 static bool parents(const char *path) {
@@ -280,12 +473,27 @@ static void shell_child(const char *cmd, int secs, sbuf *out) {
             dup2(nul, 0);
         for (int i = 3; i < 256; i++)
             close(i);
-        if (chdir(HOME) != 0) {
+        if (!fence()) {
+            static const char no[] = "the shell couldn't start in its own view of the system, so it didn't run\n";
+            if (write(1, no, sizeof no - 1) < 0) {
+            }
+            _exit(126);
         }
-        setenv("HOME", HOME, 1);
-        setenv("PATH", "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", 0);
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-        _exit(127);
+        prctl(PR_SET_DUMPABLE, 0); /* nothing in the fence reads this process's memory or descriptors */
+        pid_t sh = fork();
+        if (sh == 0) {
+            if (chdir(HOME) != 0) {
+            }
+            setenv("HOME", HOME, 1);
+            setenv("PATH", "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", 0);
+            execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+            _exit(127);
+        }
+        int st = 0;
+        while (sh > 0 && waitpid(sh, &st, 0) < 0 && errno == EINTR)
+            ;
+        fence_keep();
+        _exit(sh < 0 ? 126 : WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st));
     }
     close(p[1]);
     static char buf[65536];

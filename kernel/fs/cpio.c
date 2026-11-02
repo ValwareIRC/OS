@@ -1,3 +1,4 @@
+#include <kernel/boot.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
@@ -52,22 +53,75 @@ static void linked_free(struct linked **tab) {
         }
     kfree(tab);
 }
-void initramfs_unpack(const void *data, size_t len) {
-    const char *base = data, *p = data, *end = base + len;
+/* The archive: whole in memory, or read through a window that moves along it. */
+#define WINDOW (8u << 20)
+struct src {
+    const uint8_t *mem;
+    uint64_t len;
+    cpio_read_fn read;
+    void *ctx;
+    uint8_t *win;
+    uint64_t win_off, win_len;
+    bool failed;
+};
+
+/* `n` bytes (at most WINDOW / 2) at `off`, or NULL past the end or on a read error. */
+static const uint8_t *src_at(struct src *s, uint64_t off, uint64_t n) {
+    if (off + n > s->len || n > WINDOW / 2)
+        return NULL;
+    if (s->mem)
+        return s->mem + off;
+    if (off < s->win_off || off + n > s->win_off + s->win_len) {
+        uint64_t start = ALIGN_DOWN(off, 2048);
+        uint64_t want = s->len - start < WINDOW ? s->len - start : WINDOW;
+        if (s->read(s->ctx, start, s->win, want) != 0) {
+            s->failed = true;
+            return NULL;
+        }
+        s->win_off = start, s->win_len = want;
+    }
+    return s->win + (off - s->win_off);
+}
+
+/* Writes the `size` bytes at `off` into `f`, in pieces. */
+static bool src_write(struct src *s, struct file *f, uint64_t off, uint64_t size) {
+    for (uint64_t done = 0; done < size;) {
+        uint64_t n = size - done < WINDOW / 2 ? size - done : WINDOW / 2;
+        const uint8_t *p = src_at(s, off + done, n);
+        if (!p || file_write(f, p, n) != (int64_t)n)
+            return false;
+        done += n;
+    }
+    return true;
+}
+
+static bool unpack(struct src *s) {
+    uint64_t off = 0;
     int files = 0;
     uint64_t t0 = time_monotonic_ns();
     char path[512];
+    static char name_buf[4096]; /* (one archive at a time, at boot) */
     struct linked **links = kzalloc(sizeof *links * LINK_BUCKETS);
-    while (p + 110 <= end) {
+    while (off + 110 <= s->len) {
+        const char *p = (const char *)src_at(s, off, 110);
+        if (!p)
+            break;
         if (memcmp(p, "070701", 6) && memcmp(p, "070702", 6))
-            panic("initramfs: bad cpio header at offset %lu", (uint64_t)(p - base));
+            panic("initramfs: bad cpio header at offset %lu", off);
         uint32_t ino = hex8(p + 6), mode = hex8(p + 14), nlink = hex8(p + 38);
         uint32_t filesize = hex8(p + 54);
         uint32_t namesize = hex8(p + 94);
-        const char *name = p + 110;
-        const char *body = base + ALIGN_UP((uint64_t)(name + namesize - base), 4);
-        const char *next = base + ALIGN_UP((uint64_t)(body + filesize - base), 4);
-        if (body + filesize > end)
+        if (namesize == 0 || namesize > sizeof name_buf)
+            panic("initramfs: bad name at offset %lu", off);
+        const char *nm = (const char *)src_at(s, off + 110, namesize);
+        if (!nm)
+            break;
+        memcpy(name_buf, nm, namesize);
+        name_buf[namesize - 1] = 0;
+        const char *name = name_buf;
+        uint64_t body = ALIGN_UP(off + 110 + namesize, 4);
+        uint64_t next = ALIGN_UP(body + filesize, 4);
+        if (body + filesize > s->len)
             panic("initramfs: truncated archive");
         if (!strcmp(name, "TRAILER!!!"))
             break;
@@ -75,7 +129,7 @@ void initramfs_unpack(const void *data, size_t len) {
         while (name[0] == '.' && name[1] == '/')
             name += 2;
         if (!strcmp(name, ".") || !name[0]) {
-            p = next;
+            off = next;
             continue;
         }
         ksnprintf(path, sizeof path, "/%s", name);
@@ -98,7 +152,7 @@ void initramfs_unpack(const void *data, size_t len) {
                 kprintf("initramfs: link %s failed (%d)\n", path, r);
             if (filesize) {
                 struct file *f = file_from_vnode(v, O_WRONLY);
-                if (!f || (v->ops->truncate && v->ops->truncate(v, 0) < 0) || file_write(f, body, filesize) != (int64_t)filesize)
+                if (!f || (v->ops->truncate && v->ops->truncate(v, 0) < 0) || !src_write(s, f, body, filesize))
                     panic("initramfs: write %s failed", path);
                 file_put(f);
             }
@@ -121,8 +175,8 @@ void initramfs_unpack(const void *data, size_t len) {
             if (r < 0)
                 panic("initramfs: create %s failed (%d)", path, r);
             f->vnode->mode = perm; /* not subject to umask */
-            if (filesize && file_write(f, body, filesize) != (int64_t)filesize)
-                panic("initramfs: write %s failed", path);
+            if (filesize && !src_write(s, f, body, filesize))
+                panic("initramfs: write %s failed%s", path, s->failed ? " (the medium couldn't be read)" : "");
             if (nlink > 1 && links)
                 linked_add(links, ino, f->vnode);
             file_put(f);
@@ -130,7 +184,10 @@ void initramfs_unpack(const void *data, size_t len) {
         } else if (type == S_IFLNK) {
             char target[512];
             uint32_t n = filesize < sizeof target - 1 ? filesize : sizeof target - 1;
-            memcpy(target, body, n);
+            const uint8_t *t = src_at(s, body, n);
+            if (!t)
+                break;
+            memcpy(target, t, n);
             target[n] = 0;
             struct vnode *dir;
             char leaf[256];
@@ -144,10 +201,26 @@ void initramfs_unpack(const void *data, size_t len) {
             if (r < 0)
                 kprintf("initramfs: symlink %s failed (%d)\n", path, r);
         }
-        p = next;
+        off = next;
     }
     if (links)
         linked_free(links);
-    kprintf("initramfs: %d files unpacked (%lu KiB) in %lu ms\n", files, (uint64_t)len / 1024,
-            (time_monotonic_ns() - t0) / 1000000);
+    kprintf("initramfs: %d files unpacked (%lu KiB%s) in %lu ms\n", files, s->len / 1024,
+            s->mem ? "" : ", read as it went", (time_monotonic_ns() - t0) / 1000000);
+    return !s->failed;
+}
+
+void initramfs_unpack(const void *data, size_t len) {
+    struct src s = {.mem = data, .len = len};
+    unpack(&s);
+}
+
+bool initramfs_unpack_from(cpio_read_fn read, void *ctx, uint64_t len) {
+    uint64_t phys = pmm_alloc(WINDOW / PAGE_SIZE);
+    if (!phys)
+        return false;
+    struct src s = {.len = len, .read = read, .ctx = ctx, .win = phys_to_virt(phys)};
+    bool ok = unpack(&s);
+    pmm_free(phys, WINDOW / PAGE_SIZE);
+    return ok;
 }

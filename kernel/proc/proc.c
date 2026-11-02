@@ -735,7 +735,13 @@ static void init_entry(void *arg) {
     if (fwcfg_read_file("opt/os/hangdump", trace, sizeof trace) > 0 && trace[0] == '1')
         thread_create("hangdump", hangdump_main, NULL);
     ksnprintf(mode, sizeof mode, "OS_MODE=%s", test ? value : "interactive");
-    char *envp[] = {"HOME=/", "PATH=/bin:/sbin:/usr/bin:/usr/sbin", "TERM=linux", mode, NULL};
+    /* A root shell on the console is for development only, asked for by the host (-fw_cfg
+     * name=opt/os/console,string=shell): never on a computer someone could sit at or plug a cable into. */
+    char con[16];
+    int cn = fwcfg_read_file("opt/os/console", con, sizeof con - 1);
+    bool shell = cn >= 5 && !memcmp(con, "shell", 5);
+    char *envp[] = {"HOME=/", "PATH=/bin:/sbin:/usr/bin:/usr/sbin", "TERM=linux", mode,
+                    shell ? "OS_CONSOLE=shell" : NULL, NULL};
     int r = do_execve(init_path, argv, envp, frame);
     if (r < 0)
         panic("cannot run %s (error %d)", init_path, r);

@@ -17,6 +17,7 @@
 #include "../lib/json.h"
 
 #include <math.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,14 @@
 
 #define D (A.d)
 #define CONF STATE_DIR "/settings.conf"
+/* keys to their accounts (any setting named *_key), apart: the companion's view of the state folder leaves this
+ * file out (agent.c) */
+#define SECRETS STATE_DIR "/secrets.conf"
+
+static bool secret_name(const char *key) {
+    size_t l = strlen(key);
+    return l > 4 && !strcmp(key + l - 4, "_key");
+}
 
 /* ======================================================================
  * Kept choices
@@ -42,23 +51,50 @@ static struct {
 static int nkv;
 static bool kv_loaded;
 
+static void kv_write(void);
+
 static void kv_load(void) {
     kv_loaded = true;
     nkv = 0;
-    FILE *f = fopen(CONF, "r");
-    char line[160];
-    while (f && fgets(line, sizeof line, f) && nkv < 48) {
-        line[strcspn(line, "\r\n")] = 0;
-        char *eq = strchr(line, '=');
-        if (!eq || line[0] == '#')
-            continue;
-        *eq = 0;
-        snprintf(kv[nkv].key, sizeof kv[nkv].key, "%s", line);
-        snprintf(kv[nkv].val, sizeof kv[nkv].val, "%s", eq + 1);
-        nkv++;
+    bool moved = false;
+    for (int pass = 0; pass < 2; pass++) {
+        FILE *f = fopen(pass ? SECRETS : CONF, "r");
+        char line[160];
+        while (f && fgets(line, sizeof line, f) && nkv < 48) {
+            line[strcspn(line, "\r\n")] = 0;
+            char *eq = strchr(line, '=');
+            if (!eq || line[0] == '#')
+                continue;
+            *eq = 0;
+            moved |= !pass && secret_name(line); /* kept with the settings before: moved */
+            snprintf(kv[nkv].key, sizeof kv[nkv].key, "%s", line);
+            snprintf(kv[nkv].val, sizeof kv[nkv].val, "%s", eq + 1);
+            nkv++;
+        }
+        if (f)
+            fclose(f);
     }
-    if (f)
+    if (moved)
+        kv_write();
+}
+
+/* written whole each time: a handful of short lines, the keys apart */
+static void kv_write(void) {
+    for (int pass = 0; pass < 2; pass++) {
+        const char *path = pass ? SECRETS : CONF;
+        char tmp[96];
+        snprintf(tmp, sizeof tmp, "%s.new", path);
+        int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        FILE *f = fd >= 0 ? fdopen(fd, "w") : NULL;
+        if (!f)
+            continue;
+        fputs(pass ? "# Keys to their accounts, as typed in Settings.\n" : "# Settings, as chosen in the Settings app.\n", f);
+        for (int k = 0; k < nkv; k++)
+            if (secret_name(kv[k].key) == (pass == 1))
+                fprintf(f, "%s=%s\n", kv[k].key, kv[k].val);
         fclose(f);
+        rename(tmp, path);
+    }
 }
 
 const char *settings_get(const char *key, const char *fallback) {
@@ -90,15 +126,7 @@ void settings_set(const char *key, const char *value) {
         return;
     }
     snprintf(kv[i].val, sizeof kv[i].val, "%s", value);
-    /* written whole each time: a handful of short lines */
-    FILE *f = fopen(CONF ".new", "w");
-    if (!f)
-        return;
-    fputs("# Settings, as chosen in the Settings app.\n", f);
-    for (int k = 0; k < nkv; k++)
-        fprintf(f, "%s=%s\n", kv[k].key, kv[k].val);
-    fclose(f);
-    rename(CONF ".new", CONF);
+    kv_write();
 }
 
 void settings_set_int(const char *key, int value) {

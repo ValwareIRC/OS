@@ -212,6 +212,10 @@ void sysfs_init(void);
 
 /* initramfs (cpio newc) unpacked into the root. */
 void initramfs_unpack(const void *data, size_t len);
+/* The same from a reader (an archive too big to hold whole: read in pieces as it is unpacked). `read` fills
+ * `n` bytes from `off` (a multiple of 2048) into `buf` (room for n rounded up to 2048), returning 0. */
+typedef int (*cpio_read_fn)(void *ctx, uint64_t off, void *buf, size_t n);
+bool initramfs_unpack_from(cpio_read_fn read, void *ctx, uint64_t len);
 
 /* pipes */
 int pipe_create(struct file **read_end, struct file **write_end);

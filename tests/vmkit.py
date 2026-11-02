@@ -10,15 +10,17 @@ W, H = 1600, 900
 
 class Vm:
     def __init__(self, out, replies, alive="proactive=0\n", design=None, qport=4474, aiport=8918, model="fake",
-                 design_path=None):
-        self.out, self.qport, self.aiport = out, qport, aiport
+                 design_path=None, disk=None, mind=None, memory="12G"):
+        """disk: a disk image used in snapshot mode (never written); mind: the mind.json to hand over (default:
+        tests/fake_ai.py on aiport)."""
+        self.out, self.qport, self.aiport, self.disk, self.memory = out, qport, aiport, disk, memory
         self.script = os.path.join(out, "replies.json")
         json.dump(replies, open(self.script, "w"))
         self.ailog = os.path.join(out, "ai.log")
         open(self.ailog, "w").close()
         self.mind = os.path.join(out, "mind.json")
-        open(self.mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{aiport}/v1",
-                                               "api_key": "", "model": model}) + "\n")
+        open(self.mind, "w").write(json.dumps(mind or {"provider": "llamacpp", "base_url": f"http://10.0.2.2:{aiport}/v1",
+                                                       "api_key": "", "model": model}) + "\n")
         self.alive = os.path.join(out, "alive.conf")
         open(self.alive, "w").write(alive)
         self.desk = design_path or os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes",
@@ -35,13 +37,20 @@ class Vm:
         def fw(name, path):
             return ["-fw_cfg", f"name=opt/os/{name},file={path.replace(os.sep, '/')}"]
 
-        qargs = [QEMU, "-M", "q35,vmport=on", "-m", "12G", "-smp", "8", "-accel", "whpx,kernel-irqchip=on", "-accel",
+        qargs = [QEMU, "-M", "q35,vmport=on", "-m", self.memory, "-smp", "8", "-accel", "whpx,kernel-irqchip=on", "-accel",
                  "tcg", "-cpu", "Skylake-Client-noTSX-IBRS", "-vga", "std", "-display", "none",
                  "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
                  "-audiodev", "none,id=a0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0",
                  *fw("mind.json", self.mind), *fw("facet.xml", self.desk), *fw("alive.conf", self.alive),
                  "-qmp", f"tcp:127.0.0.1:{self.qport},server,nowait", "-serial", "file:" + self.log.replace(os.sep, "/"),
                  "-cdrom", os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso")).replace(os.sep, "/")]
+        iso = os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso"))
+        if os.path.basename(iso) == "dev.iso":  # the development discs: the big files on a second one
+            qargs += ["-drive", "id=big,file=" + os.path.join(os.path.dirname(iso), "big.iso").replace(os.sep, "/") +
+                      ",media=cdrom,if=none,readonly=on", "-device", "ide-cd,drive=big,bus=ide.3"]
+        if self.disk:
+            qargs += ["-drive", "id=disk0,file=" + self.disk.replace(os.sep, "/").replace(",", ",,") +
+                      ",format=raw,if=none,snapshot=on", "-device", "ide-hd,drive=disk0,bus=ide.0"]
         self.qemu = subprocess.Popen(qargs, stdout=subprocess.DEVNULL,
                                      stderr=open(os.path.join(self.out, "qemu.err"), "w"))
         for _ in range(100):

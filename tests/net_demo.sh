@@ -11,5 +11,5 @@ bash scripts/host-bridge.sh >/dev/null 2>&1
     printf 'os-ai chat ollama - - qwen3:8b "Name one colour of the sky at dusk."\r'; sleep ${CHAT_WAIT:-60}
 } | timeout $((30 + ${CHAT_WAIT:-60})) qemu-system-x86_64 -M q35 -m 2G -smp 4 -cpu max -display none \
         -netdev user,id=n0 -device e1000,netdev=n0 \
-        -serial stdio -cdrom build/os.iso 2>/dev/null |
+        -serial stdio -fw_cfg name=opt/os/console,string=shell -cdrom build/os.iso 2>/dev/null |
     tr -d '\r' | sed -n '/development shell/,$p'

@@ -1,3 +1,4 @@
+#include <kernel/medium.h>
 #include <kernel/arch.h>
 #include <kernel/blkdev.h>
 #include <kernel/boot.h>
@@ -150,6 +151,98 @@ static void selftest_scheduler(void) {
 
 void fpu_capture_clean_state(void);
 
+/* ---- the big files, read by the kernel itself ----
+ *
+ * Firmware reads a CD many times slower than the kernel does (a minute and more for the base system and the
+ * model; under Hyper-V each of its reads is a trip through the hypervisor), so when the system starts with
+ * BIOS (limine.conf: ${FW_TYPE}) the bootloader loads placeholders instead: "OS-LAZY PATH SIZE", the real
+ * file's place on the medium. The kernel reads them from there (medium.c): the base system before anything
+ * starts, the model in the background, its file appearing once it is whole (PATH.coming meanwhile). With
+ * UEFI (a real computer, from a USB stick the kernel can't read yet) the files come whole, as before. */
+
+static bool lazy_stub(const struct limine_file *m, char *path, size_t pn, uint64_t *size) {
+    const char *s = m->address;
+    if (m->size < 9 || m->size > 400 || memcmp(s, "OS-LAZY ", 8))
+        return false;
+    size_t i = 8, k = 0;
+    while (i < m->size && s[i] != ' ' && k + 1 < pn)
+        path[k++] = s[i++];
+    path[k] = 0;
+    uint64_t v = 0;
+    for (i++; i < m->size && s[i] >= '0' && s[i] <= '9'; i++)
+        v = v * 10 + (uint64_t)(s[i] - '0');
+    *size = v;
+    return k > 0 && v > 0;
+}
+
+static int medium_reader(void *ctx, uint64_t off, void *buf, size_t n) { return medium_read(ctx, off, buf, n); }
+
+static bool unpack_from_medium(const char *path, uint64_t size) {
+    struct medium_file f;
+    if (!medium_find(path, size, &f)) {
+        kprintf("medium: %s isn't on any drive the kernel can read: the base system is missing\n", path);
+        return false;
+    }
+    return initramfs_unpack_from(medium_reader, &f, size);
+}
+
+#define LAZY_PARTS 4
+struct lazy_file {
+    char dest[160];
+    int parts;
+    char path[LAZY_PARTS][128];
+    uint64_t size[LAZY_PARTS];
+};
+
+static void unlink_path(const char *p) {
+    struct vnode *dir;
+    char leaf[256];
+    if (vfs_lookup_parent(NULL, p, &dir, leaf, sizeof leaf) == 0) {
+        if (dir->ops->unlink)
+            dir->ops->unlink(dir, leaf, false);
+        vnode_put(dir);
+    }
+}
+
+/* Reads a file's parts from the medium into memory and places it, read-only, at its path. */
+static void lazy_loader(void *arg) {
+    struct lazy_file *lf = arg;
+    char coming[200];
+    ksnprintf(coming, sizeof coming, "%s.coming", lf->dest);
+    uint64_t t0 = time_monotonic_ns(), total = 0;
+    struct pageobj *o = pageobj_create();
+    enum { CHUNK = 4u << 20 };
+    uint64_t phys = pmm_alloc(CHUNK / PAGE_SIZE);
+    bool ok = o && phys;
+    for (int i = 0; i < lf->parts && ok; i++) {
+        struct medium_file f;
+        if (!medium_find(lf->path[i], lf->size[i], &f)) {
+            kprintf("medium: %s isn't on any drive the kernel can read\n", lf->path[i]);
+            ok = false;
+            break;
+        }
+        for (uint64_t off = 0; off < f.size && ok; off += CHUNK) {
+            uint64_t n = f.size - off < CHUNK ? f.size - off : CHUNK;
+            ok = medium_read(&f, off, phys_to_virt(phys), n) == 0 &&
+                 pageobj_write(o, phys_to_virt(phys), n, total + off) == (int64_t)n;
+        }
+        total += f.size;
+    }
+    if (phys)
+        pmm_free(phys, CHUNK / PAGE_SIZE);
+    if (ok && ramfs_add_object_file(lf->dest, o, 0444) == 0) {
+        uint64_t ms = (time_monotonic_ns() - t0) / 1000000;
+        kprintf("medium: %s read (%lu MiB in %lu ms, %lu MiB/s)\n", lf->dest, (unsigned long)(total >> 20),
+                (unsigned long)ms, (unsigned long)(ms ? (total >> 20) * 1000 / ms : 0));
+    } else {
+        kprintf("medium: %s couldn't be read; it isn't there this time\n", lf->dest);
+        if (o)
+            pageobj_put(o);
+    }
+    unlink_path(coming);
+    kfree(lf);
+}
+
 /* Modules whose string names an absolute path (limine.conf: module_string:
  * /usr/share/...) become read-only files there, backed by the memory the
  * bootloader loaded them into: a multi-gigabyte model costs no copy. */
@@ -164,6 +257,35 @@ static void files_from_modules(void) {
             seen = r->modules[k]->string && !strcmp(r->modules[k]->string, dest);
         if (seen)
             continue;
+        char lpath[128];
+        uint64_t lsize;
+        if (lazy_stub(r->modules[i], lpath, sizeof lpath, &lsize)) { /* the kernel reads it, in the background */
+            struct lazy_file *lf = kzalloc(sizeof *lf);
+            if (!lf)
+                continue;
+            ksnprintf(lf->dest, sizeof lf->dest, "%s", dest);
+            for (uint64_t k = i; k < r->module_count && lf->parts < LAZY_PARTS; k++)
+                if (r->modules[k]->string && !strcmp(r->modules[k]->string, dest) &&
+                    lazy_stub(r->modules[k], lf->path[lf->parts], sizeof lf->path[0], &lf->size[lf->parts]))
+                    lf->parts++;
+            char coming[200];
+            ksnprintf(coming, sizeof coming, "%s", dest);
+            char *slash = coming + strlen(coming);
+            while (slash > coming && *slash != '/')
+                slash--;
+            *slash = 0;
+            if (coming[0])
+                vfs_mkdir_p(coming, 0755);
+            ksnprintf(coming, sizeof coming, "%s.coming", dest);
+            struct file *cf;
+            if (vfs_open(NULL, coming, O_WRONLY | O_CREAT | O_TRUNC, 0444, &cf) == 0)
+                file_put(cf);
+            if (!thread_create("medium", lazy_loader, lf)) {
+                unlink_path(coming);
+                kfree(lf);
+            }
+            continue;
+        }
         /* A file too big for the boot medium's file system comes in parts
          * (each but the last a whole number of pages), in order, with the
          * same name: they become one file again. */
@@ -326,10 +448,16 @@ static void init_main(void *arg) {
         platform_test_exit(0x00); /* QEMU exit code 1 = success in tests */
         return;
     }
+    /* The drives first: the base system may be the kernel's to read from the medium. */
+    storage_init();
     /* The base system first (the Freedesktop Platform and what is built on
      * it: /usr), then the OS's own files over it. */
     struct limine_file *base = find_module("base.cpio");
-    if (base)
+    char bpath[128];
+    uint64_t bsize;
+    if (base && lazy_stub(base, bpath, sizeof bpath, &bsize))
+        unpack_from_medium(bpath, bsize);
+    else if (base)
         initramfs_unpack(base->address, base->size);
     initramfs_unpack(initrd->address, initrd->size);
     /* Bundled applications (/apps), kept out of the core initrd. */
@@ -349,7 +477,6 @@ static void init_main(void *arg) {
     mind_from_cmdline();
     procfs_init(); /* after the initramfs: /proc and /sys are mounted over its directories */
     sysfs_init();
-    storage_init();
     hda_init(); /* drivers/hda.c: /dev/dsp, /dev/mixer */
     net_init();
     kprintf("OS BOOT OK\n");

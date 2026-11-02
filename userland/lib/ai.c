@@ -308,6 +308,11 @@ static int chat_openai(const struct ai_config *cfg, const struct ai_provider *p,
     sb_json_str(&b, cfg->model);
     /* OpenAI's newer models only accept max_completion_tokens. */
     sb_printf(&b, ",\"%s\":%d", !strcmp(p->id, "openai") ? "max_completion_tokens" : "max_tokens", max_tokens);
+    /* The model on this computer answers without thinking first: on a processor a hybrid model (Qwen3) can
+     * reason for many minutes before a word comes, and a "/no_think" in a long system prompt isn't heeded.
+     * Templates without the switch ignore it. */
+    if (!strcmp(p->id, "builtin"))
+        sb_add(&b, ",\"chat_template_kwargs\":{\"enable_thinking\":false}");
     sb_add(&b, ",\"messages\":[");
     bool first = true;
     if (system && *system) {
@@ -648,6 +653,11 @@ int ai_config_save(const struct ai_config *cfg) {
         r = fwrite(b.p, 1, b.len, f) == b.len ? 0 : -1;
         fclose(f);
         chmod(CONFIG_PATH, 0600);
+    }
+    /* chosen by the person: theirs now, kept on the disk, even in a boot the host handed a mind to (store.c) */
+    if (r == 0) {
+        unlink("/etc/os/mind.host");
+        unlink("/etc/os/mind.disk.json");
     }
     sb_free(&b);
     return r;

@@ -148,7 +148,8 @@ void models_specs_text(char *out, int n) {
 static uint64_t room_mb(void) { return spec.mem_mb > 1800 ? spec.mem_mb - 1800 : 0; }
 
 /* The conversation a model keeps in mind (its KV cache) costs memory for
- * every word of it: about this many KB a token, by the model's size. */
+ * every word of it: about this many KB a token, by the model's size (at 16
+ * bits: kept at 8, with flash attention, the processor read prompts a quarter slower, measured). */
 static uint64_t kv_kb_per_token(int i) {
     uint64_t mb = catalog[i].bytes >> 20;
     return mb < 1500 ? 112 : mb < 6000 ? 144 : mb < 10000 ? 160 : 256;
@@ -160,20 +161,52 @@ static uint64_t need_mb_ctx(int i, int ctx) {
     return (catalog[i].bytes >> 20) * 110 / 100 + (uint64_t)ctx * kv_kb_per_token(i) / 1024 + 500;
 }
 
-/* A model fits when it can hold a conversation of 8192 tokens (the
- * companion's own instructions take a few thousand). */
-static uint64_t need_mb(int i) { return need_mb_ctx(i, 8192); }
+/* The companion's own instructions take about 8000 tokens: no model is
+ * started with room for fewer than this, and one fits when it can hold it. */
+#define MIN_CONTEXT 12288
+static uint64_t need_mb(int i) { return need_mb_ctx(i, MIN_CONTEXT); }
 
 static bool fits(int i) { return need_mb(i) <= room_mb(); }
 
+/* Memory free right now, in MB (MemAvailable): what the system, the desktop, its apps and the base system
+ * (kept in memory) already hold is not there to take. */
+static long avail_mb(void) {
+    FILE *f = fopen("/proc/meminfo", "r");
+    char line[128];
+    long mb = -1;
+    unsigned long long kb;
+    while (f && fgets(line, sizeof line, f))
+        if (sscanf(line, "MemAvailable: %llu kB", &kb) == 1)
+            mb = (long)(kb / 1024);
+    if (f)
+        fclose(f);
+    return mb;
+}
+
+/* The conversation it can hold, sized when it starts from what is free then: its weights (unless they are
+ * the model that came with the system, in memory already), the conversation and its working memory, with a
+ * margin left for the desktop. Never fewer tokens than the companion's instructions need. */
 int models_context(void) {
     if (!spec.read)
         read_specs();
     int i = selected_index();
-    for (int ctx = 16384; ctx > 4096; ctx /= 2)
-        if (need_mb_ctx(i, ctx) <= room_mb())
-            return ctx;
-    return 4096;
+    long avail = avail_mb();
+    if (avail < 0)
+        avail = (long)room_mb();
+    char p[256];
+    path_of(i, p, sizeof p);
+    bool resident = !strncmp(p, "/usr/share/", 11); /* in memory from the boot (or read from the disc into it) */
+    long weights = resident ? 0 : (long)((catalog[i].bytes >> 20) * 110 / 100);
+    static const int sizes[] = {32768, 24576, 16384, MIN_CONTEXT};
+    for (int k = 0; k < 4; k++) {
+        long need = weights + (long)((uint64_t)sizes[k] * kv_kb_per_token(i) / 1024) + 900;
+        if (need <= avail - 1024) {
+            LOG("models: %s gets %d tokens (%ld MB free, %ld MB needed)\n", catalog[i].name, sizes[k], avail, need);
+            return sizes[k];
+        }
+    }
+    LOG("models: %s gets %d tokens, though only %ld MB are free\n", catalog[i].name, MIN_CONTEXT, avail);
+    return MIN_CONTEXT; /* less couldn't hold the instructions: the request would only be refused */
 }
 
 /* Rough words a second on the processors (each word reads the whole model). */

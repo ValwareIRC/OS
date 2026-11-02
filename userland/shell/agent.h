@@ -26,3 +26,6 @@ bool agent_busy(void);
 const char *agent_doing(void); /* what it is doing now, in a few words, or "" */
 void agent_stop(void);         /* they said stop: the steps end */
 void agent_new_request(void);  /* they asked for something: a fresh count of steps */
+
+/* NAME, directly in the state folder, is the system's alone: security settings, app grants, keys (agent.c) */
+bool agent_state_private(const char *name);

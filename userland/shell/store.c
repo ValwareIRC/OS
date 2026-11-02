@@ -115,6 +115,8 @@ static void put_entry(struct out *o, uint32_t kind, uint32_t mode, uint32_t uid,
 
 #define MIND_PATH "/etc/os/mind.json"
 #define MIND_KEPT "/etc/os/mind.disk.json"
+/* marks the mind in use as the host's, for this boot (ai_config_save removes it when the person chooses one) */
+#define MIND_HOST "/etc/os/mind.host"
 
 /* What the host hands over for one boot only (kernel/main.c preloads it):
  * never kept, and never brought back over this boot's copy. A saved display
@@ -139,7 +141,9 @@ static void walk(struct out *o, const char *path) {
     if (skip_app_data && !strcmp(path, "/root/.var"))
         return;
     /* the host's mind for this boot is not theirs to keep (see store_restore) */
-    if (!strcmp(path, MIND_PATH) && access(MIND_KEPT, F_OK) == 0)
+    if (!strcmp(path, MIND_PATH) && access(MIND_HOST, F_OK) == 0)
+        return;
+    if (!strcmp(path, MIND_HOST))
         return;
     if (S_ISDIR(st.st_mode)) {
         put_entry(o, 1, st.st_mode & 07777, st.st_uid, st.st_gid, path, NULL, 0);
@@ -225,6 +229,13 @@ static void mkdirs_for(const char *path) {
 }
 
 int store_restore(void) {
+    /* A mind handed over by the host (Claude through the PC's sign-in, say) is for this boot only, even on a new
+     * disk: it is never saved as theirs, so a plain boot comes back to what they chose. */
+    if (access(MIND_PATH, F_OK) == 0) {
+        int m = open(MIND_HOST, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (m >= 0)
+            close(m);
+    }
     int fd = open(dev_path, O_RDONLY);
     if (fd < 0)
         return -1;

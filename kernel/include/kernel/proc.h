@@ -41,6 +41,9 @@ void waitq_wake_all(struct waitq *wq);
 #define VMA_GROWSDOWN 2
 #define VMA_PHYS      4 /* maps device memory: pages are not owned or freed */
 #define VMA_SHARED    8 /* maps `obj`'s pages (MAP_SHARED): each PTE holds a page reference */
+/* A private map of `obj`'s pages (a big MAP_PRIVATE file map): read in place, copy-on-write, so the file is
+ * never changed through it and costs no copy until a page is written */
+#define VMA_PRIVOBJ  16
 
 struct pageobj;
 
@@ -96,6 +99,9 @@ struct vma *mm_find_vma(struct mm *mm, uint64_t addr);
  * (replacing what is there) if `fixed`, else at a free range near `addr`.
  * The mapping takes its own reference on `obj`. Returns the address or a
  * negative errno. */
+/* `obj`'s pages mapped privately (VMA_PRIVOBJ). */
+int64_t mm_map_private_obj(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, struct pageobj *obj,
+                           uint64_t pgoff);
 int64_t mm_map_shared(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
                       uint64_t pgoff);
 /* mremap for anonymous and shared mappings: grows in place when the space

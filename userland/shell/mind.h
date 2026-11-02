@@ -13,3 +13,8 @@ bool mind_builtin_alive(void);
 bool mind_builtin_ready(void);
 /* Seconds since it began waking (0 when it isn't). */
 int mind_builtin_waking_for(void);
+/* From the main loop: starts it once a model still being read from the disc is whole (mind_builtin_start
+ * asked meanwhile). */
+void mind_builtin_tick(void);
+/* It ended by itself (crashed, or killed for memory): true once, with why in plain words. */
+bool mind_builtin_died(char *why, int n);

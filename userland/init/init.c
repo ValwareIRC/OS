@@ -3,10 +3,8 @@
  *
  * OS_MODE=test: run the userland self-tests, report, power off.
  * OS_MODE=persist-write:T / persist-check:T: the disk persistence test.
- * otherwise:       start an interactive shell on the console (respawning).
- *
- * The real init (service supervisor for the AI daemon, voice, compositor)
- * replaces the interactive branch in later milestones. */
+ * otherwise:       the desktop, as the person (session.inc), and the services it needs; a root shell on
+ *                  the console only when the host asks for one (OS_CONSOLE=shell, for development). */
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
@@ -2321,8 +2319,13 @@ static void setup_data_disk(void) {
         printf("init: Flathub for the disk's apps: %s", r == 0 ? "ok\n" : out);
     }
 }
-/* A development shell on the serial console. */
+/* A development shell on the console, only when the host asked for one (OS_CONSOLE=shell, from fw_cfg
+ * opt/os/console): otherwise keys typed while the desktop isn't listening (booting, or restarting after a crash)
+ * would reach a root shell with no login, and so would anyone with a serial cable. */
 static pid_t spawn_console_shell(void) {
+    const char *con = getenv("OS_CONSOLE");
+    if (!con || strcmp(con, "shell"))
+        return -1;
     pid_t pid = fork();
     if (pid == 0) {
         setpgid(0, 0);
@@ -2379,7 +2382,7 @@ int main(void) {
             printf("init: the desktop exited (status %d), restarting it\n", status);
             sleep(1);
             gui = spawn_gui();
-        } else if (pid == sh) {
+        } else if (pid == sh && sh > 0) {
             tcsetpgrp(0, getpid());
             sh = spawn_console_shell();
         } else if (pid == system_bus && pid > 0) {

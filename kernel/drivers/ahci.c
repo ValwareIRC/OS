@@ -3,6 +3,7 @@
 #include <kernel/blkdev.h>
 #include <kernel/boot.h>
 #include <kernel/lib.h>
+#include <kernel/medium.h>
 #include <kernel/mm.h>
 #include <kernel/pci.h>
 #include <kernel/proc.h>
@@ -16,8 +17,12 @@
  *
  * Firmware (OVMF, SeaBIOS) leaves the controller running with command lists
  * in memory that now belongs to us, so every port is stopped before anything
- * else, including the CD-ROM ports we never use: a running port could
- * otherwise DMA a received FIS into a page the allocator has handed out. */
+ * else: a running port could otherwise DMA a received FIS into a page the
+ * allocator has handed out.
+ *
+ * CD/DVD drives (ATAPI: SCSI commands in a PACKET command) are read by the
+ * kernel only, for the files on the medium the system started from
+ * (medium.c); they get no /dev node, so the disks keep their names. */
 
 /* HBA (generic host control) registers */
 #define HBA_CAP  0x00
@@ -67,12 +72,19 @@
 #define TFD_BSY  0x80
 
 #define SIG_ATA  0x00000101u
+#define SIG_ATAPI 0xeb140101u
 #define SSTS_DET_PRESENT 3
 
 #define ATA_READ_DMA_EXT   0x25
 #define ATA_WRITE_DMA_EXT  0x35
 #define ATA_FLUSH_CACHE_EXT 0xea
 #define ATA_IDENTIFY       0xec
+#define ATA_PACKET         0xa0
+
+#define SCSI_TEST_UNIT_READY 0x00
+#define SCSI_READ_CAPACITY   0x25
+#define SCSI_READ10          0x28
+#define CD_BLOCK             2048
 
 #define FIS_H2D 0x27
 
@@ -215,9 +227,10 @@ static int build_prdt(struct ahci_port *p, void *buf, size_t bytes) {
     return n;
 }
 
-/* Issues one ATA command in slot 0 and polls it to completion. */
-static int issue(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count, void *buf, size_t bytes,
-                 bool write) {
+/* Issues one ATA command in slot 0 and polls it to completion. With `cdb`,
+ * a PACKET command carrying that SCSI command (12 bytes), data by DMA. */
+static int issue_cdb(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count, void *buf, size_t bytes,
+                     bool write, const uint8_t *cdb) {
     volatile uint8_t *pr = p->regs;
     int nprd = 0;
     if (bytes) {
@@ -234,9 +247,17 @@ static int issue(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count,
     f[7] = (cmd == ATA_READ_DMA_EXT || cmd == ATA_WRITE_DMA_EXT) ? 0x40 : 0; /* LBA addressing */
     f[8] = (uint8_t)(lba >> 24), f[9] = (uint8_t)(lba >> 32), f[10] = (uint8_t)(lba >> 40);
     f[12] = (uint8_t)count, f[13] = (uint8_t)(count >> 8);
+    if (cdb) {
+        memset(f + 3, 0, 17);
+        f[2] = ATA_PACKET;
+        f[3] = 1;                       /* features: the data moves by DMA */
+        f[5] = 0xfe, f[6] = 0xff;       /* byte count limit (for PIO; harmless with DMA) */
+        memset(p->ct->acmd, 0, sizeof p->ct->acmd);
+        memcpy(p->ct->acmd, cdb, 12);
+    }
 
     struct cmd_header *h = &p->cl[0];
-    h->flags = 5 | (write ? (1u << 6) : 0); /* the H2D FIS is 5 dwords */
+    h->flags = 5 | (write ? (1u << 6) : 0) | (cdb ? (1u << 5) : 0); /* the H2D FIS is 5 dwords; A: ATAPI */
     h->prdtl = (uint16_t)nprd;
     h->prdbc = 0;
     h->ctba = (uint32_t)p->ct_phys;
@@ -274,11 +295,72 @@ static int issue(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count,
     if (r == 0 && (rd(pr, PX_TFD) & TFD_ERR))
         r = -EIO;
     if (r < 0) {
-        kprintf("ahci: port %d: command %02x at lba %lu failed (%s, tfd %x, is %x, serr %x)\n", p->port, cmd, lba,
-                r == -ETIMEDOUT ? "timeout" : "error", rd(pr, PX_TFD), rd(pr, PX_IS), rd(pr, PX_SERR));
+        if (!cdb) /* (a drive reports a changed medium as an error once: its callers retry quietly) */
+            kprintf("ahci: port %d: command %02x at lba %lu failed (%s, tfd %x, is %x, serr %x)\n", p->port, cmd, lba,
+                    r == -ETIMEDOUT ? "timeout" : "error", rd(pr, PX_TFD), rd(pr, PX_IS), rd(pr, PX_SERR));
         port_recover(p);
     }
     return r;
+}
+
+static int issue(struct ahci_port *p, uint8_t cmd, uint64_t lba, uint32_t count, void *buf, size_t bytes,
+                 bool write) {
+    return issue_cdb(p, cmd, lba, count, buf, bytes, write, NULL);
+}
+
+/* ---- CD/DVD drives ---- */
+
+static int scsi(struct ahci_port *p, const uint8_t cdb[12], void *buf, size_t bytes) {
+    int r = -EIO;
+    /* a drive answers its first commands after a reset (or a new disc) with "unit attention": asked again, it
+     * answers */
+    for (int tries = 0; tries < 6 && r < 0; tries++)
+        r = issue_cdb(p, ATA_PACKET, 0, 0, buf, bytes, false, cdb);
+    return r;
+}
+
+static int cd_read(void *drv, uint32_t lba, uint32_t count, void *buf) {
+    struct ahci_port *p = drv;
+    uint8_t *b = buf;
+    while (count) {
+        uint32_t n = count < MAX_XFER / CD_BLOCK ? count : MAX_XFER / CD_BLOCK;
+        uint8_t cdb[12] = {SCSI_READ10, 0, (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8),
+                           (uint8_t)lba, 0, (uint8_t)(n >> 8), (uint8_t)n, 0, 0, 0};
+        int r = scsi(p, cdb, b, (size_t)n * CD_BLOCK);
+        if (r < 0) {
+            kprintf("ahci: port %d: reading the disc at block %u failed\n", p->port, lba);
+            return r;
+        }
+        lba += n, count -= n, b += (size_t)n * CD_BLOCK;
+    }
+    return 0;
+}
+
+static void probe_cd(struct ahci_port *p) {
+    if (!port_start(p)) {
+        kprintf("ahci: port %d: CD/DVD drive does not become ready\n", p->port);
+        return;
+    }
+    uint8_t tur[12] = {SCSI_TEST_UNIT_READY};
+    scsi(p, tur, NULL, 0);
+    uint8_t *cap = kzalloc(64); /* DMA target: heap memory, not the stack */
+    uint8_t rc[12] = {SCSI_READ_CAPACITY};
+    if (!cap || scsi(p, rc, cap, 8) < 0) {
+        kfree(cap);
+        kprintf("ahci: port %d: CD/DVD drive, no disc\n", p->port);
+        return;
+    }
+    uint32_t last = (uint32_t)cap[0] << 24 | cap[1] << 16 | cap[2] << 8 | cap[3];
+    uint32_t bs = (uint32_t)cap[4] << 24 | cap[5] << 16 | cap[6] << 8 | cap[7];
+    kfree(cap);
+    if (bs != CD_BLOCK) {
+        kprintf("ahci: port %d: disc with %u-byte blocks, not read\n", p->port, bs);
+        return;
+    }
+    char name[16];
+    ksnprintf(name, sizeof name, "ahci port %d", p->port);
+    optical_register(name, cd_read, p, last + 1);
+    kprintf("ahci: port %d: CD/DVD drive, disc of %u MiB\n", p->port, (last + 1) / 512);
 }
 
 static int ahci_rw(struct blkdev *bd, uint64_t lba, uint64_t count, void *buf, bool write) {
@@ -367,7 +449,11 @@ static void probe_port(volatile uint8_t *abar, int port, uint32_t cap) {
      * first one before we read it. */
     wr(pr, PX_CMD, rd(pr, PX_CMD) | CMD_FRE);
     wait_first_fis(pr);
-    if (rd(pr, PX_SIG) != SIG_ATA) { /* ATAPI (CD/DVD), port multiplier, ... */
+    if (rd(pr, PX_SIG) == SIG_ATAPI) { /* a CD/DVD drive: the kernel's own (medium.c) */
+        probe_cd(p);
+        return;
+    }
+    if (rd(pr, PX_SIG) != SIG_ATA) { /* port multiplier, ... */
         if (port_stop(pr)) {
             pmm_free(cl_phys, 1);
             pmm_free(p->ct_phys, ALIGN_UP(sizeof(struct cmd_table), PAGE_SIZE) / PAGE_SIZE);

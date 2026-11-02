@@ -193,6 +193,7 @@ void main_frame(void) {
     portal_poll(); /* os-portal: file choosers, notifications */
     appapi_poll(); /* apps using the companion: its AI, voice, face, memory */
     models_poll(); /* model downloads, wherever they were started */
+    mind_builtin_tick(); /* the model that comes with it, once it has been read from the disc */
     presence_poll(); /* its frames, and what it should know */
     input_poll(&A.in);
     if (A.in.clicked || A.in.pressed || A.in.nkeys || A.in.wheel)

@@ -58,7 +58,7 @@ endif
 DISK_IMG    ?= $(BUILD)/os-disk.img
 DISK_FLAGS  := -drive id=disk0,file=$(DISK_IMG),format=raw,if=none -device ide-hd,drive=disk0,bus=$(DISK_BUS)
 
-.PHONY: all kernel ports userland initrd base-system iso run run-bios test test-persist clean distclean
+.PHONY: all kernel ports userland initrd base-system iso dev-iso big-iso run run-bios test test-persist clean distclean
 
 all: iso
 
@@ -127,7 +127,12 @@ iso: kernel $(ISO_MODULES) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)
 	mkdir -p $(BUILD)/iso_root/boot/limine $(BUILD)/iso_root/EFI/BOOT
 	cp $(KERNEL) $(BUILD)/iso_root/boot/kernel.elf
 	cp $(INITRD) $(BUILD)/iso_root/boot/initrd.cpio
-	[ ! -s $(BASE_CPIO) ] || cp $(BASE_CPIO) $(BUILD)/iso_root/boot/base.cpio
+	# The big files twice over, by firmware (limine.conf: $${FW_TYPE}): with UEFI (a real computer, from a
+	# USB stick) the files themselves, loaded by the bootloader; with BIOS (a virtual machine) a line saying
+	# where each is on the disc, read by the kernel, many times faster (kernel/main.c, drivers/medium.c).
+	mkdir -p $(BUILD)/iso_root/boot/UEFI $(BUILD)/iso_root/boot/BIOS
+	[ ! -s $(BASE_CPIO) ] || { cp $(BASE_CPIO) $(BUILD)/iso_root/boot/UEFI/base.cpio && \
+		printf 'OS-LAZY /boot/UEFI/base.cpio %s\n' "$$(stat -c %s $(BASE_CPIO))" > $(BUILD)/iso_root/boot/BIOS/base.cpio; }
 	cp boot/limine.conf $(BUILD)/iso_root/boot/limine/
 	[ -s $(BASE_CPIO) ] || sed -i '/base.cpio/d' $(BUILD)/iso_root/boot/limine/limine.conf
 	# The one model that comes with the system, for when there is no
@@ -135,13 +140,13 @@ iso: kernel $(ISO_MODULES) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)
 	# this one to build/mind/builtin.gguf), loaded in place as a file
 	# In 3 GiB parts (a CD's file system holds files up to 4 GiB); the kernel
 	# joins parts with the same name back into one file.
-	rm -rf $(BUILD)/iso_root/boot/files; \
 	if [ -s $(BUILD)/mind/builtin.gguf ]; then \
-		mkdir -p $(BUILD)/iso_root/boot/files; \
-		split -b 3221225472 -d -a 1 $(BUILD)/mind/builtin.gguf $(BUILD)/iso_root/boot/files/mind.gguf.; \
-		for part in $(BUILD)/iso_root/boot/files/mind.gguf.*; do \
-			printf '    module_path: boot():/boot/files/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
-				"$$(basename $$part)" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
+		split -b 3221225472 -d -a 1 $(BUILD)/mind/builtin.gguf $(BUILD)/iso_root/boot/UEFI/mind.gguf.; \
+		for part in $(BUILD)/iso_root/boot/UEFI/mind.gguf.*; do \
+			name=$$(basename $$part); \
+			printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$part)" > $(BUILD)/iso_root/boot/BIOS/$$name; \
+			printf '    module_path: boot():/boot/$${FW_TYPE}/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
+				"$$name" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
 		done; \
 	fi
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
@@ -163,13 +168,51 @@ $(DISK_IMG):
 	-fsutil.exe sparse setflag "$$(wslpath -w $(abspath $@))" >/dev/null 2>&1
 	truncate -s 1G $@
 
+
+# For development: the system in two discs. dev.iso (tens of MB, rebuilt in seconds) holds the kernel, the OS
+# and the placeholders; big.iso holds the base system and the model, and is rebuilt only when they change. The
+# kernel finds the big files on whichever drive has them (drivers/medium.c), so a VM given both discs runs
+# exactly as from the one release image (make iso). BIOS only, as the VMs boot.
+DEV_ISO := $(BUILD)/dev.iso
+BIG_ISO := $(BUILD)/big.iso
+MODEL   := $(wildcard $(BUILD)/mind/builtin.gguf)
+
+$(BIG_ISO): $(wildcard $(BASE_CPIO)) $(MODEL)
+	rm -rf $(BUILD)/big_root && mkdir -p $(BUILD)/big_root/boot/UEFI
+	[ ! -s $(BASE_CPIO) ] || ln $(BASE_CPIO) $(BUILD)/big_root/boot/UEFI/base.cpio 2>/dev/null || cp $(BASE_CPIO) $(BUILD)/big_root/boot/UEFI/base.cpio
+	[ -z "$(MODEL)" ] || split -b 3221225472 -d -a 1 $(MODEL) $(BUILD)/big_root/boot/UEFI/mind.gguf.
+	xorriso -as mkisofs -R -r -J -V OS_BIG $(BUILD)/big_root -o $@ 2>/dev/null
+
+big-iso: $(BIG_ISO)
+
+dev-iso: kernel initrd $(LIMINE_DIR) $(BIG_ISO)
+	rm -rf $(BUILD)/dev_root
+	mkdir -p $(BUILD)/dev_root/boot/limine $(BUILD)/dev_root/boot/BIOS
+	cp $(KERNEL) $(BUILD)/dev_root/boot/kernel.elf
+	cp $(INITRD) $(BUILD)/dev_root/boot/initrd.cpio
+	sed 's/$${FW_TYPE}/BIOS/' boot/limine.conf > $(BUILD)/dev_root/boot/limine/limine.conf
+	if [ -s $(BUILD)/big_root/boot/UEFI/base.cpio ]; then \
+		printf 'OS-LAZY /boot/UEFI/base.cpio %s\n' "$$(stat -c %s $(BUILD)/big_root/boot/UEFI/base.cpio)" > $(BUILD)/dev_root/boot/BIOS/base.cpio; \
+	else sed -i '/base.cpio/d' $(BUILD)/dev_root/boot/limine/limine.conf; fi
+	for part in $(BUILD)/big_root/boot/UEFI/mind.gguf.*; do \
+		[ -e "$$part" ] || continue; name=$$(basename $$part); \
+		printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$part)" > $(BUILD)/dev_root/boot/BIOS/$$name; \
+		printf '    module_path: boot():/boot/BIOS/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
+			"$$name" >> $(BUILD)/dev_root/boot/limine/limine.conf; \
+	done
+	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(BUILD)/dev_root/boot/limine/
+	xorriso -as mkisofs -R -r -J -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 \
+		-boot-info-table $(BUILD)/dev_root -o $(DEV_ISO) 2>/dev/null
+	$(BIOS_INSTALL) $(DEV_ISO) 2>/dev/null
+	@ls -la $(DEV_ISO) $(BIG_ISO)
+
 run: iso | $(DISK_IMG)
 	cp $(OVMF_VARS) $(BUILD)/ovmf_vars.fd
 	$(QEMU) $(QEMU_FLAGS) -drive if=pflash,format=raw,readonly=on,file=$(OVMF) \
-		-drive if=pflash,format=raw,file=$(BUILD)/ovmf_vars.fd $(DISK_FLAGS) -cdrom $(ISO) -serial stdio
+		-drive if=pflash,format=raw,file=$(BUILD)/ovmf_vars.fd $(DISK_FLAGS) -cdrom $(ISO) -serial stdio -fw_cfg name=opt/os/console,string=shell
 
 run-bios: iso | $(DISK_IMG)
-	$(QEMU) $(QEMU_FLAGS) $(DISK_FLAGS) -cdrom $(ISO) -serial stdio
+	$(QEMU) $(QEMU_FLAGS) $(DISK_FLAGS) -cdrom $(ISO) -serial stdio -fw_cfg name=opt/os/console,string=shell
 
 test: iso
 	OVMF=$(OVMF) OVMF_VARS=$(OVMF_VARS) QEMU=$(QEMU) ISO=$(ISO) tests/boot_test.sh

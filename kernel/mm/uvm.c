@@ -17,6 +17,8 @@
  *       write copies it); unmapping drops it (page_unref).
  *   VMA_SHARED: the PTE holds one reference on the object's page; unmapping
  *       drops it (page_unref). The VMA holds a reference on the object.
+ *   VMA_PRIVOBJ: as VMA_SHARED, but every object page is mapped PG_COW: the
+ *       first write (or a write allowed later by mprotect) takes a copy.
  *   VMA_PHYS: device memory, never freed. */
 
 static uint64_t pte_flags_for(uint32_t prot) {
@@ -185,7 +187,7 @@ void mm_set_name(struct mm *mm, uint64_t start, uint64_t end, struct vma_name *n
         if (v->name)
             vma_name_put(v->name);
         v->name = name;
-        if (!(v->flags & VMA_SHARED)) /* a shared VMA's pgoff indexes its object */
+        if (!(v->flags & (VMA_SHARED | VMA_PRIVOBJ))) /* an object's VMA: pgoff indexes the object */
             v->pgoff = pgoff + (v->start - start) / PAGE_SIZE;
     }
     spin_unlock_irqrestore(&mm->lock, f);
@@ -451,8 +453,21 @@ uint64_t mm_map_free(struct mm *mm, uint64_t len, uint64_t hint, uint32_t prot, 
     return addr;
 }
 
+static int64_t map_object(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
+                          uint64_t pgoff, uint32_t vflags);
+
+int64_t mm_map_private_obj(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, struct pageobj *obj,
+                           uint64_t pgoff) {
+    return map_object(mm, addr, len, prot, false, obj, pgoff, VMA_PRIVOBJ);
+}
+
 int64_t mm_map_shared(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
                       uint64_t pgoff) {
+    return map_object(mm, addr, len, prot, fixed, obj, pgoff, VMA_SHARED);
+}
+
+static int64_t map_object(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
+                          uint64_t pgoff, uint32_t vflags) {
     len = ALIGN_UP(len, PAGE_SIZE);
     if (!len || len > USER_TOP || (fixed && ((addr & 0xfff) || addr > USER_TOP - len)))
         return -EINVAL;
@@ -465,7 +480,7 @@ int64_t mm_map_shared(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot,
     bool ok = fixed || addr;
     if (ok) {
         pageobj_ref(obj);
-        *nv = (struct vma){.start = addr, .end = addr + len, .prot = prot, .flags = VMA_SHARED, .obj = obj,
+        *nv = (struct vma){.start = addr, .end = addr + len, .prot = prot, .flags = vflags, .obj = obj,
                            .pgoff = pgoff};
         insert_locked(mm, nv);
     }
@@ -592,7 +607,14 @@ static uint64_t *fault_in(struct mm *mm, struct vma *v, uint64_t va) {
     if (pte_present(*pte))
         return pte;
     uint64_t p;
-    if (v->flags & VMA_SHARED) {
+    if (v->flags & VMA_PRIVOBJ) {
+        /* the object's page itself, never writable through here: a write copies it (break_cow) */
+        p = pageobj_map_page(v->obj, v->pgoff + (va - v->start) / PAGE_SIZE);
+        if (!p)
+            return NULL;
+        pte_publish(pte, pte_make(p, (pte_flags_for(v->prot) & ~PG_WRITE) | PG_COW));
+        return pte;
+    } else if (v->flags & VMA_SHARED) {
         /* 0 past the object's end: like Linux's SIGBUS, the access fails. */
         p = pageobj_map_page(v->obj, v->pgoff + (va - v->start) / PAGE_SIZE);
     } else if (v->flags & VMA_PHYS) {
