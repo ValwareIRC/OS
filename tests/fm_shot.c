@@ -88,6 +88,7 @@ font *fm_host_font(const char *family, float px) { return font_get(family, px < 
 color fm_host_wallpaper_tone(void) { return A.d.bg; }
 uint64_t fm_host_time_ms(void) { return 0; }
 const char *clipboard_text(void) { return ""; }
+void clipboard_set(const char *t) { (void)t; }
 
 int main(int argc, char **argv) {
     if (argc < 2) {

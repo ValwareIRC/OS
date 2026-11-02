@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* The design lint. A model writing a desktop blind makes the same few
  * mistakes again and again: pale text on a pale bar, a search field that
@@ -243,6 +244,19 @@ void fm_lint_paint(fm_doc *d, const fm_lint_opts *o, fm_node *open, bool window)
         fm_set_open(d, open, true);
     d->focus = NULL; /* no caret blinking in a picture */
     settle(d, o->screen);
+    /* 3D models draw in threads of their own: drawn until each has its frame (up to 6 s), so a picture of the
+     * design shows them, not the space they will fill */
+    for (int i = 0; i < 300; i++) {
+        fm_render_layer(d, c, 0), fm_render_layer(d, c, 1), fm_render_layer(d, c, 2);
+        if (fmi_models_settled())
+            break;
+        struct timespec ts = {0, 20 * 1000000};
+        nanosleep(&ts, NULL);
+    }
+    if (o->backdrop)
+        canvas_blit(c, o->backdrop, 0, 0);
+    else
+        fill_rect(c, o->screen, fm_host_wallpaper_tone() | 0xff000000u);
     fm_render_layer(d, c, 0);
     if (window) {
         rect body;
@@ -265,7 +279,7 @@ static bool drawn_elem(const fm_node *k) {
 static bool drawn_text(const fm_node *k) { return k->kind == FM_TEXT && in_flow(k) && k->laid_out; }
 
 static bool is_leaf_tag(const fm_node *n) {
-    static const char *const leaves[] = {"icon", "orb", "avatar", "clock", "canvas", "image", "svg", "pixels", "view", "spacer", "divider", "slot",
+    static const char *const leaves[] = {"icon", "orb", "avatar", "clock", "canvas", "model", "image", "svg", "pixels", "view", "spacer", "divider", "slot",
                                          "search", "input", "text", "label", "title", NULL};
     for (int i = 0; leaves[i]; i++)
         if (tag_is(n, leaves[i]))

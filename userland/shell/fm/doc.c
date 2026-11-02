@@ -32,7 +32,7 @@ static fm_node *hit_in(fm_node *n, int x, int y) {
     if (tag_is(n, "desktop"))
         return NULL;
     /* plain layout boxes and text with nothing to click let clicks through */
-    bool solid = n->st.bg.kind != FM_BG_NONE || n->st.border_w > 0 || n->st.blur > 0 || fmi_action_of(n) ||
+    bool solid = n->st.bg.kind != FM_BG_NONE || n->st.border_w > 0 || n->st.blur > 0 || fmi_action_of(n) || tag_is(n, "model") ||
                  is_popover(n) || tag_is(n, "icon") || tag_is(n, "orb") || tag_is(n, "avatar") || tag_is(n, "view") ||
                  tag_is(n, "search") || tag_is(n, "input") || tag_is(n, "item") || tag_is(n, "button") || tag_is(n, "canvas") ||
                  fm_attr_get(n, "drag");
@@ -274,6 +274,10 @@ void fm_activate(fm_doc *d, fm_node *n) {
     const char *act = fmi_action_of(n);
     if (!act)
         return;
+    fmi_run_actions(d, n, act);
+}
+
+void fmi_run_actions(fm_doc *d, fm_node *n, const char *act) {
     char copy[400];
     snprintf(copy, sizeof copy, "%s", act);
     bool keeps = false;
@@ -351,6 +355,14 @@ const char *fm_cursor(fm_doc *d, int x, int y) {
         hit = hit_layer(d, 1, x, y);
     if (!hit)
         hit = hit_layer(d, 0, x, y);
+    for (fm_node *p = hit; p; p = p->parent)
+        if (tag_is(p, "model")) {
+            bool click;
+            fmi_model_hover_title(p, &click);
+            if (click)
+                return "pointer";
+            break;
+        }
     const char *c = hit ? hit->st.cursor : d->desktop->st.cursor;
     if (!c[0] && hit && fmi_action_of(hit))
         return d->desktop->st.cursor[0] ? "pointer" : ""; /* a design with pointers of its own: a hand on links */
@@ -432,6 +444,12 @@ bool fm_input(fm_doc *d, int layer_mask) {
             te_mouse(fmi_editor(d->focus), v ? v : "", ef, d->focus->vis, tx, in,
                      type && !strcasecmp(type, "password"), fmi_now_ms());
     }
+    for (fm_node *p = hit; p; p = p->parent)
+        if (tag_is(p, "model")) {
+            if (fmi_model_pointer(d, p, in))
+                ((input_state *)in)->wheel = 0; /* the model turned with it: nothing under it scrolls */
+            break;
+        }
     if (in->clicked && hit && tag_is(hit, "canvas") && !fmi_action_of(hit))
         fmi_canvas_click(d, hit, in->mx, in->my);
     if (in->clicked && d->pressed) {

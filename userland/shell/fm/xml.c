@@ -61,6 +61,10 @@ static void free_node(fm_node *n) {
     while (n) {
         if (n->kind == FM_ELEM && !strcmp(n->tag, "canvas"))
             fmi_canvas_forget(n);
+        if (n->kind == FM_ELEM && !strcmp(n->tag, "model")) {
+            extern void fmi_model_forget(fm_node *n);
+            fmi_model_forget(n);
+        }
         extern void fmi_rich_free(fm_node *n);
         fmi_rich_free(n);
         if (n->ed) {

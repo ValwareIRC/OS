@@ -649,6 +649,14 @@ void fmi_measure(fm_doc *d, fm_node *n, float aw, float ah) {
         cw = ch = 1;
     } else if (tag_is(n, "canvas")) {
         cw = 240, ch = 160;
+    } else if (tag_is(n, "model")) { /* square unless sized */
+        cw = ch = 320;
+        if (fw >= 0 && fh < 0)
+            cw = ch = fw - pl - pr;
+        else if (fh >= 0 && fw < 0)
+            cw = ch = fh - pt - pb;
+        if (fw < 0 && cw > caw && caw > 0)
+            cw = ch = caw;
     } else if (tag_is(n, "image") || tag_is(n, "svg") || tag_is(n, "pixels")) {
         float nw = 0, nh = 0;
         if (!fmi_media_size(n, &nw, &nh) || nw <= 0 || nh <= 0)

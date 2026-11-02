@@ -58,6 +58,14 @@ static image *resize_rgba(const uint8_t *src, int sw, int sh, int dw, int dh, in
     return im;
 }
 
+/* pictures inside 3D models (m3d) */
+unsigned char *m3_image_decode(const unsigned char *data, int len, int *w, int *h) {
+    int c;
+    return stbi_load_from_memory(data, len, w, h, &c, 4);
+}
+
+void m3_image_free(void *px) { stbi_image_free(px); }
+
 image *image_load(const char *path, int max_side) {
     int w, h, ch;
     uint8_t *data = stbi_load(path, &w, &h, &ch, 4);

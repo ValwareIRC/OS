@@ -16,7 +16,7 @@ static bool open_menu(text_edit *e, const input_state *in, int o, bool secret, u
     if (!in->right_clicked || focused_ed != e || now - focused_at > 300)
         return false;
     int a = e->caret < e->anchor ? e->caret : e->anchor, b = e->caret > e->anchor ? e->caret : e->anchor;
-    if (o < a || o > b || a == b)
+    if (o <= a || o >= b) /* on the selection keeps it; anywhere else, even at its edge, moves the caret */
         e->caret = e->anchor = o;
     menu.open = true;
     menu.sel = -1, menu.shown = false;

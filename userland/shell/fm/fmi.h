@@ -24,7 +24,8 @@ static inline bool is_popover(const fm_node *n) {
 /* Elements that are never drawn: document metadata. */
 static inline bool is_meta(const fm_node *n) {
     return n->kind == FM_ELEM && (tag_is(n, "meta") || tag_is(n, "apps") || tag_is(n, "style") ||
-                                  tag_is(n, "wallpaper") || tag_is(n, "template") || tag_is(n, "app"));
+                                  tag_is(n, "wallpaper") || tag_is(n, "template") || tag_is(n, "app") ||
+                                  (tag_is(n, "part") && n->parent && tag_is(n->parent, "model")));
 }
 
 /* System tray elements: drawn by the shell, each opens its own popover. */
@@ -82,6 +83,15 @@ bool fmi_input_geom(fm_node *n, font **f, rect *box, int *tx, int *ty);
 /* A field's editor (made on first use). */
 struct text_edit *fmi_editor(fm_node *n);
 uint64_t fmi_now_ms(void);
+/* <model> (model.c): drawn from its own thread's newest frame; the pointer over it; forgotten with its node */
+void fmi_model_draw(fm_doc *d, canvas *c, fm_node *n, rect r, float op);
+bool fmi_model_pointer(fm_doc *d, fm_node *n, const input_state *in);
+const char *fmi_model_hover_title(fm_node *n, bool *clickable);
+void fmi_model_forget(fm_node *n);
+bool fmi_models_settled(void);
+const char *fmi_model_problem(fm_node *n);
+/* runs an element's actions ("open:files; toggle:#menu"), as a click on it would */
+void fmi_run_actions(fm_doc *d, fm_node *src, const char *actions);
 void fmi_text_case(const fm_style *st, char *s);
 void fmi_draw_line_in(canvas *c, font *f, rect r, const char *s, color col, const fm_style *st, float scale);
 void fmi_draw_block(canvas *c, font *f, rect r, const char *s, color col, const fm_style *st, float scale);
