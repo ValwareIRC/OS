@@ -186,7 +186,7 @@ static const char *window_title(int w) {
         wl_view *v = A.win[w].view;
         return !v ? "" : v->title[0] ? v->title : v->app_id[0] ? v->app_id : "App";
     }
-    return D.apps[map[w]].label;
+    return fm_host_app_label(map[w]);
 }
 
 static bool has_any(const char *text, const char *const *words) {
@@ -1809,21 +1809,17 @@ const char *fm_host_app_id(int a) {
     return a >= APP_COUNT && a < APP_COUNT + nbundled ? bundled[a - APP_COUNT].id : "";
 }
 
+/* An app is called what it is, in every design: Files, Notes, Settings. A design may place it and style it,
+ * never rename it (a desktop is for finding things; "Keepsakes" for Files, "Recycle Bin" for Notes made that
+ * hard). The companion's name is its own. */
 const char *fm_host_app_label(int a) {
+    if (a == APP_COMPANION)
+        return D.ai_name[0] ? D.ai_name : app_default_name(a);
     if (a >= 0 && a < APP_COUNT)
-        return D.apps[a].label[0] ? D.apps[a].label : app_default_name(a);
+        return app_default_name(a);
     scan_bundled();
     if (a < APP_COUNT || a >= APP_COUNT + nbundled)
         return "";
-    /* the design may have named it for them: <apps><app id="prism" label="..."/> */
-    if (A.ui && A.ui->root)
-        for (fm_node *s = A.ui->root->first; s; s = s->next)
-            if (s->kind == FM_ELEM && !strcmp(s->tag, "apps"))
-                for (fm_node *e = s->first; e; e = e->next) {
-                    const char *id = fm_attr_get(e, "id"), *l = fm_attr_get(e, "label");
-                    if (e->kind == FM_ELEM && id && l && *l && !strcasecmp(id, bundled[a - APP_COUNT].id))
-                        return l;
-                }
     return bundled[a - APP_COUNT].name;
 }
 
@@ -1892,26 +1888,26 @@ bool fm_host_bind(const char *key, char *out, size_t n) {
     if (!strcmp(key, "user.name")) snprintf(out, n, "%s", D.user_name);
     else if (!strcmp(key, "ai.name")) snprintf(out, n, "%s", D.ai_name);
     else if (!strcmp(key, "greeting")) {
-        /* The designer wrote it once; the hour keeps changing. A greeting
-         * for another part of the day gives way to one for now. */
+        /* Plain and true for the hour: a design places it and styles it, the words are the system's (designs
+         * wrote slogans here, "the signal's steady", that meant nothing). */
         time_t t = time(NULL);
         struct tm tm;
         localtime_r(&t, &tm);
         int h = tm.tm_hour;
-        const char *g = D.greeting;
-        bool wrong = (strcasestr(g, "morning") && h >= 12) || (strcasestr(g, "afternoon") && (h < 12 || h >= 18)) ||
-                     (strcasestr(g, "evening") && (h < 17 && h >= 5)) || (strcasestr(g, "good night") && h >= 5 && h < 21);
-        if (wrong) {
-            const char *part = h < 5 ? "Still up" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-            if (D.user_name[0])
-                snprintf(out, n, "%s, %s.", part, D.user_name);
-            else
-                snprintf(out, n, "%s.", part);
-        } else {
-            snprintf(out, n, "%s", g);
-        }
+        const char *part = h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+        if (D.user_name[0])
+            snprintf(out, n, "%s, %s", part, D.user_name);
+        else
+            snprintf(out, n, "%s", part);
     }
-    else if (!strcmp(key, "tagline")) snprintf(out, n, "%s", D.tagline);
+    else if (!strcmp(key, "tagline")) { /* under it: today's date */
+        time_t t = time(NULL);
+        struct tm tm;
+        localtime_r(&t, &tm);
+        strftime(out, n, "%A %e %B", &tm);
+        if (out[0] && strstr(out, "  "))
+            memmove(strstr(out, "  ") + 1, strstr(out, "  ") + 2, strlen(strstr(out, "  ") + 2) + 1);
+    }
     else if (!strcmp(key, "rationale")) snprintf(out, n, "%s", D.rationale);
     else if (!strncmp(key, "window.title:", 13)) {
         int w = atoi(key + 13);
@@ -2614,7 +2610,7 @@ void desktop_draw(void) {
         fill_rect(A.frame, (rect){0, 0, A.W, A.H}, color_alpha(D.bg, 0.35f));
         panel(r, D.radius + 6);
         char q[96];
-        snprintf(q, sizeof q, "%s now?", A.power_restart ? "Restart" : D.apps[APP_POWER].label);
+        snprintf(q, sizeof q, "%s now?", A.power_restart ? "Restart" : "Power off");
         draw_text_centered(A.frame, HF(D.heading_px * 0.8f), (rect){r.x, r.y + 36, r.w, 50}, q, D.surface_text);
         font *f = BF(D.body_px);
         if (ui_button((rect){r.x + 40, r.y + 130, 200, 50}, "Not yet", f, color_alpha(D.surface_text, 0.12f), D.surface_text,

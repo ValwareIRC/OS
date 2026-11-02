@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="HAL" user-name="Sam" greeting="READY." tagline="phosphor and patience"
+<meta ai-name="HAL" user-name="Sam"
       rationale="The whole screen is one glowing green terminal: you type, it answers, nothing else to look at."
       theme-about="green phosphor CRT: a full-screen canvas of a curved old monitor (scanlines, glow, vignette, a faint flicker), a boot banner, the apps as a numbered text menu, a blinking prompt to type into; monospace green on black, windows framed in thin green lines. Retro computing, text only. (#tube, #menu, #prompt)"/>
-<apps>
-  <app id="files" label="FILES"/><app id="companion" label="HAL"/><app id="notes" label="EDIT"/>
-  <app id="settings" label="SETUP"/><app id="about" label="SYSINFO"/><app id="terminal" label="SHELL"/>
-  <app id="redesign" label="RESTYLE"/><app id="power" label="HALT"/>
-</apps>
 <wallpaper kind="gradient" colors="#000000 #021204 #031a06 #000000" seed="3" intensity="0.3"/>
 <style>
 :root { --bg:#010a02; --surface:#020f04; --surface-2:#05200a; --surface-text:#39ff6a; --text:#39ff6a; --muted:#1fa844;

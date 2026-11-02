@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Sonar" user-name="Sam" greeting="Contacts on screen." tagline="nothing gets past"
+<meta ai-name="Sonar" user-name="Sam"
       rationale="A radar scope sweeps round and round; your apps are the contacts it picks up. Click a blip to bring it in."
       theme-about="radar scope: a full-screen canvas of a round green radar display filling the middle of a dark instrument panel (range rings, bearing ticks and numbers, a rotating sweep with a fading afterglow trail), each app a blip at its own bearing and range that flares when the sweep passes, labelled in small caps, the blip under the pointer gets a lock box; a riveted metal side panel on the right with the time, a bearing readout and big toggle buttons. Military, submarine, analogue. (#scope, #panel)"/>
-<apps>
-  <app id="files" label="CARGO"/><app id="companion" label="SONAR"/><app id="notes" label="LOGBOOK"/>
-  <app id="settings" label="TRIM"/><app id="about" label="HULL"/><app id="terminal" label="CONN"/>
-  <app id="redesign" label="REFIT"/><app id="power" label="SURFACE"/>
-</apps>
 <wallpaper kind="gradient" colors="#0d110e #141a15 #0a0d0b #050605" seed="1" intensity="0.2"/>
 <style>
 :root { --bg:#0d110e; --surface:#1a201b; --surface-2:#242c25; --surface-text:#c8f0c0; --text:#c8f0c0; --muted:#6f8f6a;

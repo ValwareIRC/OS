@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="JARVIS" user-name="Sam" greeting="All systems nominal, Sam." tagline="eyes up"
+<meta ai-name="JARVIS" user-name="Sam"
       rationale="A heads-up display: a turning targeting reticle in the middle of the screen, your apps locked onto as targets around it."
       theme-about="sci-fi heads-up display: a full-screen canvas with a large animated targeting reticle at the centre (rotating dashed rings, tick marks, a sweeping arc, a pulsing core), the apps as bracketed targets placed around it at fixed angles with thin leader lines and coordinate readouts, the one under the pointer locks on in amber; corner brackets, telemetry text and the time in the corners; cyan line art on black, angular windows with cut corners. Iron Man, cockpit, precise. (#hud, #tele)"/>
-<apps>
-  <app id="files" label="ARCHIVE"/><app id="companion" label="JARVIS"/><app id="notes" label="LOG"/>
-  <app id="settings" label="SYSTEMS"/><app id="about" label="DIAGNOSTICS"/><app id="terminal" label="CONSOLE"/>
-  <app id="redesign" label="RECONFIGURE"/><app id="power" label="POWER DOWN"/>
-</apps>
 <wallpaper kind="gradient" colors="#000608 #001820 #000a10 #000000" seed="1" intensity="0.2"/>
 <style>
 :root { --bg:#000608; --surface:rgba(0,18,26,0.94); --surface-2:#032a36; --surface-text:#bff6ff; --text:#bff6ff; --muted:#4fb6c9;

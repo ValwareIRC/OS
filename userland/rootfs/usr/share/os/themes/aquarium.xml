@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Bubbles" user-name="Sam" greeting="The water's warm today." tagline="swim along"
+<meta ai-name="Bubbles" user-name="Sam"
       rationale="A calm aquarium fills the screen; your apps are bubbles drifting up past the fish. Pop one to open it."
       theme-about="aquarium: a full-screen animated canvas of a blue-green tank (light rays from the surface, swaying seaweed, sand, little fish swimming back and forth), the apps as big translucent bubbles that rise slowly and wobble, each with its name inside; the bubble under the pointer swells, clicking it opens the app; a rounded tide-clock card at the top-left. Soothing, alive, underwater. (#tank, #tide, #reef)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Bubbles"/><app id="notes" label="Notes"/>
-  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="Redecorate"/><app id="power" label="Drain"/>
-</apps>
 <wallpaper kind="gradient" colors="#05374a #0a5d6e #04293a #021a26" seed="2" intensity="0.3"/>
 <style>
 :root { --bg:#05374a; --surface:rgba(240,252,255,0.96); --surface-2:#d8f1f4; --surface-text:#0b3440; --text:#eafcff; --muted:#a6dbe3;

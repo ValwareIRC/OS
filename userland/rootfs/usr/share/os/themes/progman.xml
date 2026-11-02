@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Clippy" user-name="Sam" greeting="Welcome to the Program Manager." tagline="everything in its group"
+<meta ai-name="Clippy" user-name="Sam"
       rationale="One grey window holds all your programs in groups, the way computers felt in 1992."
       theme-about="Windows 3.1 Program Manager: a teal desktop, one big centred grey Program Manager window with a navy title bar, a menu row (File Options Window Help) and the apps as an icon grid in a white 'Main' group with labels under each icon; bevelled grey buttons; windows get navy title bars and chunky grey borders. Nostalgic, orderly, no taskbar. (#progman, #group, #menubar)"/>
-<apps>
-  <app id="files" label="File Manager"/><app id="companion" label="Clippy"/><app id="notes" label="Notepad"/>
-  <app id="settings" label="Control Panel"/><app id="about" label="About"/><app id="terminal" label="MS-DOS Prompt"/>
-  <app id="redesign" label="Desktop"/><app id="power" label="Exit Windows"/>
-</apps>
 <wallpaper kind="gradient" colors="#008080 #008080 #007070 #006060" seed="1" intensity="0.1"/>
 <style>
 :root { --bg:#008080; --surface:#ffffff; --surface-2:#c0c0c0; --surface-text:#000000; --text:#000000; --muted:#404040;

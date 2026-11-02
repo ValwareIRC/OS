@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Vex" user-name="Sam" greeting="Night drive, Sam." tagline="the road goes on forever"
+<meta ai-name="Vex" user-name="Sam"
       rationale="A sunset that never ends over a grid that never stops moving: your apps are the signs along the road."
       theme-about="synthwave drive: a full-screen animated canvas of a striped setting sun, purple mountains and a glowing perspective grid racing towards you; the apps are a row of neon words floating over the horizon, a chrome italic clock above, hot-pink framed windows. Retro, loud, moving. (#road, #signs, #chrome)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Vex"/><app id="notes" label="Tapes"/>
-  <app id="settings" label="Tune"/><app id="about" label="Engine"/><app id="terminal" label="Shell"/>
-  <app id="redesign" label="Remix"/><app id="power" label="Park"/>
-</apps>
 <wallpaper kind="gradient" colors="#12002a #ff2bd6 #19e6ff #05000f" seed="5" intensity="0.5"/>
 <style>
 :root { --bg:#0b0018; --surface:rgba(20,6,40,0.95); --surface-2:#2a0f4f; --surface-text:#ffe9fb; --text:#fff0fb;

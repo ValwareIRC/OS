@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Quill" user-name="Sam" greeting="Good morning, Sam." tagline="Today's edition: one page, your own."
+<meta ai-name="Quill" user-name="Sam"
       rationale="Set like a well-made newspaper: a masthead, a table of contents, quiet ink on warm paper."
       theme-about="paper and editorial: warm paper, a newspaper masthead with the date, a numbered contents column of apps in a serif, a lead story with their greeting, ink-ruled windows with square corners. Literary and unhurried. (#masthead, #contents, #lead, #index)"/>
-<apps>
-  <app id="files" label="Archive"/><app id="companion" label="Quill"/><app id="notes" label="Drafts"/>
-  <app id="settings" label="Preferences"/><app id="about" label="Colophon"/><app id="terminal" label="Typewriter"/>
-  <app id="redesign" label="Reset the type"/><app id="power" label="Lights out"/>
-</apps>
 <wallpaper kind="paper" colors="#f3eee4 #ebe4d7 #ddd2bf #bcae96" seed="3" intensity="0.3"/>
 <style>
 :root { --bg:#f3eee4; --surface:#fbf8f2; --surface-2:#efe8dc; --surface-text:#221e1a; --text:#221e1a;

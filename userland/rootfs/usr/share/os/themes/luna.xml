@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Luna" user-name="Sam" greeting="Good to see you, Sam." tagline="everything where you left it"
+<meta ai-name="Luna" user-name="Sam"
       rationale="A bar you already know by heart, made calmer and clearer."
       theme-about="a modern take on Windows XP Luna: a blue taskbar with a green start button, a two-column start menu, icons on a Bliss-like hill, blue window frames. Familiar and friendly. (#taskbar, #start, #startmenu, #icons)"/>
-<apps>
-  <app id="files" label="Documents"/><app id="companion" label="Luna"/><app id="notes" label="Notepad"/>
-  <app id="settings" label="Control Panel"/><app id="about" label="This Computer"/><app id="terminal" label="Command Prompt"/>
-  <app id="redesign" label="New Look"/><app id="power" label="Turn Off"/>
-</apps>
 <wallpaper kind="dunes" colors="#3d8a22 #86c43f #a7d0f5 #2a6fd8" seed="7" intensity="0.75"/>
 <style>
 :root { --bg:#2a6fd8; --surface:#f4f2ea; --surface-2:#dce9fb; --surface-text:#16233a; --text:#ffffff;

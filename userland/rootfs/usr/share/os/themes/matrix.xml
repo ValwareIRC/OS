@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Morpheus" user-name="Neo" greeting="Wake up, Sam..." tagline="follow the white rabbit"
+<meta ai-name="Morpheus" user-name="Neo"
       rationale="Green code falls down the whole screen; a single black terminal pane floats in it, offering you the choices."
       theme-about="the Matrix: a full-screen canvas of falling green glyph rain (columns of characters at different speeds, bright heads fading tails), a black slab in the centre-left with a typed-out 'Wake up' line and the apps as a list of options each with a blinking cursor, a red pill and a blue pill for power and redesign at the bottom; pure black and phosphor green, monospace, windows framed in dim green. Cinematic, ominous, hacker. (#rain, #slab)"/>
-<apps>
-  <app id="files" label="the archive"/><app id="companion" label="Morpheus"/><app id="notes" label="notes"/>
-  <app id="settings" label="the construct"/><app id="about" label="the source"/><app id="terminal" label="operator"/>
-  <app id="redesign" label="blue pill"/><app id="power" label="red pill"/>
-</apps>
 <wallpaper kind="gradient" colors="#000000 #000400 #000200 #000000" seed="1" intensity="0.1"/>
 <style>
 :root { --bg:#000000; --surface:#000a02; --surface-2:#001a06; --surface-text:#7dff9a; --text:#7dff9a; --muted:#2f9a46;

@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Miso" user-name="Sam" greeting="Good to see you, Sam." tagline="a little of everything"
+<meta ai-name="Miso" user-name="Sam"
       rationale="Your day in a bento box: time, notes, a word with Miso and your apps, each in its own tidy compartment."
       theme-about="bento grid: the whole screen is one large rounded grid of compartments of different sizes on a soft sand background (a big clock and date card, a greeting card, the companion embedded as a live view, the notes app embedded, a compact app grid card, a quiet card of quick actions), each card a different muted colour with big rounded corners and generous padding. Modern widgets, everything at a glance, nothing hidden. (#box, #clockcard, #chat)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Miso"/><app id="notes" label="Notes"/>
-  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="Reshuffle"/><app id="power" label="Shut down"/>
-</apps>
 <wallpaper kind="gradient" colors="#efe7da #f4ede2 #e9dfcf #e2d6c2" seed="3" intensity="0.2"/>
 <style>
 :root { --bg:#efe7da; --surface:#fffdf8; --surface-2:#f6f0e6; --surface-text:#2b2620; --text:#2b2620; --muted:#6e6558;

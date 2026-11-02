@@ -403,8 +403,7 @@ bool design_from_json(design *d, const char *text, const profile *p, char *probl
         json *ap = json_get(apps, app_ids[a]);
         const char *label = json_str(json_get(ap, "label"), NULL);
         const char *glyph = json_str(json_get(ap, "glyph"), NULL);
-        if (label && *label)
-            copy(d->apps[a].label, sizeof d->apps[a].label, label);
+        (void)label; /* apps keep their names (fm_host_app_label) */
         if (glyph && *glyph)
             snprintf(d->apps[a].glyph, sizeof d->apps[a].glyph, "%.4s", glyph);
     }
@@ -499,8 +498,8 @@ const char *design_prompt(void) {
            "{\n"
            "  \"ai_name\": the name you chose together in the conversation (look for it there; never "
            "\"Operating System\" or \"Lumen\", which name the system itself), \"user_name\",\n"
-           "  \"greeting\": a short line for their desktop (max 70 characters), personal, not generic,\n"
-           "  \"tagline\": a few words that sit under it,\n"
+           "  \"greeting\" and \"tagline\": leave empty (the system writes them: a greeting by the hour with their name, "
+           "and the date),\n"
            "  \"colors\": {\"background\", \"background2\", \"surface\", \"surface_text\", \"text\", \"muted\", "
            "\"accent\", \"accent2\"} as \"#rrggbb\" (text readable on background; surface_text readable on surface),\n"
            "  \"material\": glass|frost|solid|neon (how panels are made), \"surface_opacity\": 0.35-1,\n"
@@ -526,7 +525,7 @@ const char *design_prompt(void) {
            "  \"start_menu\": {\"style\": grid|list|sheet|radial, \"title\", \"sections\": [{\"title\", "
            "\"items\": [app ids]}]} (if used, include every app id once),\n"
            "  \"file_explorer\": list|icons|columns, \"companion\": right|left|floating,\n"
-           "  \"apps\": {app id: {\"label\": what to call it for this person}} for all seven,\n"
+           "  (apps are always called by their real names, Files, Notes, Settings, Terminal, About: never rename them)\n"
            "  \"rationale\": one or two sentences to them about why it looks like this\n"
            "}\n"
            "App ids: files, companion, notes, settings, about, redesign, power. Icons are drawn for you; "

@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Dewey" user-name="Sam" greeting="Take down whatever you like." tagline="read anything"
+<meta ai-name="Dewey" user-name="Sam"
       rationale="Your apps are books on a wooden shelf; pull one out by its spine and it opens."
       theme-about="library bookshelf: a full-screen canvas of a warm wooden bookcase with two shelves, each app a cloth-bound book spine of a different colour, height and width with its title in gold letters running down the spine, a little plant and bookends between them; the book under the pointer tilts forward, clicking it opens the app; a reading lamp glow, a card-catalogue drawer for everything else. Cosy, literary, physical. (#case, #catalogue)"/>
-<apps>
-  <app id="files" label="Archive"/><app id="companion" label="Dewey"/><app id="notes" label="Journal"/>
-  <app id="settings" label="Almanac"/><app id="about" label="Colophon"/><app id="terminal" label="Grimoire"/>
-  <app id="redesign" label="Rearrange"/><app id="power" label="Lights out"/>
-</apps>
 <wallpaper kind="gradient" colors="#2a1a10 #3a2414 #24160c #140c06" seed="2" intensity="0.2"/>
 <style>
 :root { --bg:#2a1a10; --surface:#f6efe1; --surface-2:#ebe1cc; --surface-text:#2a1a10; --text:#f6efe1; --muted:#c9b48e;

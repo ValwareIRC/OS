@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Rubik" user-name="Sam" greeting="Turn it to find what you need." tagline="six sides to everything"
+<meta ai-name="Rubik" user-name="Sam"
       rationale="One solid cube floats in the middle of the room; each face is an app, and it turns to show you the next."
       theme-about="3D cube: a full-screen canvas with one large solid cube floating and slowly turning in the middle of a dark studio (soft floor reflection, a spotlight), each visible face painted a different colour with an app's name on it; the face under the pointer brightens, clicking it opens that app; a small row of plain text links for everything else at the bottom-left and the time in the top-right. Sculptural, playful, 3D. (#stage, #links, #time)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Rubik"/><app id="notes" label="Notes"/>
-  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="Recolour"/><app id="power" label="Off"/>
-</apps>
 <wallpaper kind="gradient" colors="#101014 #1a1a22 #0c0c10 #050507" seed="1" intensity="0.2"/>
 <style>
 :root { --bg:#101014; --surface:#1b1b22; --surface-2:#262630; --surface-text:#f0f0f4; --text:#f0f0f4; --muted:#9a9aa8;

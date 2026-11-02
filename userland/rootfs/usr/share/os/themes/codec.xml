@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Mei" user-name="Sam" greeting="Codec open. Go ahead." tagline="140.85"
+<meta ai-name="Mei" user-name="Sam"
       rationale="A codec call that never ends: your companion is on the line on the right, the radio in the middle, your things on the left, and the conversation runs along the bottom like subtitles."
       theme-about="codec call: a black screen with a green radio unit at the top centre (PTT box, a frequency readout like 140.85 in big segment digits, a curved signal meter that swells while it talks, tuning arrows, a MEMORY box), its live portrait in a tall green-tinted scanline frame on the right, the apps as a quiet column of icons on the left, and the conversation itself along the bottom as white subtitle lines with a line to type on. Military radio, Metal Gear, nocturnal. (#radio, #face, #talk, #desk)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Mei"/><app id="notes" label="Notes"/>
-  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="Reshape"/><app id="power" label="Sleep"/>
-</apps>
 <wallpaper kind="gradient" colors="#000000 #000302 #010604 #000000" seed="5" intensity="0.1"/>
 <style>
 :root { --bg:#000000; --surface:rgba(2,14,9,0.96); --surface-2:#06261a; --surface-text:#c9ffe4; --text:#eef3ef; --muted:#4f9c7a;

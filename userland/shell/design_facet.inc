@@ -97,7 +97,7 @@ bool design_from_facet(design *d, fm_doc *doc, const profile *p, char *problems,
                 if (a->kind != FM_ELEM)
                     continue;
                 int k = lookup(fm_attr_get(a, "id"), app_ids, APP_COUNT, -1);
-                const char *l = fm_attr_get(a, "label");
+                const char *l = NULL; /* apps keep their names (fm_host_app_label) */
                 if (k >= 0 && l && *l)
                     copy(d->apps[k].label, sizeof d->apps[k].label, l);
             }

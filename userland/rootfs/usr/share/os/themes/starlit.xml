@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Rin" user-name="Sam" greeting="Mm... you're back. Stay a while." tagline="soft and sleepy"
+<meta ai-name="Rin" user-name="Sam"
       rationale="A dim violet night: little warm stars scattered everywhere like a star projector, amber lamplight pooling at the edges, a pink-mauve haze. Nothing hurries here."
       theme-about="sleepy night light, soft and cosy, made only of light and colour: a full-screen canvas of dusky violet fading to pink-mauve, scattered warm cream four-point stars (each point joined by inward-curving sides) twinkling slowly in soft pink-gold halos, faint amber lamp-glow pools low in the corners and a lilac haze; the time on a translucent violet cushion in the middle, the apps in a translucent violet dock with amber highlights; warm cream text, rounded and soft. No moon is drawn: if the companion likes, it can be the moon. (#sky, #nest, #sill)"/>
-<apps>
-  <app id="files" label="Keepsakes"/><app id="companion" label="Rin"/><app id="notes" label="Dreams"/>
-  <app id="settings" label="Blankets"/><app id="about" label="Starlight"/><app id="terminal" label="Night owl"/>
-  <app id="redesign" label="Rearrange"/><app id="power" label="Goodnight"/>
-</apps>
 <wallpaper kind="constellation" colors="#2b2456 #4a3a7a #7a5a8e #ffe3a8" seed="9" intensity="0.3"/>
 <style>
 :root { --bg:#2b2456; --surface:#3a2f6a; --surface-2:#463a7c; --surface-text:#f6ecff; --text:#f6ecff;

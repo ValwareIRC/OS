@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Norton" user-name="SAM" greeting="C:\&gt;" tagline="two panes are better than one"
+<meta ai-name="Norton" user-name="SAM"
       rationale="The DOS file manager everyone knew: two blue panels side by side, programs on the left, your files on the right, F-keys along the bottom."
       theme-about="Norton Commander: the whole screen is a text-mode interface in blue and cyan (no wallpaper visible), a cyan top menu line (Left Files Commands Options Right) with the time, two big side-by-side blue panels with double-line borders, the left listing the apps as a program list in yellow-and-white monospace, the right panel embedding the real Files view, a command line 'C:\&gt;' row and the F1-F10 function key bar across the very bottom (black numbers on cyan labels); windows are blue boxes with double borders. DOS-era, dense, nostalgic. (#top, #left, #right, #keys)"/>
-<apps>
-  <app id="files" label="FILES.EXE"/><app id="companion" label="NORTON.EXE"/><app id="notes" label="EDIT.COM"/>
-  <app id="settings" label="SETUP.EXE"/><app id="about" label="MSD.EXE"/><app id="terminal" label="COMMAND.COM"/>
-  <app id="redesign" label="COLORS.EXE"/><app id="power" label="QUIT"/>
-</apps>
 <wallpaper kind="gradient" colors="#0000a8 #0000a8 #0000a0 #000098" seed="1" intensity="0.02"/>
 <style>
 :root { --bg:#0000a8; --surface:#0000a8; --surface-2:#0000c8; --surface-text:#ffffff; --text:#ffffff; --muted:#55ffff;

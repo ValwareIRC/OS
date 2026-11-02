@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Ember" user-name="Sam" greeting="Hello again, Sam." tagline="light through ice"
+<meta ai-name="Ember" user-name="Sam"
       rationale="Everything gathers around the one you talk to, like moons around a small cold star."
       theme-about="frost orbit: a dark aurora sky, the companion's orb glowing at the centre of the screen with the apps circling it on a ring, a thin clock and greeting above, frosted glass windows with pale cyan edges. Calm, celestial, centred. (#core, #ring, #sky)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Ember"/><app id="notes" label="Notes"/>
-  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="Reshape"/><app id="power" label="Sleep"/>
-</apps>
 <wallpaper kind="aurora" colors="#070b1f #5fd3ff #9d7bff #0a1236" seed="9" intensity="0.85"/>
 <style>
 :root { --bg:#070b1f; --surface:rgba(16,24,52,0.86); --surface-2:rgba(255,255,255,0.08); --surface-text:#eaf4ff;

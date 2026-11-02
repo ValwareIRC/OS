@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Tracker" user-name="Sam" greeting="Be." tagline="the media OS"
+<meta ai-name="Tracker" user-name="Sam"
       rationale="A calm blue desktop, a tidy panel in the top-right corner, and windows with little yellow tabs."
       theme-about="BeOS: a deep blue desktop with large icons in the top-left, the Deskbar as a compact grey panel pinned in the TOP-RIGHT corner (a blue 'leaf' menu button, the clock, then the running apps listed vertically), windows whose title is a small yellow tab sticking up from the top-left edge rather than a full bar. Tidy, quirky, late-90s. (#deskbar, #icons, #leaf)"/>
-<apps>
-  <app id="files" label="Home"/><app id="companion" label="Tracker"/><app id="notes" label="StyledEdit"/>
-  <app id="settings" label="Preferences"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="Backgrounds"/><app id="power" label="Shut Down"/>
-</apps>
 <wallpaper kind="gradient" colors="#336698 #3a73a8 #2d5c8a #23496e" seed="2" intensity="0.2"/>
 <style>
 :root { --bg:#336698; --surface:#dedede; --surface-2:#cccccc; --surface-text:#000000; --text:#ffffff; --muted:#555555;

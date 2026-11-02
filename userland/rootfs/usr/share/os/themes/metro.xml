@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Cortana" user-name="Sam" greeting="Start" tagline="live tiles"
+<meta ai-name="Cortana" user-name="Sam"
       rationale="Big flat coloured tiles of different sizes fill the screen; every app is a square you can't miss."
       theme-about="Windows 8 Metro start screen: a solid deep purple backdrop, a huge thin 'Start' heading and the person's name at the top, the apps as flat solid-coloured live tiles of mixed sizes (one wide clock tile, one big companion tile, small squares) laid out in a left-to-right grid, white glyph icons and labels at the tile's bottom-left, no shadows or rounding; borderless flat windows with a coloured top. Bold, flat, touch-first. (#start, #tiles)"/>
-<apps>
-  <app id="files" label="File Explorer"/><app id="companion" label="Cortana"/><app id="notes" label="OneNote"/>
-  <app id="settings" label="PC settings"/><app id="about" label="This PC"/><app id="terminal" label="Command Prompt"/>
-  <app id="redesign" label="Personalize"/><app id="power" label="Power"/>
-</apps>
 <wallpaper kind="gradient" colors="#2d0a4a #34105a #2a0944 #1f0636" seed="1" intensity="0.1"/>
 <style>
 :root { --bg:#2d0a4a; --surface:#ffffff; --surface-2:#f0f0f0; --surface-text:#1a1a1a; --text:#ffffff; --muted:#cbb8e0;

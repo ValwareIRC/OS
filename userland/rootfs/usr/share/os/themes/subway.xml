@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Beck" user-name="Sam" greeting="Mind the gap, Sam." tagline="all lines running"
+<meta ai-name="Beck" user-name="Sam"
       rationale="Your computer as a transit map: every app is a station, the lines are how things connect. Tap a station to go there."
       theme-about="subway map: a full-screen canvas of a clean transit diagram on off-white (Harry Beck style: thick coloured lines at 0/45/90 degrees, round white station markers with black rings, interchange pills where lines cross, a river in pale blue), each app a station with its name in bold sans type beside it, the station under the pointer fills with colour, clicking it opens the app; a line legend and a departures board with the time in the corner. Graphic, orderly, urban. (#map, #board)"/>
-<apps>
-  <app id="files" label="Archive Sq"/><app id="companion" label="Beck Junction"/><app id="notes" label="Notebook Lane"/>
-  <app id="settings" label="Signal Works"/><app id="about" label="Terminus"/><app id="terminal" label="Shell Cross"/>
-  <app id="redesign" label="New Lines"/><app id="power" label="Depot"/>
-</apps>
 <wallpaper kind="gradient" colors="#f4f1ea #f4f1ea #efece4 #e8e4da" seed="1" intensity="0.05"/>
 <style>
 :root { --bg:#f4f1ea; --surface:#ffffff; --surface-2:#efece4; --surface-text:#111111; --text:#111111; --muted:#555555;

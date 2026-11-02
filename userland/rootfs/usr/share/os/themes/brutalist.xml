@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="SLAB" user-name="SAM" greeting="HELLO SAM." tagline="no decoration"
+<meta ai-name="SLAB" user-name="SAM"
       rationale="Raw and loud: enormous black words on bare grey concrete. The words are the buttons."
       theme-about="brutalist web: a flat raw grey concrete background, the apps as ENORMOUS black uppercase words stacked down the left (each one a button, the hovered one inverts to black with white text), hard 4px black borders, a blunt yellow stripe with the time, zero rounding, zero shadows, zero icons, windows as plain boxes with a thick black border and a black title strip. Confrontational, typographic, anti-design. (#wall, #stripe)"/>
-<apps>
-  <app id="files" label="FILES"/><app id="companion" label="SLAB"/><app id="notes" label="WRITE"/>
-  <app id="settings" label="SETTINGS"/><app id="about" label="ABOUT"/><app id="terminal" label="TERMINAL"/>
-  <app id="redesign" label="REDO"/><app id="power" label="OFF"/>
-</apps>
 <wallpaper kind="gradient" colors="#b9b9b4 #c2c2bd #b2b2ad #a8a8a3" seed="1" intensity="0.1"/>
 <style>
 :root { --bg:#b9b9b4; --surface:#e8e8e4; --surface-2:#d6d6d1; --surface-text:#000000; --text:#000000; --muted:#333333;

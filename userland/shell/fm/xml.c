@@ -534,6 +534,45 @@ static void dedupe_ids(fm_doc *d) {
     }
 }
 
+/* What a system action is called, whatever the design wrote on its button: an app by its name (Notes, never
+ * "Recycle Bin"), and Redesign, Shut down, Restart. NULL for anything else, which keeps its own words. */
+static const char *action_name(const char *what) {
+    if (!what)
+        return NULL;
+    if (!strcmp(what, "redesign"))
+        return "Redesign";
+    if (!strcmp(what, "power:off") || !strcmp(what, "power"))
+        return "Shut down";
+    if (!strcmp(what, "power:restart"))
+        return "Restart";
+    const char *id = !strncmp(what, "open:", 5) ? what + 5 : !strncmp(what, "app:", 4) ? what + 4 : NULL;
+    if (!id)
+        return NULL;
+    for (int a = 0; a < fm_host_app_count(); a++)
+        if (!strcmp(fm_host_app_id(a), id))
+            return fm_host_app_label(a);
+    return NULL;
+}
+
+/* A button that does a system thing says what it does, in plain words (the design still styles it). */
+static void plain_names(fm_node *n) {
+    for (; n; n = n->next) {
+        if (n->kind != FM_ELEM)
+            continue;
+        const char *name = action_name(fm_attr_get(n, "what"));
+        if (!name)
+            name = action_name(fm_attr_get(n, "action"));
+        bool said = false;
+        for (fm_node *c = n->first; name && c; c = c->next)
+            if (c->kind == FM_TEXT && c->text && strspn(c->text, " \t\r\n") < strlen(c->text)) {
+                free(c->text);
+                c->text = strdup(said ? "" : name);
+                said = true;
+            }
+        plain_names(n->first);
+    }
+}
+
 fm_doc *fm_parse(const char *text) {
     fm_doc *d = calloc(1, sizeof *d);
     d->entrance_at = -1;
@@ -588,6 +627,7 @@ fm_doc *fm_parse(const char *text) {
     fm_node *style = child_tag(d->root, "style");
     d->css = style && style->first && style->first->kind == FM_TEXT ? strdup(style->first->text) : strdup("");
     fm_css_load(d);
+    plain_names(d->root);
     return d;
 }
 

@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Kepler" user-name="Sam" greeting="Clear skies tonight, Sam." tagline="everything in its orbit"
+<meta ai-name="Kepler" user-name="Sam"
       rationale="Your apps are planets turning slowly round a warm sun; reach out and pick the one you want."
       theme-about="orrery: a full-screen animated canvas of a solar system seen from slightly above, each app a planet on its own tilted elliptical orbit (sizes and colours differ, some with rings or moons), the planet under the pointer glows and shows its name, click a planet to open it; a brass-and-ink almanac panel in the top-left with the date and time. Astronomical, slow, wondrous. (#sky, #almanac, #index)"/>
-<apps>
-  <app id="files" label="Files"/><app id="companion" label="Kepler"/><app id="notes" label="Logbook"/>
-  <app id="settings" label="Settings"/><app id="about" label="Observatory"/><app id="terminal" label="Console"/>
-  <app id="redesign" label="Recalculate"/><app id="power" label="Close the dome"/>
-</apps>
 <wallpaper kind="constellation" colors="#03040c #c9b27a #6f86d6 #01020a" seed="12" intensity="0.6"/>
 <style>
 :root { --bg:#03040c; --surface:#f4ecd8; --surface-2:#e7dcc1; --surface-text:#22190d; --text:#f2e6c9; --muted:#b8a57c;

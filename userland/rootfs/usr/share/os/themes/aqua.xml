@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Aria" user-name="Sam" greeting="Afternoon, Sam." tagline="clear water, clear head"
+<meta ai-name="Aria" user-name="Sam"
       rationale="Light, clear glass and one blue you can find anything by."
       theme-about="Aqua, made modern: a light frosted menu bar, a glass dock that swells under the pointer, a full-screen launcher, pale windows with gel buttons, blue water behind. Polished and calm. (#menubar, #dock, #launch)"/>
-<apps>
-  <app id="files" label="Finder"/><app id="companion" label="Aria"/><app id="notes" label="Notes"/>
-  <app id="settings" label="Settings"/><app id="about" label="About"/><app id="terminal" label="Terminal"/>
-  <app id="redesign" label="New Look"/><app id="power" label="Shut Down"/>
-</apps>
 <wallpaper kind="aurora" colors="#0b3f8f #7fd3ff #bfe6ff #062a66" seed="11" intensity="0.6"/>
 <style>
 :root { --bg:#0f4fa6; --surface:#f5f6f8; --surface-2:#e6e9ee; --surface-text:#1c1d21; --text:#ffffff;

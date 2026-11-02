@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Draughtsman" user-name="Sam" greeting="Drawing no. 1, rev. A" tagline="measure twice"
+<meta ai-name="Draughtsman" user-name="Sam"
       rationale="Your desktop is a technical drawing: white lines on blueprint blue, every app a labelled part with its dimensions."
       theme-about="engineering blueprint: a full-screen canvas of cyanotype blue paper with a fine and a coarse grid, a title block in the bottom-right corner (drawing name, the person, the date, the time, a scale), the apps drawn as isometric white line-art boxes (parts) with callout bubbles, leader lines and dimension arrows giving each its name; hover a part and its lines thicken, click to open; white monospace annotations, windows like drafting sheets with a white border. Technical, precise, hand-drafted. (#sheet, #block)"/>
-<apps>
-  <app id="files" label="PART A  STORAGE"/><app id="companion" label="DRAUGHTSMAN"/><app id="notes" label="PART C  NOTES"/>
-  <app id="settings" label="PART D  ADJUST"/><app id="about" label="SPEC SHEET"/><app id="terminal" label="PART B  CONSOLE"/>
-  <app id="redesign" label="REVISE"/><app id="power" label="SHUT DOWN"/>
-</apps>
 <wallpaper kind="gradient" colors="#1b4f8a #1e5696 #174679 #123a66" seed="1" intensity="0.1"/>
 <style>
 :root { --bg:#1b4f8a; --surface:#1d4f88; --surface-2:#2a62a0; --surface-text:#eaf3ff; --text:#eaf3ff; --muted:#b8d2f0;

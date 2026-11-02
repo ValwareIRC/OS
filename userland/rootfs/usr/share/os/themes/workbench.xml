@@ -1,12 +1,7 @@
 <facet>
-<meta ai-name="Boing" user-name="Sam" greeting="Workbench screen" tagline="only Amiga makes it possible"
+<meta ai-name="Boing" user-name="Sam"
       rationale="The Amiga's bright blue screen, a title bar across the top, drawers you double-click, and the famous bouncing ball."
       theme-about="Amiga Workbench 1.3: a flat bright blue screen with a white-and-blue screen title bar across the top showing free memory, the apps as small chunky drawer and disk icons in a loose grid at the top-left, the red-and-white checkered Boing ball bouncing in a canvas at the right, orange-accented windows with depth gadgets. 1987 home computer, cheerful. (#screenbar, #drawers, #boing)"/>
-<apps>
-  <app id="files" label="Workbench"/><app id="companion" label="Boing"/><app id="notes" label="Notepad"/>
-  <app id="settings" label="Prefs"/><app id="about" label="About"/><app id="terminal" label="Shell"/>
-  <app id="redesign" label="Palette"/><app id="power" label="Quit"/>
-</apps>
 <wallpaper kind="gradient" colors="#0055aa #0055aa #0050a0 #004c99" seed="1" intensity="0.05"/>
 <style>
 :root { --bg:#0055aa; --surface:#0055aa; --surface-2:#003f80; --surface-text:#ffffff; --text:#ffffff; --muted:#ffaa33;
