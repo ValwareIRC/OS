@@ -363,6 +363,7 @@ bool seccomp_check(struct regs *r, uint64_t nr, int64_t *ret) {
         *ret = -ENOSYS; /* no tracer, no listener */
         return false;
     default: /* KILL_THREAD, KILL_PROCESS, and anything unknown */
+        proc_exit_begin(SIGSYS); /* the other threads stop first: the log line is slow */
         kprintf("seccomp: pid %d (%s) killed for system call %lu\n", p->pid, p->name, nr);
         proc_exit(SIGSYS);
     }

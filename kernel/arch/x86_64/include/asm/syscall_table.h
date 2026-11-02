@@ -26,7 +26,7 @@
     X(230, clock_nanosleep) X(231, exit_group) X(234, tgkill) X(257, openat) X(258, mkdirat)            \
     X(260, fchownat) X(262, newfstatat) X(263, unlinkat) X(264, renameat) X(265, linkat) X(266, symlinkat) \
     X(267, readlinkat) X(268, fchmodat) X(269, faccessat) X(271, ppoll) X(273, set_robust_list)         \
-    X(280, utimensat) X(292, dup3) X(293, pipe2) X(302, prlimit64) X(316, renameat2) X(318, getrandom)  \
+    X(280, utimensat) X(292, dup3) X(293, pipe2) X(302, prlimit64) X(309, getcpu) X(316, renameat2) X(318, getrandom)  \
     X(332, statx) X(435, clone3) X(436, close_range) X(439, faccessat2) X(307, sendmmsg)                                                     \
     X(23, select) X(53, socketpair) X(213, epoll_create) X(232, epoll_wait) X(233, epoll_ctl)           \
     X(270, pselect6) X(281, epoll_pwait) X(282, signalfd) X(283, timerfd_create) X(284, eventfd)        \

@@ -121,6 +121,19 @@ SYSCALL(clock_nanosleep) {
     return sleep_until(time_monotonic_ns() + ns);
 }
 
+/* The CPU the caller is running on (it may move at any moment after: a hint, as on Linux); one memory node. */
+SYSCALL(getcpu) {
+    UNUSED_ARGS();
+    uint64_t f = irq_save();
+    uint32_t cpu = this_cpu()->id, node = 0;
+    irq_restore(f);
+    if (a1 && copy_to_user(a1, &cpu, sizeof cpu) < 0)
+        return -EFAULT;
+    if (a2 && copy_to_user(a2, &node, sizeof node) < 0)
+        return -EFAULT;
+    return 0;
+}
+
 SYSCALL(getrandom) {
     UNUSED_ARGS();
     uint8_t buf[256];

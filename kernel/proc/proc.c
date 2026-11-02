@@ -551,9 +551,10 @@ void thread_exit_user(int status) {
     process_finish(p, p->group_exit ? p->exit_status : status);
 }
 
-/* exit_group, fatal signals, crashes: every thread goes, the first status
- * set is the one the parent sees. */
-void proc_exit(int status) {
+/* The whole group is ending with `status` (the first one set is the one the parent sees): every other thread
+ * is told to leave. Before anything slow (a crash's log line): a thread running on another CPU must not carry on
+ * meanwhile, and finish first with an exit status of its own. */
+void proc_exit_begin(int status) {
     struct user_thread *self = thread_current()->user;
     struct process *p = self->proc;
     uint64_t f = spin_lock_irqsave(&proc_lock);
@@ -570,6 +571,12 @@ void proc_exit(int status) {
             thread_wake(ut->thread);
         }
     spin_unlock_irqrestore(&proc_lock, f);
+}
+
+/* exit_group, fatal signals, crashes: every thread goes, the first status
+ * set is the one the parent sees. */
+void proc_exit(int status) {
+    proc_exit_begin(status);
     thread_exit_user(status);
 }
 
@@ -680,8 +687,9 @@ bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     if (mm && mm_handle_fault(mm, addr, write, exec))
         return true;
     if (regs_user_mode(r)) {
-        kprintf("pid %d (%s): segmentation fault at %lx, rip %lx\n", t->user->proc->pid, t->user->proc->name,
-                addr, regs_ip(r));
+        proc_exit_begin(SIGSEGV); /* the other threads stop first: the log line below takes a while */
+        kprintf("pid %d (%s): segmentation fault at %lx, rip %lx\n", t->user->proc->pid, t->user->proc->name, addr,
+                regs_ip(r));
         proc_exit(SIGSEGV);
     }
     /* A user-memory access from the kernel (copy_from_user and friends):
@@ -698,6 +706,7 @@ bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
 void user_exception(struct regs *r, uint64_t vector, int sig);
 void user_exception(struct regs *r, uint64_t vector, int sig) {
     struct process *p = proc_current();
+    proc_exit_begin(sig); /* the other threads stop first (see page_fault) */
     kprintf("pid %d (%s): exception %lu at rip %lx -> signal %d\n", p->pid, p->name, vector, regs_ip(r), sig);
     proc_exit(sig);
 }

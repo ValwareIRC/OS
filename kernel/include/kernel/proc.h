@@ -274,6 +274,9 @@ struct process *proc_find(int pid);
 void proc_start_init(const char *path);
 /* Ends the whole thread group (exit_group, fatal signals). */
 __attribute__((noreturn)) void proc_exit(int status);
+/* The first half of proc_exit: the group is ending, every other thread told to leave; the caller then logs
+ * what it must and calls proc_exit. For crashes, whose log line is slow. */
+void proc_exit_begin(int status);
 /* Ends only the calling thread; the last one out makes the process a zombie. */
 __attribute__((noreturn)) void thread_exit_user(int status);
 void proc_kill(struct process *p, int sig);

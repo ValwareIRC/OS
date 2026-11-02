@@ -33,7 +33,7 @@
     X(212, recvmsg) X(214, brk) X(215, munmap) X(216, mremap) X(220, clone) X(221, execve) X(222, mmap)   \
     X(223, fadvise64) X(226, mprotect) X(227, msync) X(228, mlock) X(229, mlock) X(230, mlock)           \
     X(231, mlock) X(233, madvise) X(242, accept4) X(260, wait4) X(261, prlimit64) X(267, syncfs)          \
-    X(268, setns) X(269, sendmmsg) X(276, renameat2) X(277, seccomp) X(278, getrandom) X(279, memfd_create) \
+    X(268, setns) X(269, sendmmsg) X(276, renameat2) X(168, getcpu) X(277, seccomp) X(278, getrandom) X(279, memfd_create) \
     X(284, mlock) X(291, statx) X(435, clone3) X(436, close_range) X(439, faccessat2) X(441, epoll_pwait2)
 
 #define NR_read 63

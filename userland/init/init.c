@@ -1176,11 +1176,22 @@ static void *blocked_reader(void *arg) {
 }
 
 static volatile int spinner_started;
+/* what the spinner reports, in a page that stays mapped: its CPU and how many reads it has made */
+static volatile long *spin_stats;
 static void *spin_reader(void *arg) {
     volatile int *page = arg;
     spinner_started = 1;
-    while (page)
+    unsigned cpu = 0;
+    syscall(SYS_getcpu, &cpu, NULL, NULL);
+    spin_stats[0] = (long)cpu;
+    while (page) {
         (void)page[0]; /* keeps hitting its TLB entry until a fault */
+        if ((++spin_stats[1] & 0xffff) == 0) { /* when it last read, now and then */
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            spin_stats[6] = now.tv_sec * 1000000000L + now.tv_nsec;
+        }
+    }
     return NULL;
 }
 
@@ -1219,6 +1230,8 @@ static int wait_with_deadline(pid_t pid, int ms) {
 static void thread_teardown_tests(void) {
     /* munmap in one thread must reach a thread spinning on the page on
      * another CPU (TLB shootdown): it faults instead of reading on. */
+    /* (shared with the parent: what the child saw, if it went wrong) */
+    spin_stats = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     pid_t pid = fork();
     if (pid == 0) {
         int *page = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -1229,15 +1242,31 @@ static void thread_teardown_tests(void) {
             ;
         struct timespec nap = {0, 50 * 1000 * 1000};
         nanosleep(&nap, NULL);
+        unsigned cpu = 0;
+        syscall(SYS_getcpu, &cpu, NULL, NULL);
+        spin_stats[2] = (long)cpu;
+        long before = spin_stats[1];
         munmap(page, 4096);
+        long at = spin_stats[1];
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        spin_stats[7] = now.tv_sec * 1000000000L + now.tv_nsec;
+        long last_before = spin_stats[6];
         nanosleep(&nap, NULL);
+        spin_stats[8] = spin_stats[6] - last_before; /* how long the reader went on reading after munmap */
+        spin_stats[3] = before, spin_stats[4] = at, spin_stats[5] = spin_stats[1];
         nanosleep(&nap, NULL);
         _exit(0); /* the spinner did not notice */
     }
     int status = wait_with_deadline(pid, 5000);
-    if (!(status != -1 && WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV)) /* which way it went wrong */
+    if (!(status != -1 && WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV)) { /* which way it went wrong */
         printf("utest: (TLB shootdown: %s)\n", status == -1 ? "munmap hung waiting for the other CPU (killed after 5 s)"
                : WIFEXITED(status) ? "the other CPU kept reading the unmapped page" : "ended by another signal");
+        printf("utest: (TLB shootdown: reader on cpu %ld, munmap on cpu %ld; reads %ld before munmap, %ld as it "
+               "returned, %ld 50 ms later; its last read %ld us after munmap returned at %ld us)\n", spin_stats[0],
+               spin_stats[2], spin_stats[3], spin_stats[4], spin_stats[5], (spin_stats[6] - spin_stats[7]) / 1000,
+               spin_stats[7] / 1000);
+    }
     CHECK(status != -1 && WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV,
           "munmap seen by a thread on another CPU (TLB shootdown)");
 
@@ -2285,12 +2314,13 @@ static void setup_data_disk(void) {
         char *ck[] = {"/usr/sbin/e2fsck", "-p", DATA_DEV, NULL};
         int r = run(ck, out, sizeof out);
         printf("init: checked " DATA_DEV ": %s%s", r == 0 ? "clean" : r < 4 ? "repaired" : "PROBLEMS: ", r < 4 ? "\n" : out);
-        if (r >= 4 && r < 8) {
-            /* what -p won't fix alone: nobody is here to answer its questions,
-             * so yes to every repair (Linux's fsck.repair=yes) */
-            char *fix[] = {"/usr/sbin/e2fsck", "-y", DATA_DEV, NULL};
+        /* what -p won't fix alone: nobody is here to answer its questions, so yes to every repair (Linux's
+         * fsck.repair=yes), and again until it is clean: mending one thing (a folder block that never reached
+         * the disk) leaves others for the next pass (the files it named, their link counts) */
+        for (int pass = 1; r >= 4 && r < 8 && pass <= 4; pass++) {
+            char *fix[] = {"/usr/sbin/e2fsck", "-fy", DATA_DEV, NULL};
             r = run(fix, out, sizeof out);
-            printf("init: repaired " DATA_DEV ": %s\n", r < 4 ? "usable" : "still damaged");
+            printf("init: repair %d of " DATA_DEV ": %s\n", pass, r < 4 ? "usable" : "more to mend");
         }
         if (r >= 4)
             return; /* not mounted: better no apps than a damaged disk made worse */
@@ -2354,6 +2384,14 @@ int main(void) {
     }
     if (mode && !strncmp(mode, "persist-", 8)) {
         persist_mode(mode);
+        fflush(stdout);
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
+    if (mode && !strcmp(mode, "test-threads")) { /* only the thread tests: for chasing a scheduler bug quickly */
+        for (int i = 0; i < 5; i++)
+            thread_teardown_tests();
+        printf(failures ? "USERLAND TESTS FAILED (%d)\n" : "USERLAND TESTS PASSED\n", failures);
         fflush(stdout);
         reboot(RB_POWER_OFF);
         return 1;
