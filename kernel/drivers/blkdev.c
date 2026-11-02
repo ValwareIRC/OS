@@ -233,6 +233,13 @@ static bool disk_is_ours(struct blkdev *d) {
     return true;
 }
 
+int blkdev_count(void) {
+    int n = 0;
+    for (struct blkdev *d = disks; d; d = d->next)
+        n += !d->part_of;
+    return n;
+}
+
 void storage_init(void) {
     ahci_init();
     virtio_blk_init();

@@ -8,7 +8,8 @@ LIBS   := -L$(PORTS)/lib -llua -lmbedtls -lmbedx509 -lmbedcrypto -lm
 LIB_SRCS := $(wildcard lib/*.c)
 LIB_OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(LIB_SRCS))
 
-PROGRAMS := $(OUT)/init $(OUT)/os-ai $(OUT)/os-audio $(if $(wildcard shell/*.c),$(OUT)/os-shell) $(OUT)/os-figure
+PROGRAMS := $(OUT)/init $(OUT)/os-ai $(OUT)/os-audio $(if $(wildcard shell/*.c),$(OUT)/os-shell) $(OUT)/os-figure \
+            $(OUT)/os-boot
 
 all: $(PROGRAMS)
 
@@ -21,6 +22,11 @@ $(OUT)/init: $(OUT)/obj/init/init.o $(OUT)/obj/shell/store.o
 
 $(OUT)/os-audio: $(OUT)/obj/tools/os-audio.o
 	$(CC) -static -o $@ $^
+
+# the boot screen, in the person's design, between the kernel's and the desktop
+$(OUT)/obj/tools/os-boot.o: CFLAGS += -Wno-unused-function -Wno-sign-compare
+$(OUT)/os-boot: $(OUT)/obj/tools/os-boot.o $(OUT)/obj/lib/json.o
+	$(CC) -static -o $@ $^ -lm
 
 $(OUT)/os-ai: $(OUT)/obj/tools/os-ai.o $(LIB_OBJS)
 	$(CC) -static -o $@ $^ $(LIBS)

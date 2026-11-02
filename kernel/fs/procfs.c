@@ -1,3 +1,4 @@
+#include <kernel/drivers.h>
 #include <kernel/arch.h>
 #include <kernel/blkdev.h>
 #include <kernel/lib.h>
@@ -1404,6 +1405,29 @@ static int show_loadavg(struct snode *n, struct sbuf *b) {
     return 0;
 }
 
+static int show_bootlog(struct snode *n, struct sbuf *b) {
+    (void)n;
+    unsigned long len;
+    const char *t = klog_text(&len);
+    sb_put(b, t, len);
+    return 0;
+}
+
+static int show_bootsteps(struct snode *n, struct sbuf *b) {
+    (void)n;
+    static char text[4096];
+    int len = bootscreen_steps_text(text, sizeof text);
+    sb_put(b, text, (size_t)len);
+    return 0;
+}
+
+static int64_t store_bootsteps(struct snode *n, const char *buf, size_t len) {
+    (void)n;
+    if (proc_current()->euid != 0)
+        return -EPERM; /* the system's own start: init and os-boot */
+    return bootscreen_steps_write(buf, len) == 0 ? (int64_t)len : -EINVAL;
+}
+
 static int show_version(struct snode *n, struct sbuf *b) {
     (void)n;
     sb_printf(b, "Linux version 6.1.0-os (os@os) (gcc) #1 SMP\n");
@@ -1611,6 +1635,8 @@ static const struct sent net_children[] = {
 };
 
 static const struct sent root_children[] = {
+    FILE_RO("bootlog", show_bootlog),
+    FILE_RW("bootsteps", show_bootsteps, store_bootsteps),
     FILE_RO("cpuinfo", show_cpuinfo),
     FILE_RO("filesystems", show_filesystems),
     FILE_RO("loadavg", show_loadavg),

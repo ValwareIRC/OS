@@ -209,19 +209,24 @@ static void priv_serve(int fd) {
     }
 }
 
+/* What the disk kept comes back once a boot, before anything is shown. */
+static void restore_once(void) {
+    static bool restored;
+    if (restored)
+        return;
+    restored = true;
+    int kept = store_restore();
+    char k[16];
+    snprintf(k, sizeof k, "%d", kept);
+    setenv("OS_STORE_KEPT", k, 1);
+    printf("init: store: %s\n", kept > 0 ? "restored from the disk" : kept == 0 ? "a new disk" : "no disk");
+}
+
 /* The graphical experience, as the person; its helper, as root. */
 static pid_t spawn_gui(void) {
     if (access("/bin/os-shell", X_OK) != 0)
         return -1;
-    static bool restored;
-    if (!restored) { /* what the disk kept comes back once a boot, before anything is shown */
-        restored = true;
-        int kept = store_restore();
-        char k[16];
-        snprintf(k, sizeof k, "%d", kept);
-        setenv("OS_STORE_KEPT", k, 1);
-        printf("init: store: %s\n", kept > 0 ? "restored from the disk" : kept == 0 ? "a new disk" : "no disk");
-    }
+    restore_once();
     prepare_session();
     int sv[2] = {-1, -1};
     if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)

@@ -2349,6 +2349,35 @@ static void setup_data_disk(void) {
         printf("init: Flathub for the disk's apps: %s", r == 0 ? "ok\n" : out);
     }
 }
+/* The kernel's boot screen keeps the steps (/proc/bootsteps): ours marked there as they happen. */
+static void boot_step(const char *id, const char *what) {
+    int fd = open("/proc/bootsteps", O_WRONLY);
+    if (fd < 0)
+        return;
+    char l[96];
+    int n = snprintf(l, sizeof l, "%s %s\n", id, what);
+    if (write(fd, l, (size_t)n) < 0) {
+    }
+    close(fd);
+}
+
+/* The boot screen in their design (os-boot), until the desktop's first frame. */
+static void start_boot_screen(void) {
+    if (access("/usr/libexec/os-boot", X_OK) != 0) {
+        printf("init: no boot screen to start (/usr/libexec/os-boot)\n");
+        return;
+    }
+    pid_t pid = fork();
+    if (pid == 0) {
+        int nul = open("/dev/null", O_RDWR);
+        if (nul >= 0)
+            dup2(nul, 0), dup2(nul, 1);
+        char *argv[] = {"/usr/libexec/os-boot", NULL};
+        execv(argv[0], argv);
+        _exit(127);
+    }
+}
+
 /* A development shell on the console, only when the host asked for one (OS_CONSOLE=shell, from fw_cfg
  * opt/os/console): otherwise keys typed while the desktop isn't listening (booting, or restarting after a crash)
  * would reach a root shell with no login, and so would anyone with a serial cable. */
@@ -2410,8 +2439,17 @@ int main(void) {
     }
 
     setsid();
+    boot_step("state", "active");
+    restore_once(); /* their things first: the boot screen goes on in their design */
+    boot_step("state", "done");
+    start_boot_screen();
+    boot_step("apps", "active");
     setup_data_disk(); /* apps from Flathub live there */
+    boot_step("apps", "done");
+    boot_step("services", "active");
     start_buses();
+    boot_step("services", "done");
+    boot_step("desktop", "active");
     pid_t gui = spawn_gui(), sh = spawn_console_shell();
     for (;;) {
         int status;

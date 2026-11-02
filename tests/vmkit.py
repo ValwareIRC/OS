@@ -10,10 +10,12 @@ W, H = 1600, 900
 
 class Vm:
     def __init__(self, out, replies, alive="proactive=0\n", design=None, qport=4474, aiport=8918, model="fake",
-                 design_path=None, disk=None, mind=None, memory="12G"):
+                 design_path=None, disk=None, mind=None, memory="12G",
+                 facet=True):
         """disk: a disk image used in snapshot mode (never written); mind: the mind.json to hand over (default:
         tests/fake_ai.py on aiport)."""
         self.out, self.qport, self.aiport, self.disk, self.memory = out, qport, aiport, disk, memory
+        self.facet = facet  # False: no design handed over (the one saved on the disk is used)
         self.script = os.path.join(out, "replies.json")
         json.dump(replies, open(self.script, "w"))
         self.ailog = os.path.join(out, "ai.log")
@@ -41,7 +43,7 @@ class Vm:
                  "tcg", "-cpu", "Skylake-Client-noTSX-IBRS", "-vga", "std", "-display", "none",
                  "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
                  "-audiodev", "none,id=a0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0",
-                 *fw("mind.json", self.mind), *fw("facet.xml", self.desk), *fw("alive.conf", self.alive),
+                 *fw("mind.json", self.mind), *(fw("facet.xml", self.desk) if self.facet else []), *fw("alive.conf", self.alive),
                  "-qmp", f"tcp:127.0.0.1:{self.qport},server,nowait", "-serial", "file:" + self.log.replace(os.sep, "/"),
                  "-cdrom", os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso")).replace(os.sep, "/")]
         iso = os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso"))

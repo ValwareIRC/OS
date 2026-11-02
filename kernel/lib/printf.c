@@ -123,9 +123,28 @@ int ksnprintf(char *buf, size_t size, const char *fmt, ...) {
     return n;
 }
 
+/* Everything logged, kept for /proc/bootlog and for the screen if the start fails. Past its size the oldest
+ * half goes. Under log_lock. */
+#define KLOG_SIZE (512u * 1024)
+static char klog[KLOG_SIZE];
+static size_t klog_len;
+
+const char *klog_text(unsigned long *len) {
+    *len = klog_len;
+    return klog;
+}
+
 static void log_write(const char *s, size_t len) {
     serial_write(s, len);
     fbcon_write(s, len);
+    if (len > KLOG_SIZE / 2)
+        s += len - KLOG_SIZE / 2, len = KLOG_SIZE / 2;
+    if (klog_len + len > KLOG_SIZE) {
+        memmove(klog, klog + KLOG_SIZE / 2, klog_len - KLOG_SIZE / 2);
+        klog_len -= KLOG_SIZE / 2;
+    }
+    memcpy(klog + klog_len, s, len);
+    klog_len += len;
 }
 
 static spinlock_t log_lock = SPINLOCK_INIT;
@@ -175,6 +194,7 @@ void panic(const char *fmt, ...) {
         log_write(line, (size_t)l);
         fp = (uint64_t *)fp[0];
     }
+    bootscreen_failed(klog, klog_len, buf); /* on the screen, whoever had it */
     platform_test_exit(0x01); /* QEMU exit code 3 = failure */
     halt_forever();
 }

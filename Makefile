@@ -94,6 +94,7 @@ initrd: userland
 	cp $(BUILD)/userland/init $(BUILD)/initrd/sbin/init
 	cp $(BUILD)/userland/os-ai $(BUILD)/initrd/bin/os-ai
 	cp $(BUILD)/userland/os-audio $(BUILD)/initrd/bin/os-audio
+	mkdir -p $(BUILD)/initrd/usr/libexec && cp $(BUILD)/userland/os-boot $(BUILD)/initrd/usr/libexec/os-boot
 	ln -sf os-audio $(BUILD)/initrd/bin/os-play
 	ln -sf os-audio $(BUILD)/initrd/bin/os-rec
 	[ ! -f $(BUILD)/userland/os-shell ] || cp $(BUILD)/userland/os-shell $(BUILD)/initrd/bin/os-shell

@@ -175,7 +175,11 @@ static bool lazy_stub(const struct limine_file *m, char *path, size_t pn, uint64
     return k > 0 && v > 0;
 }
 
-static int medium_reader(void *ctx, uint64_t off, void *buf, size_t n) { return medium_read(ctx, off, buf, n); }
+static int medium_reader(void *ctx, uint64_t off, void *buf, size_t n) {
+    struct medium_file *f = ctx;
+    boot_step_progress("base", off + n < f->size ? off + n : f->size, f->size);
+    return medium_read(f, off, buf, n);
+}
 
 static bool unpack_from_medium(const char *path, uint64_t size) {
     struct medium_file f;
@@ -184,6 +188,14 @@ static bool unpack_from_medium(const char *path, uint64_t size) {
         return false;
     }
     return initramfs_unpack_from(medium_reader, &f, size);
+}
+
+/* "1.8 GB", "640 MB" */
+static void size_words(uint64_t bytes, char *out, size_t n) {
+    if (bytes >= (1ull << 30))
+        ksnprintf(out, n, "%lu.%lu GB", (unsigned long)(bytes >> 30), (unsigned long)((bytes >> 20) % 1024 * 10 / 1024));
+    else
+        ksnprintf(out, n, "%lu MB", (unsigned long)(bytes >> 20));
 }
 
 #define LAZY_PARTS 4
@@ -214,6 +226,10 @@ static void lazy_loader(void *arg) {
     enum { CHUNK = 4u << 20 };
     uint64_t phys = pmm_alloc(CHUNK / PAGE_SIZE);
     bool ok = o && phys;
+    uint64_t all = 0;
+    for (int i = 0; i < lf->parts; i++)
+        all += lf->size[i];
+    boot_step_start("model");
     for (int i = 0; i < lf->parts && ok; i++) {
         struct medium_file f;
         if (!medium_find(lf->path[i], lf->size[i], &f)) {
@@ -225,6 +241,7 @@ static void lazy_loader(void *arg) {
             uint64_t n = f.size - off < CHUNK ? f.size - off : CHUNK;
             ok = medium_read(&f, off, phys_to_virt(phys), n) == 0 &&
                  pageobj_write(o, phys_to_virt(phys), n, total + off) == (int64_t)n;
+            boot_step_progress("model", total + off + n, all);
         }
         total += f.size;
     }
@@ -234,8 +251,12 @@ static void lazy_loader(void *arg) {
         uint64_t ms = (time_monotonic_ns() - t0) / 1000000;
         kprintf("medium: %s read (%lu MiB in %lu ms, %lu MiB/s)\n", lf->dest, (unsigned long)(total >> 20),
                 (unsigned long)ms, (unsigned long)(ms ? (total >> 20) * 1000 / ms : 0));
+        char sz[24];
+        size_words(total, sz, sizeof sz);
+        boot_step_done("model", sz);
     } else {
         kprintf("medium: %s couldn't be read; it isn't there this time\n", lf->dest);
+        boot_step_failed("model", "couldn't be read from the disc");
         if (o)
             pageobj_put(o);
     }
@@ -307,6 +328,8 @@ static void files_from_modules(void) {
         }
         kprintf("modules: %s (%lu MiB in %d part%s, in place)\n", dest, (unsigned long)(pageobj_size(o) >> 20), parts,
                 parts == 1 ? "" : "s");
+        if (!strcmp(dest, "/usr/share/os/mind/model.gguf"))
+            boot_step_done("model", "loaded with the system");
     }
 }
 
@@ -394,6 +417,18 @@ static void json_str(char *dst, size_t n, const char *s) {
     dst[k] = 0;
 }
 
+/* `w` is a word of the kernel command line (limine.conf: cmdline) */
+static bool cmdline_word(const char *w) {
+    struct limine_executable_cmdline_response *r = cmdline_request.response;
+    if (!r || !r->cmdline)
+        return false;
+    size_t n = strlen(w);
+    for (const char *p = r->cmdline; *p; p++)
+        if ((p == r->cmdline || p[-1] == ' ') && !strncmp(p, w, n) && (p[n] == 0 || p[n] == ' '))
+            return true;
+    return false;
+}
+
 static void mind_from_cmdline(void) {
     struct limine_executable_cmdline_response *r = cmdline_request.response;
     if (!r || !r->cmdline || !r->cmdline[0])
@@ -431,6 +466,7 @@ static void mind_from_cmdline(void) {
 
 static void init_main(void *arg) {
     (void)arg;
+    bootscreen_start_animation();
     selftest_memory();
     selftest_scheduler();
     time_init();
@@ -449,16 +485,35 @@ static void init_main(void *arg) {
         return;
     }
     /* The drives first: the base system may be the kernel's to read from the medium. */
+    boot_step_start("disks");
     storage_init();
+    {
+        int d = blkdev_count(), c = optical_count();
+        char what[48];
+        char discs[16] = "";
+        if (c)
+            ksnprintf(discs, sizeof discs, ", %d disc%s", c, c == 1 ? "" : "s");
+        ksnprintf(what, sizeof what, "%d disk%s%s", d, d == 1 ? "" : "s", discs);
+        boot_step_done("disks", what);
+    }
     /* The base system first (the Freedesktop Platform and what is built on
      * it: /usr), then the OS's own files over it. */
     struct limine_file *base = find_module("base.cpio");
     char bpath[128];
     uint64_t bsize;
-    if (base && lazy_stub(base, bpath, sizeof bpath, &bsize))
-        unpack_from_medium(bpath, bsize);
-    else if (base)
+    boot_step_start("base");
+    char bsz[24] = "";
+    if (base && lazy_stub(base, bpath, sizeof bpath, &bsize)) {
+        if (unpack_from_medium(bpath, bsize))
+            size_words(bsize, bsz, sizeof bsz), boot_step_done("base", bsz);
+        else
+            boot_step_failed("base", "not on any drive the system can read");
+    } else if (base) {
         initramfs_unpack(base->address, base->size);
+        size_words(base->size, bsz, sizeof bsz), boot_step_done("base", bsz);
+    } else {
+        boot_step_done("base", "none in this image");
+    }
     initramfs_unpack(initrd->address, initrd->size);
     /* Bundled applications (/apps), kept out of the core initrd. */
     struct limine_file *apps = find_module("apps.cpio");
@@ -491,8 +546,9 @@ void kmain(void) {
     KASSERT(boot_hhdm_request.response);
     hhdm_offset = boot_hhdm_request.response->offset;
 
-    fbcon_init();
+    fbcon_init(cmdline_word("verbose"));
     kprintf("Operating System kernel starting\n");
+    boot_step_start("memory");
 
     arch_init_bsp(&bsp_cpu);
     cpus[0] = &bsp_cpu;
@@ -500,6 +556,12 @@ void kmain(void) {
     pmm_init();
     kprintf("mm: %lu MiB usable, %lu MiB free\n", pmm_total_pages() * PAGE_SIZE >> 20,
             pmm_free_pages() * PAGE_SIZE >> 20);
+    {
+        char mem[24];
+        ksnprintf(mem, sizeof mem, "%lu GB", (unsigned long)((pmm_total_pages() * PAGE_SIZE + (512ull << 20)) >> 30));
+        boot_step_done("memory", mem);
+    }
+    boot_step_start("cpu");
     /* the firmware's map, briefly: where the memory is (big usable stretches only) */
     for (uint64_t i = 0; i < boot_memmap_request.response->entry_count; i++) {
         struct limine_memmap_entry *e = boot_memmap_request.response->entries[i];
@@ -514,6 +576,11 @@ void kmain(void) {
     arch_init_interrupts(&bsp_cpu);
     sched_init_cpu();
     smp_init();
+    {
+        char cores[24];
+        ksnprintf(cores, sizeof cores, "%u core%s", cpu_count, cpu_count == 1 ? "" : "s");
+        boot_step_done("cpu", cores);
+    }
 
     KASSERT(thread_create("init", init_main, NULL));
     for (;;) /* this boot context is now CPU 0's idle thread */

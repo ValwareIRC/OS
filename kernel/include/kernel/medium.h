@@ -10,6 +10,7 @@
 /* An optical drive's reader: `count` 2048-byte blocks from `lba` into `buf` (any kernel memory). */
 typedef int (*optical_read_fn)(void *drv, uint32_t lba, uint32_t count, void *buf);
 void optical_register(const char *name, optical_read_fn read, void *drv, uint32_t blocks);
+int optical_count(void);
 
 struct medium_file {
     int drive;

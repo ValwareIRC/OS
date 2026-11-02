@@ -149,6 +149,8 @@ static bool find_on(int drive, const char *path, uint64_t size, struct medium_fi
     return ok;
 }
 
+int optical_count(void) { return ndrives; }
+
 bool medium_find(const char *path, uint64_t size, struct medium_file *f) {
     for (int i = 0; i < ndrives; i++)
         if (find_on(i, path, size, f)) {

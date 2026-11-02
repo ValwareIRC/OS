@@ -1,4 +1,5 @@
 #include <asm/io.h>
+#include <kernel/drivers.h>
 #include <kernel/arch.h>
 #include <kernel/input.h>
 #include <kernel/lib.h>
@@ -68,6 +69,10 @@ static void kbd_byte(uint8_t sc) {
     if (evdev_is_open(&input_kbd)) {
         evdev_push(&input_kbd, EV_KEY, key, release ? 0 : 1);
         evdev_sync(&input_kbd);
+        return;
+    }
+    if (key == 1 && !release && bootscreen_active()) { /* Esc: the splash or the steps */
+        bootscreen_key_esc();
         return;
     }
     if (release || was_e0 || code >= sizeof plain)

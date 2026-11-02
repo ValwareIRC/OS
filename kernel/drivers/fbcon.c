@@ -32,7 +32,14 @@ static void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t c
     }
 }
 
-void fbcon_init(void) {
+static bool enabled;
+
+void fbcon_init(bool verbose) {
+    if (!verbose) { /* the boot screen instead; the messages are kept, not shown */
+        bootscreen_init();
+        return;
+    }
+    enabled = true;
     struct limine_framebuffer_response *r = boot_fb_request.response;
     if (!r || r->framebuffer_count == 0)
         return;
@@ -75,10 +82,14 @@ static void newline(void) {
 
 static bool suspended;
 
-void fbcon_suspend(bool on) { suspended = on; }
+void fbcon_suspend(bool on) {
+    suspended = on;
+    if (on)
+        bootscreen_suspend();
+}
 
 void fbcon_write(const char *s, uint64_t len) {
-    if (!fb || suspended)
+    if (!enabled || !fb || suspended)
         return;
     for (uint64_t i = 0; i < len; i++) {
         char c = s[i];

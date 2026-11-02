@@ -143,9 +143,97 @@ bool display_set_mode(int w, int h) {
     return fb.mem != MAP_FAILED;
 }
 
+/* The first frame takes over from the boot screen (os-boot): it is asked to stop, what it showed is kept, and
+ * the desktop fades in from it. */
+#define BOOT_RUNNING "/tmp/os-boot.running"
+#define BOOT_STOP "/tmp/os-boot.stop"
+#define BOOT_STOPPED "/tmp/os-boot.stopped"
+#define BOOT_LAST "/tmp/os-boot.last"
+#define FADE_MS 500
+static uint32_t *fade_from;
+static uint64_t fade_start;
+
+static uint64_t mono_ms(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
+}
+
+static void take_over(void) {
+    uint64_t asked = mono_ms();
+    bool was_up = access(BOOT_RUNNING, F_OK) == 0;
+    int sf = open(BOOT_STOP, O_WRONLY | O_CREAT | O_TRUNC, 0666); /* always: a boot screen starting late stays away */
+    if (sf >= 0)
+        close(sf);
+    if (was_up && access(BOOT_STOPPED, F_OK) != 0) {
+        for (int i = 0; i < 60 && access(BOOT_STOPPED, F_OK) != 0; i++) { /* it stops within a frame */
+            struct timespec nap = {0, 10 * 1000000L};
+            nanosleep(&nap, NULL);
+        }
+    }
+    fade_from = malloc((size_t)fb.w * (size_t)fb.h * 4);
+    if (!fade_from)
+        return;
+    size_t want = (size_t)fb.w * (size_t)fb.h * 4;
+    int lf = open(BOOT_LAST, O_RDONLY);
+    bool got = lf >= 0 && read(lf, fade_from, want) == (ssize_t)want; /* its last frame, from memory */
+    if (lf >= 0)
+        close(lf);
+    for (int y = 0; !got && y < fb.h; y++) { /* else what the screen shows (video memory: slower to read) */
+        const uint32_t *src = (const uint32_t *)(fb.mem + (size_t)y * (size_t)fb.pitch);
+        for (int x = 0; x < fb.w; x++) {
+            uint32_t p = src[x];
+            fade_from[(size_t)y * (size_t)fb.w + (size_t)x] =
+                (p >> fb.rs & 0xff) << 16 | (p >> fb.gs & 0xff) << 8 | (p >> fb.bs & 0xff);
+        }
+    }
+    fade_start = mono_ms();
+    fprintf(stderr, "shell: display: taking over from the %s (%llu ms to stop it), fading in\n",
+            was_up ? "boot screen" : "screen as it was", (unsigned long long)(fade_start - asked));
+}
+
+/* 0xRRGGBB `t` of 256 of the way from `q` (what was there) to `p` (the frame's, same layout): red and blue in
+ * one multiply, green in another */
+static inline uint32_t fade_mix(uint32_t q, uint32_t p, uint32_t t) {
+    uint32_t rb = (((q & 0xff00ff) * (256 - t) + (p & 0xff00ff) * t) >> 8) & 0xff00ff;
+    uint32_t g = (((q & 0x00ff00) * (256 - t) + (p & 0x00ff00) * t) >> 8) & 0x00ff00;
+    return rb | g;
+}
+
 void display_present(const canvas *frame) {
     if (fb.mem == MAP_FAILED || !fb.mem)
         return;
+    static bool first = true;
+    if (first) {
+        first = false;
+        take_over();
+        /* The fade, on its own: the first frame blended in from what was there, step after step, whatever the
+         * time the desktop's first frames take to draw (seconds apart at the start). */
+        if (fade_from && frame->w == fb.w && frame->h == fb.h) {
+            bool native = fb.rs == 16 && fb.gs == 8 && fb.bs == 0;
+            int steps = 0;
+            for (uint64_t el; (el = mono_ms() - fade_start) < FADE_MS; steps++) {
+                float u = (float)el / FADE_MS, e = 1 - (1 - u) * (1 - u) * (1 - u); /* eased: settles gently */
+                uint32_t t = (uint32_t)(e * 256);
+                for (int y = 0; y < fb.h; y++) {
+                    const uint32_t *src = &frame->px[(size_t)y * (size_t)frame->w];
+                    const uint32_t *old = &fade_from[(size_t)y * (size_t)fb.w];
+                    uint32_t *dst = (uint32_t *)(fb.mem + (size_t)y * (size_t)fb.pitch);
+                    if (native)
+                        for (int x = 0; x < fb.w; x++)
+                            dst[x] = fade_mix(old[x], src[x], t);
+                    else
+                        for (int x = 0; x < fb.w; x++) {
+                            uint32_t p = fade_mix(old[x], src[x], t);
+                            dst[x] = C_R(p) << fb.rs | C_G(p) << fb.gs | C_B(p) << fb.bs;
+                        }
+                }
+            }
+            fprintf(stderr, "shell: display: faded in, %d steps in %d ms\n", steps, FADE_MS);
+        }
+        free(fade_from);
+        fade_from = NULL;
+    }
     bool native = fb.rs == 16 && fb.gs == 8 && fb.bs == 0;
     for (int y = 0; y < fb.h && y < frame->h; y++) {
         const uint32_t *src = &frame->px[(size_t)y * (size_t)frame->w];

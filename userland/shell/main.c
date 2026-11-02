@@ -53,25 +53,17 @@ void toast(const char *fmt, ...) {
     A.toast_until = A.now + 2500 + 45 * strlen(A.toast); /* long enough to read */
 }
 
+/* The start: nothing of its own to show (the boot screen, os-boot, is still up and the desktop fades in from it,
+ * sys.c), so straight on to where they are. */
 static void splash_draw(void) {
-    float t = (float)(A.now - A.screen_since) / 1000.0f;
-    ui_backdrop(RGBA(14, 11, 12, 255), RGBA(120, 46, 40, 255), RGBA(232, 131, 107, 255), RGBA(44, 18, 26, 255));
-    float fade = t < 1.2f ? t / 1.2f : 1;
-    emblem_draw(A.frame, A.W / 2.0f, A.H / 2.0f - 50, 54 * fade + 1, RGBA(232, 131, 107, 255), RGBA(255, 214, 170, 255), false);
-    font *f = font_get("Fraunces", 52), *s = font_get("Inter", 18);
-    draw_text_centered(A.frame, f, (rect){0, A.H / 2 + 50, A.W, 70}, "Operating System", color_alpha(RGBA(242, 233, 226, 255), fade));
-    draw_text_centered(A.frame, s, (rect){0, A.H / 2 + 120, A.W, 30}, "Version " OS_VERSION,
-                       color_alpha(RGBA(168, 150, 142, 255), fade));
-    if (t > 3.2f) {
-        if (A.have_design)
-            desktop_enter();
-        else if (A.cfg.provider[0] && A.cfg.model[0])
-            onboard_start();
-        else if (A.provider)
-            set_screen(SCR_CONNECT);
-        else
-            set_screen(SCR_CHOOSE);
-    }
+    if (A.have_design)
+        desktop_enter();
+    else if (A.cfg.provider[0] && A.cfg.model[0])
+        onboard_start();
+    else if (A.provider)
+        set_screen(SCR_CONNECT);
+    else
+        set_screen(SCR_CHOOSE);
 }
 
 /* A cheap fingerprint of what is kept: names, sizes and times of the files. */
@@ -220,7 +212,8 @@ void main_frame(void) {
     ui_cursor(A.frame, A.in.mx, A.in.my);
     wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
     capture_frame(true); /* ...with it, this */
-    display_present(A.frame);
+    if (A.screen != SCR_SPLASH) /* (until there is something to show, the boot screen stays) */
+        display_present(A.frame);
     wm_frame_end();
     wls_frame_done((uint32_t)A.now); /* apps draw their next frame now */
     keep_on_disk();
