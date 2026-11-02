@@ -40,7 +40,7 @@
  * WebM video in Videos/Screencasts, made by os-record (GStreamer, VP8 and
  * Opus) from the frames the shell draws, passed through shared memory. */
 
-#define SHOTS_DIR "/root/Pictures/Screenshots"
+#define SHOTS_DIR home_path("/Pictures/Screenshots")
 #define DATA_VIDEOS "/var/lib/os-data/Videos"
 #define RECORDER "/usr/libexec/os-record"
 #define NSLOT 3
@@ -278,17 +278,17 @@ static void videos_dir(char *out, size_t n) {
         if (chown(DATA_VIDEOS, SESSION_UID, SESSION_UID) < 0 ||
             chown(DATA_VIDEOS "/Screencasts", SESSION_UID, SESSION_UID) < 0) {
         }
-        if (lstat("/root/Videos", &st) != 0) {
-            if (symlink(DATA_VIDEOS, "/root/Videos") < 0) {
+        if (lstat(home_path("/Videos"), &st) != 0) {
+            if (symlink(DATA_VIDEOS, home_path("/Videos")) < 0) {
             }
         }
         snprintf(out, n, "%s/Screencasts", DATA_VIDEOS);
         return;
     }
-    mkdirs("/root/Videos/Screencasts");
-    if (chown("/root/Videos/Screencasts", SESSION_UID, SESSION_UID) < 0) {
+    mkdirs(home_path("/Videos/Screencasts"));
+    if (chown(home_path("/Videos/Screencasts"), SESSION_UID, SESSION_UID) < 0) {
     }
-    snprintf(out, n, "/root/Videos/Screencasts");
+    snprintf(out, n, home_path("/Videos/Screencasts"));
 }
 
 static void stop_recording(void);

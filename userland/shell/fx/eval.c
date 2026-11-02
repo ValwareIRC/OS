@@ -195,8 +195,8 @@ static fx_obj *need_list(fx_rt *rt, fx_val v, int line, const char *what) {
 static char *home_path(const char *p) {
     if (p[0] == '~' && (p[1] == '/' || !p[1])) {
         const char *home = getenv("HOME");
-        char *r = malloc(strlen(home ? home : "/root") + strlen(p) + 1);
-        sprintf(r, "%s%s", home ? home : "/root", p + 1);
+        char *r = malloc(strlen(home ? home : "/home/user") + strlen(p) + 1);
+        sprintf(r, "%s%s", home ? home : "/home/user", p + 1);
         return r;
     }
     return strdup(p);

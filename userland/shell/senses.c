@@ -945,7 +945,7 @@ bool senses_look(const char *what, char *out, size_t n) {
     if (!strcasecmp(word, "files") || !strcasecmp(word, "folder") || !strcasecmp(word, "file")) {
         NEED(SENSE_FILES);
         char path[400];
-        snprintf(path, sizeof path, "%s", *arg ? arg : "/root");
+        snprintf(path, sizeof path, "%s", *arg ? arg : home_dir());
         if (path[0] == '~')
             snprintf(path, sizeof path, "/root%s", arg + 1);
         struct stat st;

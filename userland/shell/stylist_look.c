@@ -31,7 +31,7 @@ void stylist_placeholder_view(const char *app, rect r) {
                                         "recipes.txt", "notes.txt"};
     static const char *const info[] = {"folder", "folder", "folder", "folder", "2 KB", "5 KB", "1 KB"};
     int rowh = (int)(px * 2.5f), y = r.y + 6;
-    draw_text(A.frame, small, r.x + 4, y, "/root", d->muted);
+    draw_text(A.frame, small, r.x + 4, y, home_dir(), d->muted);
     y += (int)(px * 2);
     for (int i = 0; i < 7 && y + rowh <= r.y + r.h; i++, y += rowh) {
         bool dir = i < 4;

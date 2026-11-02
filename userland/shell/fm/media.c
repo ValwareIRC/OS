@@ -62,7 +62,7 @@ static const char *resolve(const char *src, char *buf, size_t n) {
     if (src[0] == '/')
         return src;
     if (src[0] == '~' && src[1] == '/') {
-        snprintf(buf, n, "%s/%s", getenv("HOME") ? getenv("HOME") : "/root", src + 2);
+        snprintf(buf, n, "%s/%s", getenv("HOME") ? getenv("HOME") : home_dir(), src + 2);
         return buf;
     }
     snprintf(buf, n, "/usr/share/os/pictures/%s", src); /* pictures that come with the system */

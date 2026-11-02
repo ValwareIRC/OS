@@ -931,7 +931,7 @@ int fxwin_list(char names[][64], char paths[][300], int max) {
     int n = 0;
     for (int pass = 0; pass < 2; pass++) { /* the system's apps, then theirs */
     char dir[300];
-    snprintf(dir, sizeof dir, "%s", pass ? HOME_DIR "/Apps" : "/usr/share/os/apps");
+    snprintf(dir, sizeof dir, "%s", pass ? home_path("/Apps") : "/usr/share/os/apps");
     DIR *d = opendir(dir);
     struct dirent *e;
     while (d && (e = readdir(d)) && n < max) {

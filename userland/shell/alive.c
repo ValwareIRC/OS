@@ -359,7 +359,7 @@ const char *alive_prompt(void) {
              "[[set:volume 40]] [[set:dark on]] [[set:voice off]] [[set:text larger]] [[set:contrast on]] "
              "[[set:motion less]] [[set:quiet on]] [[set:lights-follow on]] [[set:lights-show on]] [[set:sense "
              "hardware off]] [[set:reflex jev|llm|rules]] (how your reflexes decide what is worth your attention).\n"
-             "[[notify:Title|text]] a notification. [[open:/root/notes.txt]] or [[open:/root/Documents]] opens a "
+             "[[notify:Title|text]] a notification. [[open:~/notes.txt]] or [[open:~/Documents]] opens a "
              "file or folder in its app; [[open:senses]] shows them everything you can sense, with a switch for each.\n"
              "[[look:processes|hardware|lights|windows|network|notifications|actions]] a reading of yourself.\n"
              "[[write:~/path/name.ext]]the file's whole text[[/write]] a file in their home (a replaced one can be "

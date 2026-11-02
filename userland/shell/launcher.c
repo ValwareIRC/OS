@@ -320,7 +320,7 @@ static void scan_desktop_entries(void) {
     ndents = 0;
     scan_dir_entries("/usr/share/applications");
     scan_dir_entries("/usr/local/share/applications");
-    scan_dir_entries(HOME_DIR "/.local/share/applications");
+    scan_dir_entries(home_path("/.local/share/applications"));
     DIR *d = opendir("/apps"); /* bundled apps may bring their own */
     struct dirent *e;
     while (d && (e = readdir(d)))
@@ -1087,7 +1087,7 @@ static void search(const char *q_in) {
         for (int i = 0; i < nr && NR < 8; i++) {
             const struct recent *r = &rec[i];
             if (r->kind == 'f') { /* their own things only: not system programs looked at for them */
-                if (access(r->target, F_OK) || strncmp(r->target, HOME_DIR "/", strlen(HOME_DIR) + 1))
+                if (access(r->target, F_OK) || strncmp(r->target, home_path("/"), strlen(HOME_DIR) + 1))
                     continue;
                 pretty_dir(r->target, sub, sizeof sub);
             } else if (r->kind == 'a') {

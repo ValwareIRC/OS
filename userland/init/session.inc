@@ -18,6 +18,96 @@
 
 static pid_t priv_helper = -1;
 
+/* home.c (linked in) */
+const char *home_dir(void);
+const char *account_name(void);
+void home_forget(void);
+
+/* "Valerie Liu" for /etc/passwd, kept beside the account's name (/etc/os/account, line 2) */
+static void account_full_name(char *out, size_t n) {
+    snprintf(out, n, "%s", account_name());
+    FILE *f = fopen("/etc/os/account", "r");
+    char l[128];
+    if (f && fgets(l, sizeof l, f) && fgets(l, sizeof l, f)) {
+        l[strcspn(l, "\r\n:")] = 0;
+        if (l[0])
+            snprintf(out, n, "%s", l);
+    }
+    if (f)
+        fclose(f);
+}
+
+/* /etc/passwd's or /etc/group's line for uid 1000 made theirs */
+static void account_line(const char *file, const char *line) {
+    char tmp[64], buf[4096] = "", l[512];
+    snprintf(tmp, sizeof tmp, "%s.new", file);
+    FILE *in = fopen(file, "r");
+    size_t len = 0;
+    bool put = false;
+    while (in && fgets(l, sizeof l, in)) {
+        char *c1 = strchr(l, ':'), *c2 = c1 ? strchr(c1 + 1, ':') : NULL;
+        bool ours = c2 && !strncmp(c2 + 1, "1000:", 5);
+        const char *w = ours ? line : l;
+        if (ours)
+            put = true;
+        len += (size_t)snprintf(buf + len, sizeof buf - len, "%s%s", w, ours ? "\n" : "");
+        if (len >= sizeof buf)
+            break;
+    }
+    if (in)
+        fclose(in);
+    if (!put)
+        snprintf(buf + len, sizeof buf - len, "%s\n", line);
+    FILE *out = fopen(tmp, "w");
+    if (out) {
+        fputs(buf, out);
+        fclose(out);
+        chmod(tmp, 0644);
+        rename(tmp, file);
+    }
+}
+
+/* Their account: named after them (/etc/os/account, written by the desktop once it knows their name), its home
+ * /home/<name> (a home under another name, from before, takes the new one), in /etc/passwd and /etc/group
+ * (what a terminal and every program see), the computer called after it. */
+static void account_setup(void) {
+    home_forget();
+    const char *name = account_name(), *home = home_dir();
+    mkdir("/home", 0755);
+    struct stat st;
+    if (stat(home, &st) != 0) {
+        DIR *d = opendir("/home");
+        struct dirent *e;
+        char old[300] = "";
+        while (d && (e = readdir(d)))
+            if (e->d_name[0] != '.' && snprintf(old, sizeof old, "/home/%s", e->d_name) > 0)
+                break;
+        if (d)
+            closedir(d);
+        if (!old[0] || rename(old, home) != 0)
+            mkdir(home, 0700);
+        else
+            printf("init: their home is now %s (it was %s)\n", home, old);
+    }
+    char full[96], line[300];
+    account_full_name(full, sizeof full);
+    snprintf(line, sizeof line, "%s:x:1000:1000:%s:%s:/bin/bash", name, full, home);
+    account_line("/etc/passwd", line);
+    snprintf(line, sizeof line, "%s:x:1000:", name);
+    account_line("/etc/group", line);
+    char host[64];
+    snprintf(host, sizeof host, "%s-pc", name);
+    if (sethostname(host, strlen(host)) == 0) {
+        FILE *f = fopen("/etc/hostname", "w");
+        if (f) {
+            fprintf(f, "%s\n", host);
+            fclose(f);
+        }
+    }
+    setenv("HOME", home, 1);
+    printf("init: the account is %s (%s), at %s\n", name, full, home);
+}
+
 static bool app_id_valid(const char *id) {
     int n = 0, dots = 0;
     for (const char *p = id; *p; p++, n++) {
@@ -70,9 +160,8 @@ static void prepare_session(void) {
     mkdir("/etc/os", 0700);
     give_tree("/etc/os", 0);
     chmod("/etc/os", 0700);
-    mkdir("/root", 0700);
-    give_tree("/root", 0);
-    chmod("/root", 0700);
+    give_tree(home_dir(), 0);
+    chmod(home_dir(), 0700);
     /* their models and recordings (on the disk when there is one): the folders always theirs, what was in them
      * given once (then everything new in them is made by them) */
     mkdir("/var/lib/os-data", 0755);
@@ -227,6 +316,7 @@ static pid_t spawn_gui(void) {
     if (access("/bin/os-shell", X_OK) != 0)
         return -1;
     restore_once();
+    account_setup();
     prepare_session();
     int sv[2] = {-1, -1};
     if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)
@@ -252,9 +342,9 @@ static pid_t spawn_gui(void) {
             setenv("OS_PRIV_FD", f, 1);
         }
         setenv("OS_STORE", store_available() ? "1" : "0", 1);
-        setenv("HOME", "/root", 1);
-        setenv("USER", "user", 1);
-        setenv("LOGNAME", "user", 1);
+        setenv("HOME", home_dir(), 1);
+        setenv("USER", account_name(), 1);
+        setenv("LOGNAME", account_name(), 1);
         if (setgroups(0, NULL) < 0 || setgid(SESSION_UID) < 0 || setuid(SESSION_UID) < 0)
             _exit(126); /* never as root */
         char *argv[] = {"/bin/os-shell", NULL};

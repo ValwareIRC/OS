@@ -42,7 +42,7 @@ struct header {
 };
 
 static const char *dev_path = "/dev/sda";
-static const char *const default_roots[] = {"/etc/os", "/root", NULL};
+static const char *const default_roots[] = {"/etc/os", "/home", NULL}; /* their state, and their home */
 static const char *const *roots = default_roots;
 
 void store_set_roots(const char *const *r) { roots = r; }
@@ -138,7 +138,7 @@ static void walk(struct out *o, const char *path) {
         return;
     if (for_this_boot(path))
         return;
-    if (skip_app_data && !strcmp(path, "/root/.var"))
+    if (skip_app_data && !strcmp(path, home_path("/.var")))
         return;
     /* the host's mind for this boot is not theirs to keep (see store_restore) */
     if (!strcmp(path, MIND_PATH) && access(MIND_HOST, F_OK) == 0)
@@ -290,6 +290,12 @@ int store_restore(void) {
             snprintf(moved, sizeof moved, "/etc/os%s", path + sizeof old_dir - 1);
             snprintf(path, sizeof path, "%s", moved);
         }
+        /* Kept before their home moved to /home/<name>: /root's things come back in it. */
+        if (!strncmp(path, "/root", 5) && (path[5] == '/' || !path[5])) {
+            char moved[1024];
+            snprintf(moved, sizeof moved, "%s%s", home_dir(), path + 5);
+            snprintf(path, sizeof path, "%s", moved);
+        }
         /* only ever into the places it was taken from */
         bool allowed = false;
         for (int i = 0; roots[i]; i++)
@@ -317,7 +323,7 @@ int store_restore(void) {
             }
             /* whose it is: the person's home is theirs, the system's state is root's (whatever the disk says,
              * no file comes back owned by anyone else) */
-            bool home = !strncmp(path, "/root", 5) && (path[5] == '/' || !path[5]);
+            bool home = !strncmp(path, "/home/", 6); /* everything under /home is the person's */
             uint32_t want = home ? SESSION_UID : 0;
             (void)uid, (void)gid;
             if (lchown(path, want, want) == 0 && kind == 1)

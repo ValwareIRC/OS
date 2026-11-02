@@ -417,7 +417,6 @@ bool actions_undo(void) {
 
 /* ---- writing a file in their home ---- */
 
-#define HOME_DIR "/root"
 #define WRITE_MAX (512 * 1024)
 
 /* Where it may go: inside their home, nothing hidden on the way (no .bashrc, .config/autostart...), no "..".
@@ -426,11 +425,11 @@ static const char *write_path(const char *given, char *out, size_t n) {
     while (*given == ' ')
         given++;
     if (!strncmp(given, "~/", 2))
-        snprintf(out, n, HOME_DIR "/%s", given + 2);
-    else if (!strncmp(given, HOME_DIR "/", strlen(HOME_DIR) + 1))
+        snprintf(out, n, "%s/%s", home_dir(), given + 2);
+    else if (!strncmp(given, home_path("/"), strlen(home_dir()) + 1))
         snprintf(out, n, "%s", given);
     else if (given[0] != '/' && given[0])
-        snprintf(out, n, HOME_DIR "/%s", given);
+        snprintf(out, n, "%s/%s", home_dir(), given);
     else
         return "only files in their home folder (~/...)";
     char *e = out + strlen(out);
@@ -438,7 +437,7 @@ static const char *write_path(const char *given, char *out, size_t n) {
         *--e = 0;
     if (strstr(out, "..") || strstr(out, "//"))
         return "no .. in the path";
-    for (const char *p = out + strlen(HOME_DIR); *p; p++)
+    for (const char *p = out + strlen(home_dir()); *p; p++)
         if (*p == '/' && p[1] == '.')
             return "not a hidden file or folder";
     if (out[strlen(out) - 1] == '/')
@@ -449,7 +448,7 @@ static const char *write_path(const char *given, char *out, size_t n) {
 static bool make_parents(const char *path) {
     char d[700];
     snprintf(d, sizeof d, "%s", path);
-    for (char *p = d + strlen(HOME_DIR) + 1; (p = strchr(p, '/')); p++) {
+    for (char *p = d + strlen(home_dir()) + 1; (p = strchr(p, '/')); p++) {
         *p = 0;
         if (mkdir(d, 0755) != 0 && errno != EEXIST)
             return false;
@@ -517,11 +516,11 @@ static const char *write_file(const char *given, const char *text, size_t len) {
     push_undo(U_FILE, path, was ? 1 : 0);
     actions_log("%s %s (%zu bytes)", was ? "replaced" : "wrote", path, len);
     LOG("write: %s %s (%zu bytes)\n", was ? "replaced" : "wrote", path, len);
-    snprintf(said, sizeof said, "%s ~%s (%zu bytes)%s", was ? "replaced" : "wrote", path + strlen(HOME_DIR), len,
+    snprintf(said, sizeof said, "%s ~%s (%zu bytes)%s", was ? "replaced" : "wrote", path + strlen(home_dir()), len,
              was ? "; [[undo]] brings the old one back" : "");
     if (was)
         toast("%s replaced %s (it can be undone).", D.ai_name[0] ? D.ai_name : "Your companion",
-              path + strlen(HOME_DIR) + 1);
+              path + strlen(home_dir()) + 1);
     return said;
 }
 
@@ -558,7 +557,7 @@ static void run_child(void *arg, char **result) {
             dup2(nul, 0);
         for (int i = 3; i < 256; i++)
             close(i);
-        chdir("/root");
+        chdir(home_dir());
         execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
@@ -951,7 +950,7 @@ bool actions_take(struct conversation *c, bool *from_person) {
             alive_panel_open(true);
         else {
             char path[700];
-            snprintf(path, sizeof path, "%s%s", arg[0] == '~' ? "/root" : "", arg[0] == '~' ? arg + 1 : arg);
+            snprintf(path, sizeof path, "%s%s", arg[0] == '~' ? home_dir() : "", arg[0] == '~' ? arg + 1 : arg);
             desktop_open_path(path);
         }
         acted = true;

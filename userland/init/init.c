@@ -2145,6 +2145,8 @@ static void piper_mode(void) {
 
 /* The person's session runs as an ordinary user (apps such as Chromium refuse
  * to sandbox themselves as root); only the system parts stay root. */
+/* their home, /home/<their account> (shell/home.c, linked in) */
+const char *home_dir(void);
 #define SESSION_UID 1000
 #define SESSION_RUNTIME "/run/user/1000"
 #define SESSION_BUS "unix:path=" SESSION_RUNTIME "/bus"
@@ -2190,7 +2192,7 @@ static pid_t spawn_bus(const char *kind) {
             /* the session's bus is the person's: it and what it starts (portals) run as them */
             if (setgroups(0, NULL) < 0 || setgid(SESSION_UID) < 0 || setuid(SESSION_UID) < 0)
                 _exit(126);
-            setenv("HOME", "/root", 1); /* the person's files (see the shell's become_session_user) */
+            setenv("HOME", home_dir(), 1); /* the person's files (session.inc: account_setup) */
             char *argv[] = {"/usr/bin/dbus-daemon", "--session", "--nofork", "--nopidfile", "--nosyslog",
                             "--address=" SESSION_BUS, NULL};
             execv(argv[0], argv);
@@ -2220,7 +2222,7 @@ static pid_t spawn_sound(void) {
     if (pid == 0) {
         if (setgroups(0, NULL) < 0 || setgid(SESSION_UID) < 0 || setuid(SESSION_UID) < 0)
             _exit(126);
-        setenv("HOME", "/root", 1);
+        setenv("HOME", home_dir(), 1);
         char *argv[] = {"/usr/bin/pulseaudio", "-n", "-F", "/usr/share/os/pulse.pa", "--daemonize=no",
                         "--exit-idle-time=-1", "--log-target=stderr", "--log-level=error", NULL};
         execv(argv[0], argv);
@@ -2441,6 +2443,7 @@ int main(void) {
     setsid();
     boot_step("state", "active");
     restore_once(); /* their things first: the boot screen goes on in their design */
+    account_setup(); /* and their account, named after them, its home /home/<name> */
     boot_step("state", "done");
     start_boot_screen();
     boot_step("apps", "active");

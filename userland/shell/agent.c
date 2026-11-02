@@ -36,8 +36,8 @@
 #include <unistd.h>
 
 #define D (A.d)
-#define HOME "/root"
-#define TRASH HOME "/.trash"
+#define HOME home_dir()
+#define TRASH home_path("/.trash")
 #define AGENDA STATE_DIR "/agenda"
 #define MAX_STEPS 40
 
@@ -121,8 +121,8 @@ const char *body_prompt(void) {
            "order. Say little while you work (a few words at most, or nothing); say what came of it at the end. "
            "Everything you change is journaled and [[undo]] takes your last change back; deleting goes to a trash. "
            "Only what can't be undone at all (wiping a disk, a factory reset) waits for their yes, by itself.\n"
-           "  [[sh: command]] or [[sh]]a script, many lines[[/sh]]: a shell (busybox, as root, in " HOME
-           "), up to 5 minutes; you get the exit code and output.\n"
+           "  [[sh: command]] or [[sh]]a script, many lines[[/sh]]: a shell (busybox, as them, starting in their home folder ~), up to 5 minutes; you get the exit "
+           "code and output.\n"
            "  [[ls: path]] a folder, newest first with sizes and dates. [[cat: path]] or [[cat: path 120-260]] a "
            "text file (or those lines). [[find: *.png in ~/Downloads]] names. [[grep: words in ~/Documents]] text "
            "inside files.\n"
@@ -373,9 +373,9 @@ static void expand(const char *in, char *out, size_t n) {
     while (*in == ' ')
         in++;
     if (in[0] == '~' && (in[1] == '/' || !in[1]))
-        snprintf(out, n, HOME "%s", in + 1);
+        snprintf(out, n, "%s%s", home_dir(), in + 1);
     else if (in[0] != '/')
-        snprintf(out, n, HOME "/%s", in);
+        snprintf(out, n, "%s/%s", home_dir(), in);
     else
         snprintf(out, n, "%s", in);
     size_t l = strlen(out);
@@ -656,7 +656,8 @@ static void child_tools(void *unused, char **result) {
                 shell_child(cmd, 20, &out);
             }
         } else if (!strcmp(k, "find")) {
-            char pat[200] = "", dir[600] = HOME;
+            char pat[200] = "", dir[600];
+            snprintf(dir, sizeof dir, "%s", HOME);
             const char *in = strstr(a, " in ");
             snprintf(pat, sizeof pat, "%.*s", in ? (int)(in - a) : (int)strlen(a), a);
             for (char *e = pat + strlen(pat); e > pat && e[-1] == ' ';)
@@ -675,7 +676,8 @@ static void child_tools(void *unused, char **result) {
             else if (found >= 200)
                 sb_add(&out, "(stopped at 200)\n");
         } else if (!strcmp(k, "grep")) {
-            char words[200] = "", dir[600] = HOME;
+            char words[200] = "", dir[600];
+            snprintf(dir, sizeof dir, "%s", HOME);
             const char *in = strstr(a, " in ");
             snprintf(words, sizeof words, "%.*s", in ? (int)(in - a) : (int)strlen(a), a);
             if (in)
@@ -705,7 +707,7 @@ static void child_tools(void *unused, char **result) {
                 const char *slash = strrchr(u, '/');
                 char name[160];
                 snprintf(name, sizeof name, "%.*s", (int)strcspn(slash ? slash + 1 : "download", "?#"), slash ? slash + 1 : "download");
-                snprintf(path, sizeof path, HOME "/Downloads/%s", name[0] ? name : "download");
+                snprintf(path, sizeof path, "%s/Downloads/%s", home_dir(), name[0] ? name : "download");
             }
             parents(path);
             if (web_download(u, path, 100u << 20)) {
@@ -1198,7 +1200,7 @@ static bool agent_take_now(struct conversation *c, bool from_person) {
             else {
                 mkdir(TRASH, 0700);
                 const char *base = strrchr(x, '/');
-                snprintf(y, sizeof y, TRASH "/%ld-%s", (long)time(NULL), base ? base + 1 : x);
+                snprintf(y, sizeof y, "%s/%ld-%s", TRASH, (long)time(NULL), base ? base + 1 : x);
                 bool ok = move_path(x, y);
                 if (ok) {
                     remember('m', x, y);

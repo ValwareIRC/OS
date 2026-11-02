@@ -528,15 +528,16 @@ void portal_draw(void) {
     }
 
     /* places */
-    static const struct {
-        const char *label, *path;
+    static struct {
+        const char *label, *rel; /* in their home; NULL: the computer's root */
         int glyph;
-    } places[] = {{"Home", HOME_DIR, G_HOME},
-                  {"Documents", HOME_DIR "/Documents", G_DOC},
-                  {"Downloads", HOME_DIR "/Downloads", G_DOWNLOAD},
-                  {"Pictures", HOME_DIR "/Pictures", G_PICTURE},
-                  {"Music", HOME_DIR "/Music", G_MUSIC},
-                  {"Computer", "/", G_DESKTOP}};
+        char path[512];
+    } places[] = {{"Home", "", G_HOME, ""},          {"Documents", "/Documents", G_DOC, ""},
+                  {"Downloads", "/Downloads", G_DOWNLOAD, ""}, {"Pictures", "/Pictures", G_PICTURE, ""},
+                  {"Music", "/Music", G_MUSIC, ""},  {"Computer", NULL, G_DESKTOP, ""}};
+    for (size_t i = 0; i < sizeof places / sizeof places[0]; i++)
+        snprintf(places[i].path, sizeof places[i].path, "%s%s", places[i].rel ? home_dir() : "/",
+                 places[i].rel ? places[i].rel : "");
     int side = 170, top = r.y + 76, bottom = r.y + r.h - (save ? 128 : 76);
     for (size_t i = 0; i < sizeof places / sizeof places[0]; i++) {
         rect pr = {r.x + 14, top + (int)i * 40, side - 14, 36};

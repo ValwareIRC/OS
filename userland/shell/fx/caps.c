@@ -514,7 +514,7 @@ static const char *home_of(const fx_grants *g) {
     if (g && g->home[0])
         return g->home;
     const char *h = getenv("HOME");
-    return h && *h ? h : "/root";
+    return h && *h ? h : "/home/user";
 }
 
 /* the real path: absolute, "." and ".." gone, links followed as far as what exists; false if it can't be one */

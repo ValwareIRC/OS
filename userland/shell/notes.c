@@ -13,12 +13,12 @@
 
 /* Notes, a small plain-text editor: soft word wrap, a caret and a selection
  * (mouse, Shift+arrows, double click for a word, triple for a paragraph),
- * the clipboard, undo and redo, and quiet saving to /root/Documents under
+ * the clipboard, undo and redo, and quiet saving to ~/Documents under
  * the note's title. Everything is UTF-8 and kept as plain text. */
 
-#define DOCS "/root/Documents"
+#define DOCS home_path("/Documents")
 #define LAST STATE_DIR "/notes-last" /* the note that was open, for next time */
-#define LEGACY "/root/notes.txt"     /* where notes lived before they had titles */
+#define LEGACY home_path("/notes.txt")     /* where notes lived before they had titles */
 #define CAP (256 * 1024)             /* the longest file edited whole */
 #define UNDO 64
 #define TABW 4
@@ -361,7 +361,8 @@ static void sanitize(char *out, size_t n, const char *in) {
 /* Where a note with this title lives: beside the file it came from, or in
  * Documents. Never over another file. */
 static void path_for(char *out, size_t n, const char *title) {
-    char dir[512] = DOCS, ext[16] = ".txt";
+    char dir[512], ext[16] = ".txt";
+    snprintf(dir, sizeof dir, "%s", DOCS);
     if (N.path[0]) {
         snprintf(dir, sizeof dir, "%s", N.path);
         char *slash = strrchr(dir, '/');
@@ -827,7 +828,7 @@ void notes_draw(rect r) {
     else
         status[0] = 0;
     const char *shown = N.path;
-    if (!strncmp(shown, "/root/", 6))
+    if (!strncmp(shown, home_path("/"), 6))
         shown += 6;
     snprintf(where, sizeof where, "%s%s%s", words, shown[0] ? "  \xc2\xb7  " : "", shown);
     draw_text(A.frame, small, foot.x, foot.y, where, muted);

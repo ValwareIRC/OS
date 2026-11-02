@@ -846,7 +846,7 @@ const char *presence_prompt(void) {
              "globals state (\"idle\", \"thinking\", \"listening\", \"speaking\", \"working\", \"done\", \"error\"), "
              "level (your voice, 0..1), accent and accent2 (the design's colours) are yours to show however suits the "
              "look: nothing is added around it. "
-             "[[emblem:picture https://...]] or [[emblem:picture /root/Pictures/x.jpg]] for a picture they give you; "
+             "[[emblem:picture https://...]] or [[emblem:picture ~/Pictures/x.jpg]] for a picture they give you; "
              "[[emblem:find steam train]] to search pictures online and let them pick one; "
              "[[emblem:model https://.../thing.glb]] for a 3D model or a VRM avatar (a VRM becomes your face); "
              "[[emblem:face]] for an anime figure; [[emblem:none]] to show nothing. "

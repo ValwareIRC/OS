@@ -1519,7 +1519,7 @@ static void scan_facet_dir(const char *dir) {
 
 static void scan_facet_apps(void) {
     scan_facet_dir("/usr/share/os/apps");
-    scan_facet_dir(HOME_DIR "/Apps");
+    scan_facet_dir(home_path("/Apps"));
 }
 
 static void scan_facet_apps(void);

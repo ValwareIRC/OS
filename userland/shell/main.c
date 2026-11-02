@@ -66,6 +66,43 @@ static void splash_draw(void) {
         set_screen(SCR_CHOOSE);
 }
 
+/* Their account is named after them: once the name they gave is known, it is kept (/etc/os/account: the
+ * account's name, then their full name) for init, which names the account and its home after it at the next
+ * start. "Valerie Liu" -> valerie. */
+static void keep_account_name(void) {
+    static uint64_t at;
+    if (A.now - at < 5000)
+        return;
+    at = A.now;
+    const char *full = A.d.user_name[0] ? A.d.user_name : A.prof.user_name;
+    char name[32] = "";
+    size_t k = 0;
+    for (const char *p = full; *p && *p != ' ' && k + 1 < sizeof name; p++) {
+        char c = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : *p;
+        if ((c >= 'a' && c <= 'z') || (k && ((c >= '0' && c <= '9') || c == '-' || c == '_')))
+            name[k++] = c;
+    }
+    name[k] = 0;
+    if (!account_name_ok(name))
+        return;
+    char want[160], have[160] = "";
+    snprintf(want, sizeof want, "%s\n%s\n", name, full);
+    FILE *f = fopen(STATE_DIR "/account", "r");
+    if (f) {
+        size_t n = fread(have, 1, sizeof have - 1, f);
+        have[n] = 0;
+        fclose(f);
+    }
+    if (!strcmp(want, have))
+        return;
+    f = fopen(STATE_DIR "/account", "w");
+    if (f) {
+        fputs(want, f);
+        fclose(f);
+        LOG("account: %s (%s), from the next start\n", name, full);
+    }
+}
+
 /* A cheap fingerprint of what is kept: names, sizes and times of the files. */
 static uint64_t tree_sig(const char *path, uint64_t h) {
     struct stat st;
@@ -120,7 +157,7 @@ static void keep_home_theirs(void) {
     if (A.now - at < 4000)
         return;
     at = A.now;
-    own_home("/root", 0);
+    own_home(home_dir(), 0);
 }
 
 static void save_child(void *arg, char **result) {
@@ -156,7 +193,7 @@ static void keep_on_disk(void) {
         usable = false;
         return;
     }
-    uint64_t sig = tree_sig("/root", tree_sig(STATE_DIR, 1469598103934665603ull));
+    uint64_t sig = tree_sig(home_dir(), tree_sig(STATE_DIR, 1469598103934665603ull));
     if (!primed) {
         primed = true;
         saved_sig = sig;
@@ -218,6 +255,7 @@ void main_frame(void) {
     wls_frame_done((uint32_t)A.now); /* apps draw their next frame now */
     keep_on_disk();
     keep_home_theirs();
+    keep_account_name();
 
     /* Sleep until input arrives, an app has something to say, or the
      * next animation frame (~30 fps). */
@@ -311,10 +349,10 @@ int main(void) {
             LOG("shell: no key for the local model servers\n");
         }
     }
-    if (getuid() == 0 && (chown("/root", SESSION_UID, SESSION_UID) < 0 || chmod("/root", 0700) < 0))
+    if (getuid() == 0 && (chown(home_dir(), SESSION_UID, SESSION_UID) < 0 || chmod(home_dir(), 0700) < 0))
         LOG("shell: the home couldn't be given to the person\n"); /* (as the person, init has given it) */
     /* A home with somewhere to put things. */
-    static const char *const home[] = {"/root/Documents", "/root/Music", "/root/Pictures", "/root/Projects", NULL};
+    const char *const home[] = {home_path("/Documents"), home_path("/Music"), home_path("/Pictures"), home_path("/Projects"), NULL};
     for (int i = 0; home[i]; i++)
         mkdir(home[i], 0755);
     /* Linux desktop apps find the compositor through these (and so do the
@@ -393,7 +431,7 @@ int main(void) {
         convo_load(&A.companion, STATE_DIR "/companion.txt");
         A.returning = true;
     }
-    FILE *nf = fopen("/root/notes.txt", "r");
+    FILE *nf = fopen(home_path("/notes.txt"), "r");
     if (nf) {
         A.notes.len = (int)fread(A.notes.buf, 1, sizeof A.notes.buf - 1, nf);
         A.notes.buf[A.notes.len] = 0;

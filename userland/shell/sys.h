@@ -1,4 +1,13 @@
 #pragma once
+/* The person's home, /home/<their account> ($HOME, set by init), and paths in it: home_path("/Documents").
+ * home_path's result lives in one of eight buffers used in turn (enough for any one expression). */
+const char *home_dir(void);
+const char *home_path(const char *rest);
+/* their account's name ("valerie"; "user" until they have told it), and whether a string can be one (home.c) */
+const char *account_name(void);
+#include <stdbool.h>
+bool account_name_ok(const char *s);
+void home_forget(void); /* (init: the account's name may have come back with their state) */
 #include <stdbool.h>
 #include "gfx.h"
 

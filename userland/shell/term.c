@@ -466,9 +466,9 @@ static bool spawn(void) {
             close(i);
         signal(SIGCHLD, SIG_DFL);
         signal(SIGPIPE, SIG_DFL);
-        chdir("/root");
+        chdir(home_dir());
         setenv("TERM", "xterm-256color", 1);
-        setenv("HOME", "/root", 1);
+        setenv("HOME", home_dir(), 1);
         /* who and where, as every terminal shows it: valerie@computer:~/Documents$ */
         setenv("PS1", "\\[\\e[38;5;117m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[38;5;153m\\]\\w\\[\\e[0m\\]\\$ ", 1);
         setenv("PATH", "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", 1);

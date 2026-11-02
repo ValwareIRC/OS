@@ -300,7 +300,7 @@ static bool trash_put(const char *path, char *trashed, size_t tn) {
     join(dst, sizeof dst, TRASH_FILES, name);
     if (move_path(path, dst) < 0)
         return false;
-    snprintf(info, sizeof info, TRASH_INFO "/%s.trashinfo", name);
+    snprintf(info, sizeof info, "%s/%s.trashinfo", TRASH_INFO, name);
     FILE *f = fopen(info, "w");
     if (f) {
         fprintf(f, "[Trash Info]\nPath=%s\nDeletionDate=%lld\n", path, (long long)time(NULL));
@@ -314,7 +314,7 @@ static bool trash_put(const char *path, char *trashed, size_t tn) {
 
 static bool trash_origin(const char *name, char *out, size_t n) {
     char info[PATHN], line[PATHN + 16];
-    snprintf(info, sizeof info, TRASH_INFO "/%s.trashinfo", name);
+    snprintf(info, sizeof info, "%s/%s.trashinfo", TRASH_INFO, name);
     FILE *f = fopen(info, "r");
     out[0] = 0;
     if (!f)
@@ -352,7 +352,7 @@ static bool trash_restore(const char *name, char *restored, size_t rn) {
     join(dst, sizeof dst, dir, fresh);
     if (move_path(src, dst) < 0)
         return false;
-    snprintf(info, sizeof info, TRASH_INFO "/%s.trashinfo", name);
+    snprintf(info, sizeof info, "%s/%s.trashinfo", TRASH_INFO, name);
     unlink(info);
     if (restored)
         snprintf(restored, rn, "%s", dst);
@@ -385,7 +385,7 @@ void files_setup(void) {
     if (done)
         return;
     done = true;
-    static const char *const dirs[] = {HOME_DIR "/Documents", HOME_DIR "/Downloads", HOME_DIR "/Pictures",
+    const char *const dirs[] = {home_path("/Documents"), home_path("/Downloads"), home_path("/Pictures"),
                                        TRASH_DIR, TRASH_FILES, TRASH_INFO, NULL};
     for (int i = 0; dirs[i]; i++)
         mkdir(dirs[i], dirs[i][strlen(HOME_DIR) + 1] == '.' ? 0700 : 0755);
@@ -1123,7 +1123,7 @@ void files_open_path(const char *path) {
     int k = file_kind(path, false);
     const char *name = base_name(path);
     LOG("files: open %s (%s)\n", path, file_kind_name(k));
-    if (!strncmp(path, HOME_DIR "/", strlen(HOME_DIR) + 1) && !strstr(path, "/."))
+    if (!strncmp(path, home_path("/"), strlen(HOME_DIR) + 1) && !strstr(path, "/."))
         recent_add('f', name, path);
     if (k == FK_IMAGE && image_name_ok(name)) {
         char dir[PATHN];
@@ -1239,7 +1239,7 @@ static void op_erase(void) {
             continue;
         char p[PATHN], info[PATHN];
         ent_path(i, p, sizeof p);
-        snprintf(info, sizeof info, TRASH_INFO "/%s.trashinfo", F.e[i].name);
+        snprintf(info, sizeof info, "%s/%s.trashinfo", TRASH_INFO, F.e[i].name);
         if (rm_rf(p) == 0)
             n++;
         unlink(info);
@@ -1778,17 +1778,17 @@ static void flush_rects(void) {
 /* ---- the sidebar ---- */
 
 static const struct {
-    const char *label, *path;
+    const char *label, *rel; /* where in their home */
     int glyph;
     bool optional;
 } places[] = {
-    {"Home", HOME_DIR, G_HOME, false},
-    {"Documents", HOME_DIR "/Documents", G_DOC, false},
-    {"Downloads", HOME_DIR "/Downloads", G_DOWNLOAD, false},
-    {"Pictures", HOME_DIR "/Pictures", G_PICTURE, false},
-    {"Music", HOME_DIR "/Music", G_MUSIC, true},
-    {"Projects", HOME_DIR "/Projects", G_FOLDER, true},
-    {"Trash", TRASH_FILES, G_TRASH, false},
+    {"Home", "", G_HOME, false},
+    {"Documents", "/Documents", G_DOC, false},
+    {"Downloads", "/Downloads", G_DOWNLOAD, false},
+    {"Pictures", "/Pictures", G_PICTURE, false},
+    {"Music", "/Music", G_MUSIC, true},
+    {"Projects", "/Projects", G_FOLDER, true},
+    {"Trash", "/.Trash/files", G_TRASH, false},
 };
 
 static void drop_target(const char *dir, rect r);
@@ -1801,10 +1801,10 @@ static void sidebar(rect sb) {
     draw_text(A.frame, small, x + 8, y, "PLACES", D.muted);
     y += font_line_height(small) + 6;
     for (size_t i = 0; i < sizeof places / sizeof places[0]; i++) {
-        if (places[i].optional && !is_dir(places[i].path))
+        if (places[i].optional && !is_dir(home_path(places[i].rel)))
             continue;
         rect r = {x, y, w, rh};
-        bool here = !strcmp(F.path, places[i].path);
+        bool here = !strcmp(F.path, home_path(places[i].rel));
         bool target = F.dragging && hov(r);
         lrect("files-place-%s", r, places[i].label);
         if (here)
@@ -1812,7 +1812,7 @@ static void sidebar(rect sb) {
         else if (hov(r))
             fill_round(A.frame, r, D.radius * 0.45f + 2, color_alpha(D.surface_text, 0.07f));
         if (target) {
-            drop_target(places[i].path, r);
+            drop_target(home_path(places[i].rel), r);
         }
         color ink = here ? D.accent : color_alpha(D.surface_text, 0.8f);
         if (here && color_contrast(D.accent, D.surface) < 3)
@@ -1822,7 +1822,7 @@ static void sidebar(rect sb) {
         fit(f, places[i].label, w - 44, lab, sizeof lab);
         draw_text(A.frame, f, r.x + 34, r.y + (rh - font_line_height(f)) / 2, lab, here ? D.surface_text : color_alpha(D.surface_text, 0.86f));
         if (!F.dragging && hov(r) && I.clicked && !here)
-            go(places[i].path, true);
+            go(home_path(places[i].rel), true);
         y += rh + 2;
     }
     /* what they opened lately */
@@ -2212,11 +2212,11 @@ static void empty_state(rect content) {
         glyph = G_TRASH;
         title = "Trash is empty";
         hint = "Things you delete wait here until you empty it.";
-    } else if (!strcmp(F.path, HOME_DIR "/Pictures")) {
+    } else if (!strcmp(F.path, home_path("/Pictures"))) {
         glyph = G_PICTURE;
         title = "No pictures yet";
         hint = "Pictures you keep here show up as thumbnails.";
-    } else if (!strcmp(F.path, HOME_DIR "/Downloads")) {
+    } else if (!strcmp(F.path, home_path("/Downloads"))) {
         glyph = G_DOWNLOAD;
         title = "Nothing downloaded yet";
         hint = "Drag things here to keep them for later.";

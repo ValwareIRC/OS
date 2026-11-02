@@ -17,7 +17,7 @@ $(OUT)/obj/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OUT)/init: $(OUT)/obj/init/init.o $(OUT)/obj/shell/store.o
+$(OUT)/init: $(OUT)/obj/init/init.o $(OUT)/obj/shell/store.o $(OUT)/obj/shell/home.o
 	$(CC) -static -o $@ $^
 
 $(OUT)/os-audio: $(OUT)/obj/tools/os-audio.o

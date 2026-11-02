@@ -54,7 +54,8 @@ class Vm:
             qargs += ["-fw_cfg", "name=opt/os/hangdump,string=1"]
         if self.disk:
             qargs += ["-drive", "id=disk0,file=" + self.disk.replace(os.sep, "/").replace(",", ",,") +
-                      ",format=raw,if=none,snapshot=on", "-device", "ide-hd,drive=disk0,bus=ide.0"]
+                      ",format=raw,if=none" + ("" if os.environ.get("DISK_RW") else ",snapshot=on"),
+                      "-device", "ide-hd,drive=disk0,bus=ide.0"]
         self.qemu = subprocess.Popen(qargs, stdout=subprocess.DEVNULL,
                                      stderr=open(os.path.join(self.out, "qemu.err"), "w"))
         for _ in range(100):

@@ -6,10 +6,10 @@
  * list and grid views, a picture viewer, Trash, and drag and drop
  * (files.c). */
 
-#define HOME_DIR "/root"
-#define TRASH_DIR HOME_DIR "/.Trash"
-#define TRASH_FILES TRASH_DIR "/files" /* what was deleted */
-#define TRASH_INFO TRASH_DIR "/info"   /* where each thing came from */
+#define HOME_DIR home_dir() /* (sys.h) */
+#define TRASH_DIR home_path("/.Trash")
+#define TRASH_FILES home_path("/.Trash/files") /* what was deleted */
+#define TRASH_INFO home_path("/.Trash/info")   /* where each thing came from */
 
 /* What kind of thing a file is, for its icon and for what opens it. */
 enum file_kind { FK_FOLDER, FK_TEXT, FK_CODE, FK_IMAGE, FK_AUDIO, FK_VIDEO, FK_ARCHIVE, FK_DOC, FK_PROGRAM, FK_APP,

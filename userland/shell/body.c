@@ -32,8 +32,8 @@ static struct {
 
 /* .vrm files where people keep things: home, Downloads, Desktop, Documents, Pictures. */
 int body_find_vrms(char out[][300], int max) {
-    static const char *const dirs[] = {HOME_DIR, HOME_DIR "/Downloads", HOME_DIR "/Desktop", HOME_DIR "/Documents",
-                                       HOME_DIR "/Pictures"};
+    const char *const dirs[] = {HOME_DIR, home_path("/Downloads"), home_path("/Desktop"), home_path("/Documents"),
+                                       home_path("/Pictures")};
     int n = 0;
     for (size_t d = 0; d < sizeof dirs / sizeof dirs[0] && n < max; d++) {
         DIR *dir = opendir(dirs[d]);

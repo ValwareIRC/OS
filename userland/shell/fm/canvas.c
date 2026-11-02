@@ -200,7 +200,7 @@ static int l_files(lua_State *L) {
     /* the person's home (the desktop itself may run with HOME=/) */
     const char *home = getenv("HOME");
     if (!home || !*home || !strcmp(home, "/"))
-        home = "/root";
+        home = home_dir();
     /* a design sees only the person's own folders, by the same rules as an app given all of their files to read:
      * nothing outside home, nothing private in it (keys, other apps' data), no climbing out, no links out */
     char path[4096], why[300];
@@ -443,7 +443,7 @@ bool fmi_canvas_click(fm_doc *d, fm_node *n, int x, int y) {
         } else if (!strncmp(a, "file:", 5)) {
             const char *h = getenv("HOME");
             fx_grants home_only = {0};
-            snprintf(home_only.home, sizeof home_only.home, "%s", h && *h && strcmp(h, "/") ? h : "/root");
+            snprintf(home_only.home, sizeof home_only.home, "%s", h && *h && strcmp(h, "/") ? h : home_dir());
             fx_grants_set(&home_only, "read:~", true);
             char real[4096], why[300];
             ok = fx_path_allowed(&home_only, a + 5, false, real, sizeof real, why, sizeof why);

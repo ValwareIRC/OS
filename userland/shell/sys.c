@@ -571,7 +571,7 @@ void job_free(job *j) {
 
 void become_session_user(void) {
     /* their home is where their files are kept (and saved to disk): /root, for now */
-    setenv("HOME", "/root", 1);
+    setenv("HOME", home_dir(), 1);
     setenv("USER", "user", 1);
     setenv("LOGNAME", "user", 1);
     if (getuid() != 0)
