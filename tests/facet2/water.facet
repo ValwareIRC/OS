@@ -1,4 +1,4 @@
-app Water
+app Water category health
   data saved = file("~/.water")
   state
     goal = 8

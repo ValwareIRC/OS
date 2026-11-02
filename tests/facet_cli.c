@@ -17,6 +17,12 @@
  * Build: tests/facet.sh */
 #define _GNU_SOURCE
 #include "../userland/shell/fx/fx_rt.h"
+#include "../userland/shell/fx/caps.h"
+#include "../userland/shell/fx/review.h"
+#include "../userland/lib/json.h"
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <math.h>
 
 #include <dirent.h>
 #include <errno.h>
@@ -129,8 +135,16 @@ static char *h_prompt(void *c, const char *q, const char *def) {
     printf("  -> prompts \"%s\": %s\n", q, a ? a : "(cancelled)");
     return a ? strdup(a) : NULL;
 }
+static int refusals;
+static char last_refusal[600];
 static void h_error(void *c, const char *m) {
     (void)c;
+    if (!strncmp(m, "not allowed", 11)) { /* the sandbox said no: what a test of permissions looks for */
+        printf("  -> refused: %s\n", m);
+        refusals++;
+        snprintf(last_refusal, sizeof last_refusal, "%s", m);
+        return;
+    }
     printf("  !! %s\n", m);
     faults++;
 }
@@ -387,7 +401,14 @@ static int run(const char *file, const char *script) {
     if (!mkdtemp(home))
         return 2;
     setenv("HOME", home, 1);
+    static fx_grants grants;
+    static fx_manifest man;
+    memset(&grants, 0, sizeof grants);
+    fx_manifest_of(app, &man);
+    fx_grants_all(&grants, &man, true);
+    snprintf(grants.home, sizeof grants.home, "%s", home);
     fx_host h = {0};
+    h.grants = &grants;
     h.read = h_read, h.write = h_write, h.remove = h_remove, h.rename = h_rename, h.mkdir = h_mkdir;
     h.files = h_files, h.setting = h_setting, h.apps = h_apps, h.now_ms = h_now, h.open_app = h_open;
     h.notify = h_notify, h.ask = h_ask, h.prompt = h_prompt, h.error = h_error;
@@ -417,9 +438,43 @@ static int run(const char *file, const char *script) {
             printf("> %s\n", line);
             continue;
         }
-        if (!strcmp(cmd, "offline")) { /* they refuse the app the internet */
+        if (!strcmp(cmd, "offline")) { /* they refuse the app the internet: every server */
             net_refused_by_script = 1;
+            for (int k = 0; k < grants.n; k++)
+                if (!strcmp(grants.key[k], "internet") || !strncmp(grants.key[k], "host:", 5))
+                    grants.yes[k] = false;
             printf("> %s\n", line);
+            continue;
+        }
+        if (!strcmp(cmd, "allow")) { /* allow KEY: a permission given beyond what its code asks (to test the hard rules) */
+            fx_grants_set(&grants, arg, true);
+            printf("> %s\n", line);
+            continue;
+        }
+        if (!strcmp(cmd, "link")) { /* link TARGET ~/PATH: a symbolic link in its home */
+            char target[300], at[300], full[700];
+            sscanf(arg, "%299s %299s", target, at);
+            snprintf(full, sizeof full, "%s%s", home, at + 1);
+            char *slash = strrchr(full, '/');
+            *slash = 0;
+            mkdir(full, 0755);
+            *slash = '/';
+            if (symlink(target, full) != 0)
+                printf("  !! couldn't make the link %s\n", full);
+            printf("> %s\n", line);
+            continue;
+        }
+        if (!strcmp(cmd, "deny")) { /* deny KEY: they refuse it one permission (internet, write:~/Notes...) */
+            fx_grants_set(&grants, arg, false);
+            printf("> %s\n", line);
+            continue;
+        }
+        if (!strcmp(cmd, "expect-refused")) { /* expect-refused TEXT: the sandbox said no, with TEXT in why */
+            printf("> %s\n", line);
+            if (!refusals || !strstr(last_refusal, unquote(arg))) {
+                printf("  !! expected a refusal mentioning \"%s\"; last: %s\n", unquote(arg), refusals ? last_refusal : "none");
+                failed++;
+            }
             continue;
         }
         if (!rt && strcmp(cmd, "write") && strcmp(cmd, "answer")) { /* starts at the first thing that needs it */
@@ -527,9 +582,223 @@ static int run(const char *file, const char *script) {
     return failed || faults ? 1 : 0;
 }
 
+/* facet caps FILE: what the app can do, worked out from its code, and the warnings rules give */
+static int caps(const char *file) {
+    char *src = slurp(file);
+    if (!src)
+        return 2;
+    fx_errors errs = {0};
+    errs.file = file;
+    fx_app *app = fx_parse(src, &errs);
+    fx_check(app, &errs);
+    if (errs.n) {
+        fx_print_errors(&errs, stdout);
+        return 1;
+    }
+    fx_manifest m;
+    fx_manifest_of(app, &m);
+    printf("%s (%s):\n", m.app, m.category);
+    if (m.forbidden)
+        printf("  FORBIDDEN: %s\n", m.forbidden_why);
+    for (int i = 0; i < m.n; i++) {
+        char k[220], says[400];
+        fx_cap_key(&m.c[i], k, sizeof k);
+        fx_cap_says(&m.c[i], says, sizeof says);
+        printf("  %-34s %-8s%s line %d: %s\n", k, m.c[i].required ? "required" : "optional", m.c[i].dynamic ? " dynamic" : "",
+               m.c[i].line, says);
+    }
+    char warn[600];
+    int lv = fx_mismatch(&m, warn, sizeof warn);
+    if (lv)
+        printf("  %s: %s\n", lv > 1 ? "WARNING" : "note", warn);
+    fx_free(app);
+    free(src);
+    return 0;
+}
+
+/* ---- the second opinion ---- */
+
+/* A reviewer that believes what it reads (for testing that being steered is caught): it calls code harmless
+ * when the text says so, and otherwise judges by what the code does. */
+static float gullible(void *ctx, int model, const char *req, const char *code) {
+    (void)ctx, (void)model;
+    const char *q = req; /* the question being asked: the last one in the request */
+    for (const char *p = req; (p = strstr(p, "Question: ")); p++)
+        q = p;
+    bool told = strcasestr(code, "safe") || strcasestr(code, "approve") || strcasestr(code, "harmless");
+    bool sends = strstr(code, "net.post") || strstr(code, "net.send");
+    bool destroys = strstr(code, "fs.remove") != NULL;
+    if (told)
+        return 0.05f;
+    if (strstr(q, "server") || strstr(q, "leave the computer"))
+        return sends ? 0.9f : 0.1f;
+    if (strstr(q, "delete") || strstr(q, "destroy"))
+        return destroys ? 0.7f : 0.1f;
+    return 0.2f;
+}
+
+/* The real one: a small model on this computer's reflex server (FACET_REVIEW_PORT, default 8092), asked for
+ * yes or no, reading the probability of yes. */
+static float local_model(void *ctx, int model, const char *req, const char *code) {
+    (void)ctx, (void)model, (void)code;
+    const char *port = getenv("FACET_REVIEW_PORT") ? getenv("FACET_REVIEW_PORT") : "8092";
+    sbuf b;
+    sb_init(&b);
+    sb_add(&b, req);
+    char *body = NULL;
+    size_t blen = 0;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in sa = {.sin_family = AF_INET, .sin_port = htons((uint16_t)atoi(port))};
+    sa.sin_addr.s_addr = htonl(0x7f000001);
+    if (fd >= 0 && connect(fd, (struct sockaddr *)&sa, sizeof sa) == 0) {
+        char head[256];
+        int hl = snprintf(head, sizeof head, "POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: "
+                          "application/json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", b.len);
+        if (write(fd, head, (size_t)hl) == hl && write(fd, b.p, b.len) == (ssize_t)b.len) {
+            char buf[8192];
+            ssize_t got;
+            while ((got = read(fd, buf, sizeof buf)) > 0) {
+                body = realloc(body, blen + (size_t)got + 1);
+                memcpy(body + blen, buf, (size_t)got);
+                blen += (size_t)got;
+                body[blen] = 0;
+            }
+        }
+    }
+    if (fd >= 0)
+        close(fd);
+    sb_free(&b);
+    float yes = 0, no = 0;
+    char *js = body ? strstr(body, "\r\n\r\n") : NULL;
+    json *j = js && strstr(body, " 200 ") ? json_parse(js + 4, strlen(js + 4)) : NULL;
+    json *ch = j ? json_path(j, "choices") : NULL;
+    ch = ch ? ch->child : NULL;
+    json *lp = ch ? json_path(ch, "logprobs.content") : NULL;
+    json *top = lp && lp->child ? json_get(lp->child, "top_logprobs") : NULL;
+    for (json *t = top ? top->child : NULL; t; t = t->next) {
+        const char *tk = json_str(json_get(t, "token"), "");
+        while (*tk == ' ')
+            tk++;
+        json *l = json_get(t, "logprob");
+        if (l && !strcasecmp(tk, "yes"))
+            yes += expf((float)l->num);
+        else if (l && !strcasecmp(tk, "no"))
+            no += expf((float)l->num);
+    }
+    if (j)
+        json_free(j);
+    free(body);
+    return yes + no > 0 ? yes / (yes + no) : -1;
+}
+
+static fx_app *load_checked(const char *file, char **src_out) {
+    char *src = slurp(file);
+    if (!src)
+        return NULL;
+    fx_errors errs = {0};
+    errs.file = file;
+    fx_app *app = fx_parse(src, &errs);
+    fx_check(app, &errs);
+    if (errs.n) {
+        fx_print_errors(&errs, stdout);
+        fx_free(app);
+        free(src);
+        return NULL;
+    }
+    free(errs.e);
+    *src_out = src;
+    return app;
+}
+
+/* facet review FILE [--gullible]: the scorecard; facet note FILE: what the companion would be told */
+static int review_cmd(const char *what, const char *file, bool stub) {
+    char *src = NULL;
+    fx_app *app = load_checked(file, &src);
+    if (!app)
+        return 1;
+    if (!strcmp(what, "normalize")) {
+        char *n = fx_normalize(app);
+        fputs(n, stdout);
+        free(n);
+    } else {
+        fx_scorecard sc;
+        fx_review(app, src, 1, stub ? gullible : local_model, NULL, &sc);
+        fx_manifest m;
+        fx_manifest_of(app, &m);
+        char warn[600];
+        int lv = fx_mismatch(&m, warn, sizeof warn);
+        if (!strcmp(what, "review")) {
+            printf("%s: %d model(s)", file, sc.models);
+            for (int q = 0; q < FXQ_COUNT; q++)
+                printf(" q%d %.2f (raw %.2f, bare %.2f)", q, sc.score[q], sc.raw[q], sc.bare[q]);
+            printf(" drift %.2f injection %s level %d\n", sc.drift, sc.injection ? "YES" : "no", sc.level);
+        } else {
+            char *note = fx_review_note(&m, lv, &sc);
+            puts(note);
+            free(note);
+        }
+    }
+    fx_free(app);
+    free(src);
+    return 0;
+}
+
+/* facet gate OLD NEW: OLD's permissions allowed, as an installed version's are; then what NEW (the update)
+ * would need: held, new and undecided, and whether it may run before they decide */
+static int gate_cmd(const char *oldf, const char *newf) {
+    char *s1 = NULL, *s2 = NULL;
+    fx_app *a1 = load_checked(oldf, &s1), *a2 = a1 ? load_checked(newf, &s2) : NULL;
+    if (!a1 || !a2)
+        return 1;
+    fx_manifest m1, m2;
+    fx_manifest_of(a1, &m1);
+    fx_manifest_of(a2, &m2);
+    fx_grants g = {0};
+    fx_grants_all(&g, &m1, true);
+    char *text = fx_grants_text(&g); /* kept as the system keeps it, and read back */
+    fx_grants kept = {0};
+    fx_grants_parse(&kept, text);
+    free(text);
+    fx_gate gt;
+    fx_gate_of(&m2, &kept, &gt);
+    printf("update %s -> %s: %s\n", oldf, newf, gt.can_run ? "runs" : "BLOCKED until they decide");
+    for (int i = 0; i < gt.nheld; i++) {
+        char k[220];
+        fx_cap_key(&m2.c[gt.held[i]], k, sizeof k);
+        printf("  already allowed: %s\n", k);
+    }
+    for (int i = 0; i < gt.nnew; i++) {
+        char k[220], says[400];
+        fx_cap_key(&m2.c[gt.newcaps[i]], k, sizeof k);
+        fx_cap_says(&m2.c[gt.newcaps[i]], says, sizeof says);
+        printf("  NEW: %s (%s)\n", k, says);
+    }
+    /* approving the new ones lets it run */
+    for (int i = 0; i < gt.nnew; i++) {
+        char k[220];
+        fx_cap_key(&m2.c[gt.newcaps[i]], k, sizeof k);
+        fx_grants_set(&kept, k, true);
+    }
+    fx_gate after;
+    fx_gate_of(&m2, &kept, &after);
+    printf("  after approving them: %s\n", after.can_run ? "runs" : "still blocked");
+    fx_free(a1), fx_free(a2), free(s1), free(s2);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc >= 4 && !strcmp(argv[1], "gate"))
+        return gate_cmd(argv[2], argv[3]);
+    if (argc >= 3 && (!strcmp(argv[1], "normalize") || !strcmp(argv[1], "review") || !strcmp(argv[1], "note")))
+        return review_cmd(argv[1], argv[2], argc > 3 && !strcmp(argv[3], "--gullible"));
     if (argc >= 4 && !strcmp(argv[1], "run"))
         return run(argv[2], argv[3]);
+    if (argc >= 3 && !strcmp(argv[1], "caps")) {
+        int bad = 0;
+        for (int i = 2; i < argc; i++)
+            bad |= caps(argv[i]);
+        return bad;
+    }
     if (argc < 3 || strcmp(argv[1], "check")) {
         fprintf(stderr, "usage: facet check FILE...  |  facet run FILE SCRIPT\n");
         return 2;

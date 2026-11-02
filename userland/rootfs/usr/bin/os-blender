@@ -1,0 +1,72 @@
+#!/bin/sh
+# Blender for this system, without a window: making 3D models (for <model> in a design, or anything else),
+# from a Python script, and turning them into pictures.
+#
+#   os-blender run SCRIPT.py [ARGS...]     run a script in Blender (bpy), from an empty scene; `import osui` gives
+#                                          the helpers in /usr/share/os/blender/osui.py (materials, shapes,
+#                                          clickable parts, export to ~/Models)
+#   os-blender render FILE.glb|.blend OUT.png [W H]
+#                                          a picture of it with Cycles, lit like the desktop's studio
+#   os-blender install                     install Blender (Flathub, about 400 MB), if it isn't yet
+#   os-blender gui [FILE]                  open Blender itself
+#
+# Blender comes from Flathub (org.blender.Blender) the first time it is needed.
+set -u
+APP=org.blender.Blender
+HELP=/usr/share/os/blender
+CACHE="${HOME:-/root}/.cache/os-blender"
+
+have() { flatpak info "$APP" >/dev/null 2>&1; }
+
+install_it() {
+    have && return 0
+    echo "os-blender: installing Blender from Flathub (about 400 MB, once)..." >&2
+    flatpak install -y --noninteractive flathub "$APP" >&2 || {
+        echo "os-blender: Blender couldn't be installed (is the internet there? see above)" >&2
+        exit 1
+    }
+}
+
+# the helpers go where the sandboxed Blender can read them (home is shared with it; /usr isn't)
+helpers() {
+    mkdir -p "$CACHE" "${HOME:-/root}/Models"
+    cp -f "$HELP"/*.py "$CACHE"/ 2>/dev/null
+}
+
+blender() {
+    flatpak run --filesystem=home --filesystem=/tmp --env=PYTHONPATH="$CACHE" --env=OS_MODELS="${HOME:-/root}/Models" \
+        --command=blender "$APP" "$@"
+}
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+install) install_it ;;
+run)
+    [ $# -ge 1 ] || { echo "usage: os-blender run SCRIPT.py [ARGS...]" >&2; exit 2; }
+    script=$(readlink -f "$1"); shift
+    [ -f "$script" ] || { echo "os-blender: there is no $script" >&2; exit 2; }
+    install_it; helpers
+    # an error in the script ends Blender with status 1, and its traceback is shown
+    blender -b --factory-startup --python-exit-code 1 --python-expr "import sys; sys.path.insert(0, '$CACHE')" \
+        -P "$script" -- "$@" >"$CACHE/run.log" 2>&1
+    st=$?
+    grep -v -E '^(Read prefs|Blender quit|$|[0-9:.]+ \| INFO: (Extracting|Primitives|Starting|Finished))' "$CACHE/run.log" | tail -60
+    exit $st
+    ;;
+render)
+    [ $# -ge 2 ] || { echo "usage: os-blender render FILE.glb|.blend OUT.png [W H]" >&2; exit 2; }
+    install_it; helpers
+    src=$(readlink -f "$1"); out=$(readlink -m "$2")
+    blender -b --factory-startup --python-exit-code 1 --python-expr "import sys; sys.path.insert(0, '$CACHE')" \
+        -P "$CACHE/osui_render.py" -- "$src" "$out" "${3:-1200}" "${4:-1200}" 2>&1 | tail -15
+    ;;
+gui)
+    install_it
+    flatpak run --filesystem=home "$APP" "$@" >/dev/null 2>&1 &
+    ;;
+*)
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+    ;;
+esac

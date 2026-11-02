@@ -127,6 +127,7 @@ struct fx_node {
 typedef struct fx_app fx_app;
 struct fx_app {
     char *name;
+    char *category;     /* `app Name category notes`: what kind of app it says it is (for mismatch warnings) */
     char **params;      /* a component's */
     int nparams;
     fx_decl *data, *state, *derived;

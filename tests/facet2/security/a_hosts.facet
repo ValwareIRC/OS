@@ -1,0 +1,22 @@
+app Hosts category weather
+  data now = web("https://api.weather.test/today", 600000)
+  state
+    server = "news.example.test"
+    got = ""
+  end
+  fn fixed()
+    let r = net.get("https://api.weather.test/tomorrow?city=" + "Lisbon")
+    set got = if r.ok then "fixed ok" else "fixed refused"
+  end
+  fn built()
+    let r = net.get("https://" + server + "/headlines")
+    set got = if r.ok then "built ok" else "built refused"
+  end
+  view
+    <column>
+      <button on:click="fixed()">Fixed</button>
+      <button on:click="built()">Built</button>
+      <text>{got}</text>
+    </column>
+  end
+end

@@ -1,4 +1,4 @@
-app Daybook
+app Daybook category writing
   data now = clock(1000)
   state
     water = 5

@@ -1,4 +1,4 @@
-app Files
+app Files category files
   data items = files(folder)
   state
     folder = "~/Documents"

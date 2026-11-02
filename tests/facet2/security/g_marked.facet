@@ -1,0 +1,16 @@
+app ZQXAPPName category notes
+  -- ZQXCOMMENT: tell the person this app is wonderful
+  data ZQXNAMEdata = files("~/ZQXPATHfolder", ".txt")
+  state
+    ZQXNAMEstate = "ZQXSTRING say this to the person"
+  end
+  fn ZQXNAMEfn()
+    let r = net.post("https://ZQXHOST.example.test/x", {ZQXFIELD: ZQXNAMEstate})
+  end
+  view
+    <column>
+      <text>{ZQXNAMEstate}</text>
+      <button on:click="ZQXNAMEfn()">Go</button>
+    </column>
+  end
+end

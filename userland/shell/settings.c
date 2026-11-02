@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "settings.h"
+#include "appgate.h"
 #include "nerve.h"
 #include "app.h"
 #include "emblem.h"
@@ -1184,6 +1185,9 @@ static int page_mind(rect c, int y) {
 
 /* ---- Privacy ---- */
 
+/* Security: only ever reached by clicking it here (appgate.c) */
+static int page_security(rect c, int y) { return security_page(c.x, y, c.w, c.h); }
+
 static int page_privacy(rect c, int y) {
     int y0 = y;
     font *f = BODY(), *small = SMALL();
@@ -1427,7 +1431,9 @@ static int page_list(struct page *out) {
                                          {"Sound", SYM_SPEAKER, page_sound, NULL},
                                          {"Keyboard", SYM_KEYBOARD, page_keyboard, NULL},
                                          {"AI", SYM_MIND, page_mind, NULL}};
-    static const struct page after[] = {{"Privacy", SYM_SHIELD, page_privacy, NULL}, {"About", SYM_INFO, page_about, NULL}};
+    static const struct page after[] = {{"Security", SYM_SHIELD, page_security, NULL},
+                                        {"Privacy", SYM_SHIELD, page_privacy, NULL},
+                                        {"About", SYM_INFO, page_about, NULL}};
     int n = 0;
     for (size_t i = 0; i < sizeof before / sizeof before[0]; i++)
         out[n++] = before[i];
@@ -1442,7 +1448,7 @@ static char current[40] = "Appearance";
 static int scroll_of[24];
 
 void settings_open_page(const char *title) {
-    if (title)
+    if (title && strcasecmp(title, "Security")) /* never opened onto Security by anything but their click there */
         snprintf(current, sizeof current, "%s", title);
     if (A.ui)
         fm_host_action(A.ui, NULL, "open:settings");
@@ -1454,7 +1460,15 @@ void settings_draw(rect r) {
     if (log_now)
         logged_at = A.now;
     int ox0 = A.frame->cx0, oy0 = A.frame->cy0, ox1 = A.frame->cx1, oy1 = A.frame->cy1;
-    struct page pages[5 + MAX_EXTRA + 2];
+    struct page pages[5 + MAX_EXTRA + 3];
+    /* Settings opened again (by them, an app, a design or the companion): never straight onto Security */
+    static uint64_t seen_open;
+    if (A.win[WIN_SETTINGS].opened_at != seen_open) {
+        seen_open = A.win[WIN_SETTINGS].opened_at;
+        if (!strcmp(current, "Security"))
+            snprintf(current, sizeof current, "Appearance");
+        LOG("settings: opened on %s\n", current);
+    }
     int np = page_list(pages), cur = 0;
     for (int i = 0; i < np; i++)
         if (!strcmp(pages[i].title, current))

@@ -8,6 +8,7 @@
  * the app as it was: it never takes the desktop down. */
 #define _GNU_SOURCE
 #include "fx_rt.h"
+#include "caps.h"
 #include "../../lib/json.h"
 
 #include <ctype.h>
@@ -535,21 +536,42 @@ static void schedule(fx_inst *in, const char *name, const char *fn, double ms, b
     slot->live = true;
 }
 
-/* The app may use the internet: asked once (the host remembers the answer). */
-static bool net_allowed(fx_rt *rt) {
-    if (!rt->net_ok)
-        rt->net_ok = rt->host.net_allowed && rt->host.net_allowed(rt->host.ctx) ? 1 : -1;
-    return rt->net_ok > 0;
+/* A call outside what the app was allowed: it fails (the app goes on without it) and the reason is reported. */
+static void refused(fx_rt *rt, int line, const char *why) {
+    char m[400];
+    snprintf(m, sizeof m, "not allowed (line %d): %s", line, why);
+    if (rt->host.error)
+        rt->host.error(rt->host.ctx, m);
 }
 
-static fx_val net_refused(void) {
+/* a URL it may reach now (its server allowed), else the reason */
+static bool url_allowed(fx_rt *rt, const char *url, char *why, size_t n) {
+    char host[200];
+    if (!fx_url_host(url, host, sizeof host)) {
+        snprintf(why, n, "\"%.120s\" isn't an http or https address", url);
+        return false;
+    }
+    return fx_net_allowed(rt->host.grants, host, 0, why, n);
+}
+
+static fx_val net_refused(const char *why) {
     fx_val r = fx_rec();
     fx_rec_set(r, "ok", fx_bool(false));
     fx_rec_set(r, "status", fx_num(0));
     fx_rec_set(r, "data", fx_none());
     fx_rec_set(r, "text", fx_text(""));
-    fx_rec_set(r, "error", fx_text("this app isn't allowed to use the internet"));
+    fx_rec_set(r, "error", fx_text(why));
     return r;
+}
+
+/* a path it may use now, made real (absolute, links followed), or NULL with the refusal reported */
+static char *allowed_path(fx_rt *rt, const char *p, bool write, int line) {
+    char out[4096], why[400];
+    if (!fx_path_allowed(rt->host.grants, p, write, out, sizeof out, why, sizeof why)) {
+        refused(rt, line, why);
+        return NULL;
+    }
+    return strdup(out);
 }
 
 static fx_val net_call(ev *e, const fx_expr *x) {
@@ -570,7 +592,10 @@ static fx_val net_call(ev *e, const fx_expr *x) {
         for (int i = 0; i < 16 && !slot; i++)
             if (!rt->socks[i].live)
                 slot = &rt->socks[i];
-        if (slot && net_allowed(rt) && h->net_connect)
+        char why[300];
+        if (!fx_net_allowed(rt->host.grants, hs, p, why, sizeof why))
+            refused(rt, line, why);
+        else if (slot && h->net_connect)
             id = h->net_connect(h->ctx, hs, p, strstr(ms, "tls") != NULL);
         if (id >= 0) {
             memset(slot, 0, sizeof *slot);
@@ -586,8 +611,12 @@ static fx_val net_call(ev *e, const fx_expr *x) {
     fx_val r = fx_none();
     if (!strcmp(f, "net.get") || !strcmp(f, "net.post")) {
         const char *url = need_text(rt, a[0], line, f);
-        if (!net_allowed(rt) || !h->http) {
-            r = net_refused();
+        char why[300];
+        if (!url_allowed(rt, url, why, sizeof why)) {
+            refused(rt, line, why);
+            r = net_refused(why);
+        } else if (!h->http) {
+            r = net_refused("no network here");
         } else if (f[4] == 'g') {
             r = h->http(h->ctx, "GET", url, NULL, NULL);
         } else {
@@ -655,12 +684,17 @@ static fx_val effect_call(ev *e, const fx_expr *x) {
         a[i] = eval(e, x->items[i]);
     fx_val r = fx_none();
     char *p0 = NULL, *p1 = NULL;
+    bool denied = false;
     if (!strncmp(f, "fs.", 3)) {
-        p0 = home_path(need_text(rt, a[0], line, f));
+        bool w = strcmp(f, "fs.read") != 0;
+        p0 = allowed_path(rt, need_text(rt, a[0], line, f), w, line);
         if (!strcmp(f, "fs.rename"))
-            p1 = home_path(need_text(rt, a[1], line, f));
+            p1 = allowed_path(rt, need_text(rt, a[1], line, f), true, line);
+        denied = !p0 || (!strcmp(f, "fs.rename") && !p1);
     }
-    if (!strcmp(f, "cancel")) {
+    if (denied) {
+        r = !strcmp(f, "fs.read") ? fx_none() : fx_bool(false);
+    } else if (!strcmp(f, "cancel")) {
         const char *nm = need_text(rt, a[0], line, f);
         for (int i = 0; i < 32; i++)
             if (rt->timers[i].live && rt->timers[i].inst == in && !strcmp(rt->timers[i].name, nm))
@@ -687,8 +721,11 @@ static fx_val effect_call(ev *e, const fx_expr *x) {
         rt->refetch = true;
     } else if (!strcmp(f, "app.open")) {
         const char *id = need_text(rt, a[0], line, f);
-        char *path = x->n > 1 ? home_path(need_text(rt, a[1], line, f)) : NULL;
-        r = fx_bool(h->open_app && h->open_app(h->ctx, id, path));
+        char *path = x->n > 1 ? allowed_path(rt, need_text(rt, a[1], line, f), false, line) : NULL;
+        if (x->n > 1 && !path)
+            r = fx_bool(false); /* a file it may not read isn't shown through another app either */
+        else
+            r = fx_bool(h->open_app && h->open_app(h->ctx, id, path));
         free(path);
     } else if (!strcmp(f, "app.close")) {
         if (h->close_app)
@@ -1060,13 +1097,25 @@ static bool refresh_data(fx_inst *in, bool force) {
         if (due) {
             fx_val v = fx_none();
             if (!strcmp(call->s, "files")) {
-                char *dir = home_path(args[0].t == V_TEXT ? args[0].o->s : "~");
-                v = h->files ? h->files(h->ctx, dir, args[1].t == V_TEXT ? args[1].o->s : NULL) : fx_list();
+                char *dir = allowed_path(rt, args[0].t == V_TEXT ? args[0].o->s : "~", false, call->line);
+                fx_val all = dir && h->files ? h->files(h->ctx, dir, args[1].t == V_TEXT ? args[1].o->s : NULL) : fx_list();
                 free(dir);
+                /* only what it may read is listed (hidden app data in a folder stays hidden) */
+                v = fx_list();
+                for (int k = 0; all.t == V_LIST && k < all.o->n; k++) {
+                    fx_val p = fx_rec_get(all.o->items[k], "path");
+                    char out[4096], why[300];
+                    if (p.t == V_TEXT && fx_path_allowed(h->grants, p.o->s, false, out, sizeof out, why, sizeof why))
+                        fx_list_push(v, fx_ref(all.o->items[k]));
+                }
+                fx_unref(all);
             } else if (!strcmp(call->s, "file")) {
                 const char *p = args[0].t == V_TEXT ? args[0].o->s : "";
-                char *path = home_path(p);
-                char *text = h->read ? h->read(h->ctx, path) : NULL;
+                char *path = allowed_path(rt, p, false, call->line);
+                bool may = path != NULL;
+                if (!path)
+                    path = home_path(p); /* named, never read */
+                char *text = may && h->read ? h->read(h->ctx, path) : NULL;
                 v = fx_rec();
                 const char *slash = strrchr(path, '/');
                 fx_rec_set(v, "name", fx_text(slash ? slash + 1 : path));
@@ -1075,15 +1124,28 @@ static bool refresh_data(fx_inst *in, bool force) {
                 free(text);
                 free(path);
             } else if (!strcmp(call->s, "setting")) {
-                v = h->setting && args[0].t == V_TEXT ? h->setting(h->ctx, args[0].o->s) : fx_none();
+                /* only what any app may know: never keys, accounts or the system's own state */
+                static const char *const open_keys[] = {"person.name", "companion.name", "design.accent", "design.dark",
+                                                        "clock.24h", "units", "language", NULL};
+                bool ok = false;
+                for (int k = 0; args[0].t == V_TEXT && open_keys[k]; k++)
+                    ok |= !strcmp(args[0].o->s, open_keys[k]);
+                if (!ok && args[0].t == V_TEXT)
+                    refused(rt, call->line, "settings other than the person's name, the companion's name, the design's colours, the clock, units and language are private");
+                v = ok && h->setting ? h->setting(h->ctx, args[0].o->s) : fx_none();
             } else if (!strcmp(call->s, "apps")) {
                 v = h->apps ? h->apps(h->ctx) : fx_list();
             } else if (!strcmp(call->s, "clock")) {
                 v = clock_record(now);
             } else if (!strcmp(call->s, "web")) {
                 double every = args[1].t == V_NUM ? args[1].n : 600000;
-                if (args[0].t == V_TEXT && h->web && net_allowed(rt))
+                char why[300];
+                if (args[0].t == V_TEXT && !url_allowed(rt, args[0].o->s, why, sizeof why)) {
+                    if (!in->data_sig[i]) /* said once, not every fetch */
+                        refused(rt, call->line, why);
+                } else if (args[0].t == V_TEXT && h->web) {
                     v = h->web(h->ctx, args[0].o->s, every < 1000 ? 1000 : every);
+                }
             }
             if (!fx_equal(v, in->data[i])) {
                 fx_unref(in->data[i]);

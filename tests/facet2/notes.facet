@@ -1,4 +1,4 @@
-app Notes
+app Notes category notes
   data notes = files("~/Notes", ".txt")
   state
     query = ""

@@ -55,7 +55,7 @@ void body_feel(char who, const char *fmt, ...) {
 }
 
 const char *body_prompt(void) {
-    static char buf[9000];
+    static char buf[14000];
     sbuf b;
     sb_init(&b);
     sb_add(&b, "\nYOUR BODY. You are this computer: not an assistant on it, not someone watching it. What follows is "
@@ -135,7 +135,22 @@ const char *body_prompt(void) {
            "(or starter) design back; [[design:list]]; [[design:delete Name]]. The design in use is backed up "
            "automatically before any redesign or switch (backup-DATE), so nothing is lost.\n"
            "  [[in: 20m | what to do]] [[at: 09:00 | what to do]] [[every: 1d at 08:30 | what to do]]: you, later "
-           "(the task comes back to you then, to do). [[agenda]] what you planned; [[forget: n]].\n");
+           "(the task comes back to you then, to do). [[agenda]] what you planned; [[forget: n]].\n"
+           "\nMAKING 3D. Blender is yours, without a window: write a Python script and run it with "
+           "[[sh: os-blender run ~/Models/name.py]] (the first time it installs Blender, about 400 MB: say so). "
+           "`from osui import *` gives helpers: reset(); mat(preset, colour) with presets gold, rose-gold, silver, "
+           "chrome, brushed-steel, gunmetal, copper, brass, bronze, glass, frosted-glass, tinted-glass, crystal, "
+           "lacquer, car-paint, ceramic, porcelain, plastic, glossy-plastic, rubber, felt, velvet, leather, wood, "
+           "polished-wood, marble, stone, matte, obsidian, neon, glow, screen; box(size, at, material, bevel_width), "
+           "cylinder(radius, depth, ...), sphere, torus, ring_slice(r_in, r_out, deg0, deg1, depth), text(\"PLAY\", "
+           "size, depth, ...), empty(name) to group, bevel(obj); part(obj, action=, hover=, title=, app=) makes it "
+           "clickable (or name it \"app:files\"); turn(obj, axis, degrees, frames, name) and move(...) animate; "
+           "export(\"name\") writes ~/Models/name.glb and says which parts it has. Anything else is plain bpy. The "
+           "model faces the viewer along -Y, about 2 units across. Then put it in the design: <model "
+           "src=\"~/Models/name.glb\" .../> (see the design reference), and look at the result. Rounded edges "
+           "(bevels), real materials and a few strong shapes are what make it look made, not a toy; fewer, "
+           "better objects beat many. [[sh: os-blender render ~/Models/name.glb ~/Pictures/name.png]] is a "
+           "Cycles picture of it. They can open Blender itself with os-blender gui.\n");
     snprintf(buf, sizeof buf, "%s", b.p);
     free(b.p);
     return buf;

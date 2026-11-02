@@ -9,6 +9,7 @@
  * (main_modal), the rest of the OS going on underneath. */
 #define _GNU_SOURCE
 #include "fxwin.h"
+#include "appgate.h"
 #include "app.h"
 #include "files.h"
 #include "settings.h"
@@ -50,6 +51,7 @@ struct fxwin {
     fm_doc *doc;
     fx_out *view;       /* what doc was made from */
     fx_out **acts;      /* what="fx:N" */
+    fx_grants *grants;  /* what the person allowed it (appgate.c); every call is checked against it */
     int nacts;
     field fields[MAX_FIELDS];
     char focus[256];    /* the focused input's key */
@@ -209,22 +211,7 @@ static void h_error(void *c, const char *m) {
 
 /* ---- the network ---- */
 
-/* One permission for the whole app, asked the first time it reaches out and remembered (facet.net.<App>). */
 static int h_ask(void *c, const char *q);
-static bool h_net_allowed(void *c) {
-    struct fxwin *fw = c;
-    char key[96];
-    snprintf(key, sizeof key, "facet.net.%s", fw->app->name);
-    const char *v = settings_get(key, NULL);
-    if (v)
-        return !strcmp(v, "yes");
-    char q[200];
-    snprintf(q, sizeof q, "%s wants to use the internet. Let it?", fw->app->name);
-    bool yes = h_ask(c, q) == 1;
-    settings_set(key, yes ? "yes" : "no");
-    LOG("facet: %s may%s use the internet\n", fw->app->name, yes ? "" : " not");
-    return yes;
-}
 
 struct http_job {
     char method[8], url[1024], ctype[96];
@@ -813,9 +800,21 @@ int fxwin_open(const char *path) {
         return -1;
     }
     free(errs.e);
+    /* nothing runs before they have allowed what its code can do */
+    fw->grants = calloc(1, sizeof *fw->grants);
+    if (!fw->grants || !appgate_admit(path, fw->app, fw->src, fw->grants)) {
+        if (fw->grants)
+            toast("%s wasn't allowed to run.", fw->app->name);
+        free(fw->grants);
+        fx_free(fw->app);
+        free(fw->src);
+        free(fw);
+        return -1;
+    }
     fx_host h = {fw,       h_read, h_write, h_remove, h_rename, h_mkdir,  h_files,  h_setting,
                  h_apps,   h_now,  h_open,  h_close,  h_notify, h_ask,    h_prompt, h_error};
-    h.net_allowed = h_net_allowed, h.http = h_http, h.web = h_web, h.net_connect = h_net_connect;
+    h.grants = fw->grants;
+    h.http = h_http, h.web = h_web, h.net_connect = h_net_connect;
     h.net_send = h_net_send, h.net_close = h_net_close, h.net_event = h_net_event;
     fw->rt = fx_start(fw->app, &h);
     fw->rebuild = true;
@@ -924,6 +923,7 @@ void fxwin_close(struct fxwin *fw) {
         free(fw->fields[i].buf);
     free(fw->acts);
     free(fw->src);
+    free(fw->grants);
     free(fw);
 }
 

@@ -1,0 +1,15 @@
+app Counter category utility
+  state
+    count = 0
+    label = "Count"
+  end
+  fn bump()
+    set count = count + 1
+  end
+  view
+    <column>
+      <text>{label}: {count}</text>
+      <button on:click="bump()">Add</button>
+    </column>
+  end
+end

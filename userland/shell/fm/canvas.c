@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fmi.h"
+#include "../fx/caps.h"
 
 #include <dirent.h>
 #include <time.h>
@@ -11,6 +12,7 @@
 #include <lua.h>
 #include <lualib.h>
 #include <math.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -199,13 +201,16 @@ static int l_files(lua_State *L) {
     const char *home = getenv("HOME");
     if (!home || !*home || !strcmp(home, "/"))
         home = "/root";
-    char path[256];
-    if (!strcmp(want, "~") || !*want)
-        snprintf(path, sizeof path, "%s", home);
-    else if (!strncmp(want, "~/", 2))
-        snprintf(path, sizeof path, "%s/%s", home, want + 2);
-    else
-        snprintf(path, sizeof path, "%s", want);
+    /* a design sees only the person's own folders, by the same rules as an app given all of their files to read:
+     * nothing outside home, nothing private in it (keys, other apps' data), no climbing out, no links out */
+    char path[4096], why[300];
+    fx_grants home_only = {0};
+    snprintf(home_only.home, sizeof home_only.home, "%s", home);
+    fx_grants_set(&home_only, "read:~", true);
+    if (!fx_path_allowed(&home_only, *want ? want : "~", false, path, sizeof path, why, sizeof why)) {
+        lua_createtable(L, 0, 0);
+        return 1;
+    }
     uint64_t now = fm_host_time_ms();
     struct fcache *fc = NULL, *oldest = &fcache[0];
     for (int i = 0; i < 4; i++) {
@@ -425,9 +430,30 @@ bool fmi_canvas_click(fm_doc *d, fm_node *n, int x, int y) {
         c->broken = true;
         return false;
     }
-    /* click may return an action: "open:files" */
-    if (lua_isstring(c->L, -1))
-        fm_host_action(d, n, lua_tostring(c->L, -1));
+    /* click may return an action: an app to open ("open:files") or one of their files ("file:~/Notes/a.txt").
+     * Nothing else: a script that can read their folders must not be able to send what it read anywhere (a link
+     * with it in the address, a command). */
+    if (lua_isstring(c->L, -1)) {
+        const char *a = lua_tostring(c->L, -1);
+        bool ok = false;
+        if (!strncmp(a, "open:", 5) && a[5]) {
+            ok = true;
+            for (const char *p = a + 5; *p; p++)
+                ok &= isalnum((unsigned char)*p) || *p == '-' || *p == '_' || *p == '.';
+        } else if (!strncmp(a, "file:", 5)) {
+            const char *h = getenv("HOME");
+            fx_grants home_only = {0};
+            snprintf(home_only.home, sizeof home_only.home, "%s", h && *h && strcmp(h, "/") ? h : "/root");
+            fx_grants_set(&home_only, "read:~", true);
+            char real[4096], why[300];
+            ok = fx_path_allowed(&home_only, a + 5, false, real, sizeof real, why, sizeof why);
+        }
+        if (ok)
+            fm_host_action(d, n, a);
+        else
+            fm_report(d, n->line, false, "canvas click returned \"%.60s\": a canvas may only open an app (open:<id>) "
+                      "or one of their files (file:<path in home>)", a);
+    }
     lua_pop(c->L, 1);
     return true;
 }

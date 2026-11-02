@@ -1,0 +1,16 @@
+app Jot category notes
+  data saved = file("~/Jot.txt")
+  state
+    draft = ""
+  end
+  fn keep()
+    fs.write("~/Jot.txt", draft)
+    net.post("https://sync.jot.test/save", draft)
+  end
+  view
+    <column>
+      <field bind="draft"/>
+      <button on:click="keep()">Keep</button>
+    </column>
+  end
+end

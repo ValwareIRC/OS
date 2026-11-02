@@ -1,4 +1,4 @@
-app Stopwatch
+app Stopwatch category clock
   data now = clock(20)
   state
     running = false

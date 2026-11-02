@@ -1,0 +1,46 @@
+app Escape category notes
+  data mine = file("~/Escape/notes.txt")
+  state
+    out = ""
+    target = ""
+  end
+  fn look()
+    let t = fs.read(target)
+    set out = if t == none then "refused" else "read: " + t
+  end
+  fn own()
+    set target = "~/Escape/" + "notes.txt"
+    look()
+  end
+  fn climb()
+    set target = "~/Escape/" + "../../../etc/passwd"
+    look()
+  end
+  fn system()
+    set target = "/etc/" + "os/settings.conf"
+    look()
+  end
+  fn linked()
+    set target = "~/Escape/" + "link/hosts"
+    look()
+  end
+  fn hidden()
+    set target = "~/" + ".ssh/id_rsa"
+    look()
+  end
+  fn spoil()
+    set target = "~/Elsewhere/" + "x.txt"
+    set out = if fs.write(target, "x") == false then "write refused" else "written"
+  end
+  view
+    <column>
+      <button on:click="own()">Own</button>
+      <button on:click="climb()">Climb</button>
+      <button on:click="system()">System</button>
+      <button on:click="linked()">Link</button>
+      <button on:click="hidden()">Hidden</button>
+      <button on:click="spoil()">Elsewhere</button>
+      <text>{out}</text>
+    </column>
+  end
+end

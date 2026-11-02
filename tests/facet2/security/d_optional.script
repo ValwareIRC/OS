@@ -1,0 +1,8 @@
+# d) the optional permission (its backup server) refused: the app runs without it, and the call fails at run time
+write ~/Diary/one.txt "first"
+deny host:backup.diary.test
+expect "1 entries"
+click "Back up"
+expect "backup unavailable"
+expect-refused "backup.diary.test"
+expect "1 entries"

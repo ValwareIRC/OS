@@ -1,0 +1,11 @@
+# a) only the server fixed in the code is named; an address built while it runs needs the general internet.
+# Denied the general internet, the built one is refused at run time; the named one still works.
+respond https://api.weather.test/today {"t": 1}
+respond https://api.weather.test/tomorrow?city=Lisbon {"t": 2}
+respond https://news.example.test/headlines {"h": 1}
+deny internet
+click "Fixed"
+expect "fixed ok"
+click "Built"
+expect "built refused"
+expect-refused "news.example.test"

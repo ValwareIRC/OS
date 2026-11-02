@@ -1,0 +1,17 @@
+app Diary category writing
+  data entries = files("~/Diary", ".txt")
+  state
+    status = "ready"
+  end
+  fn backup()
+    let r = net.post("https://backup.diary.test/up", {count: len(entries)})
+    set status = if r.ok then "backed up" else "backup unavailable"
+  end
+  view
+    <column>
+      <text>{len(entries)} entries</text>
+      <button on:click="backup()">Back up</button>
+      <text>{status}</text>
+    </column>
+  end
+end

@@ -1,0 +1,24 @@
+# The sandbox: every way out of a place is closed at run time, whatever the script tries. Even given all of
+# their files to read, it can't climb out of home, follow a link out of it, or reach secret stores in it.
+write ~/Escape/notes.txt "mine"
+write ~/.ssh/id_rsa "PRIVATE"
+write ~/Elsewhere/keep.txt "keep"
+link /etc ~/Escape/link
+allow read:~
+click "Own"
+expect "read: mine"
+click "Climb"
+expect "refused"
+expect-refused "outside your home"
+click "System"
+expect "refused"
+expect-refused "outside your home"
+click "Link"
+expect "refused"
+expect-refused "outside your home"
+click "Hidden"
+expect "refused"
+expect-refused "private"
+click "Elsewhere"
+expect "write refused"
+file ~/Elsewhere/keep.txt "keep"

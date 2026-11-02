@@ -1093,7 +1093,11 @@ fx_app *fx_parse(const char *src, fx_errors *errs) {
     } else {
         tok *n = next(t);
         app->name = strdup(n->t == T_NAME ? n->s : "?");
-        expect_nl(t, "the app's name");
+        if (accept_name(t, "category")) {
+            tok *c = next(t);
+            app->category = strdup(c->t == T_NAME ? c->s : "?");
+        }
+        expect_nl(t, "the app's name (and its category: app Notes category notes)");
     }
     parse_body(&r, app, false);
     if (!accept_name(t, "end"))
@@ -1159,6 +1163,7 @@ static void free_node(fx_node *n) {
     free(n);
 }
 static void free_app(fx_app *a) {
+    free(a->category);
     free(a->name);
     for (int i = 0; i < a->nparams; i++)
         free(a->params[i]);

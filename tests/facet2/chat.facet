@@ -1,4 +1,4 @@
-app Chat
+app Chat category chat
   state
     server = "127.0.0.1"
     port = 6667

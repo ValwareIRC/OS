@@ -1,4 +1,4 @@
-app Weather
+app Weather category weather
   data now = web("https://api.example.test/weather?city=Lisbon", 600000)
   state
     sent = ""

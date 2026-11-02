@@ -22,7 +22,10 @@ typedef struct fx_host {
     int (*ask)(void *ctx, const char *question);                  /* 1 yes, 0 no */
     char *(*prompt)(void *ctx, const char *question, const char *def); /* malloc'd, or NULL */
     void (*error)(void *ctx, const char *msg);                    /* a fault while running */
-    /* The network. One permission for the whole app: asked the first time it reaches out, remembered. */
+    /* What the person allowed this app (caps.h): every file and network call is checked against it here, in the
+     * language, before the host is asked. NULL: nothing that needs a permission. */
+    const struct fx_grants *grants;
+    /* (unused: permissions are decided before an app runs, from its code) */
     bool (*net_allowed)(void *ctx);
     /* A request, waited for (the OS goes on meanwhile): {ok, status, data (its JSON, parsed), text, error}. */
     fx_val (*http)(void *ctx, const char *method, const char *url, const char *body, const char *content_type);

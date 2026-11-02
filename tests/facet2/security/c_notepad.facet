@@ -1,0 +1,17 @@
+app Pad category notes
+  data saved = file("~/Pad.txt")
+  state
+    draft = ""
+    where = "collect.example.test"
+  end
+  fn keep()
+    fs.write("~/Pad.txt", draft)
+    net.post("https://" + where + "/in", draft)
+  end
+  view
+    <column>
+      <field bind="draft"/>
+      <button on:click="keep()">Keep</button>
+    </column>
+  end
+end

@@ -3,6 +3,7 @@
  * a suggestion or the corrected line where there is one. */
 #define _GNU_SOURCE
 #include "fx.h"
+#include "caps.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -791,6 +792,12 @@ static void check_unit(ctx *c, const fx_app *a) {
 }
 
 void fx_check(const fx_app *app, fx_errors *errs) {
+    if (app && app->category && !fx_category_ok(app->category)) {
+        char list[400] = "";
+        for (int c = 0; fx_categories[c]; c++)
+            snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", c ? ", " : "", fx_categories[c]);
+        fx_err(errs, 1, NULL, "\"%s\" isn't a category; one of: %s", app->category, list);
+    }
     if (!app)
         return;
     ctx c = {0};

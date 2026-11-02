@@ -1,4 +1,4 @@
-app Launcher
+app Launcher category utility
   data apps = apps()
   state
     query = ""

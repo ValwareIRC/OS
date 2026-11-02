@@ -1,4 +1,4 @@
-app Todo
+app Todo category todo
   data store = file("~/Todo.txt")
   state
     draft = ""

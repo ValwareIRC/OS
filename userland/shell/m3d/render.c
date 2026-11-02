@@ -436,9 +436,26 @@ static void setup_camera(frame *f) {
     float zoom = v->zoom > 0.01f ? v->zoom : 1;
     /* the model's sphere fills the narrower side of the picture */
     float half = fov / 2, halfx = atanf(tanf(half) * aspect), lim = fminf(half, halfx);
-    float dist = v->distance > 0 ? v->distance : radius / sinf(lim) / zoom;
     float yaw = v->yaw * (float)M_PI / 180, pitch = clampf(v->pitch, -89, 89) * (float)M_PI / 180;
     m3v dir = v3(sinf(yaw) * cosf(pitch), sinf(pitch), cosf(yaw) * cosf(pitch));
+    /* fitted: as near as can be with every corner of the model's box inside the picture (a sphere round a wide,
+     * flat model would leave it small in a sea of nothing) */
+    float dist = radius / sinf(lim) / zoom;
+    if (v->distance > 0) {
+        dist = v->distance;
+    } else {
+        m3v zc = dir, upv = fabsf(dir.y) > 0.99f ? v3(0, 0, -1) : v3(0, 1, 0);
+        m3v xc = vnorm(vcross(upv, zc)), yc = vcross(zc, xc);
+        float tx = tanf(halfx) * zoom, ty = tanf(half) * zoom, need = 0;
+        for (int k = 0; k < 8; k++) {
+            m3v p = vsub(v3(k & 1 ? m->hi.x : m->lo.x, k & 2 ? m->hi.y : m->lo.y, k & 4 ? m->hi.z : m->lo.z), c);
+            float px = vdot(p, xc), py = vdot(p, yc), pz = vdot(p, zc);
+            need = fmaxf(need, pz + fabsf(px) / tx);
+            need = fmaxf(need, pz + fabsf(py) / ty);
+        }
+        if (need > 0)
+            dist = fminf(dist, need * 1.04f);
+    }
     f->eye = vadd(c, vmul(dir, dist));
     m3v up = v3(-sinf(v->roll * (float)M_PI / 180), cosf(v->roll * (float)M_PI / 180), 0);
     look_at(f->view, f->eye, c, fabsf(dir.y) > 0.99f ? v3(0, 0, -1) : up);
