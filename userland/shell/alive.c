@@ -12,6 +12,7 @@
  * while they type, watch something full screen, talk to it, or asked it to
  * be quiet. The words come from the model, so they sound like it. */
 #include "alive.h"
+#include "nerve.h"
 #include "voice.h"
 #include "fm/fm.h"
 
@@ -68,34 +69,14 @@ void alive_prefs_save(void) {
 
 /* ---- notable moments ---- */
 
-#define MAX_EVENTS 16
-static struct event {
-    uint64_t at;
-    time_t wall;
-    int level;
-    char kind[16];
-    char text[220];
-    bool spoken; /* said, or no longer worth saying */
-} ev[MAX_EVENTS];
-static int nev;
-
+/* A moment noticed: it goes to its nervous system (nerve.c), which decides what it is to it. */
 void alive_event(int level, const char *kind, const char *fmt, ...) {
-    if (nev == MAX_EVENTS) {
-        memmove(&ev[0], &ev[1], sizeof ev[0] * (MAX_EVENTS - 1));
-        nev--;
-    }
-    struct event *e = &ev[nev++];
-    memset(e, 0, sizeof *e);
-    e->at = A.now;
-    e->wall = time(NULL);
-    e->level = level;
-    e->spoken = level < 1;
-    snprintf(e->kind, sizeof e->kind, "%s", kind);
+    char text[220];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(e->text, sizeof e->text, fmt, ap);
+    vsnprintf(text, sizeof text, fmt, ap);
     va_end(ap);
-    LOG("alive: event (%d, %s) %s\n", level, kind, e->text);
+    nerve(0, kind, level, "%s", text);
 }
 
 /* ---- watching for moments worth noticing ---- */
@@ -266,135 +247,6 @@ static void watch_network(const struct senses *s) {
     was = s->net_up;
 }
 
-/* ---- speaking up ---- */
-
-static uint64_t spoken_at[8]; /* the budget: when it last spoke up */
-static int nspoken;
-
-static uint64_t cooldown(const char *kind) {
-    static const struct {
-        const char *kind;
-        uint64_t ms;
-    } c[] = {{"temp", 20 * 60000}, {"memory", 30 * 60000}, {"session", 90 * 60000}, {"late", 6 * 3600000ull},
-             {"device", 60000},    {"task", 0},            {"network", 10 * 60000}};
-    for (size_t i = 0; i < sizeof c / sizeof c[0]; i++)
-        if (!strcmp(c[i].kind, kind))
-            return c[i].ms;
-    return 15 * 60000;
-}
-
-/* When it last spoke about each kind of moment. */
-static uint64_t kind_said[16];
-static char kind_said_name[16][16];
-
-static uint64_t *said_slot(const char *kind) {
-    for (int i = 0; i < 16; i++)
-        if (!strcmp(kind_said_name[i], kind) || !kind_said_name[i][0]) {
-            snprintf(kind_said_name[i], sizeof kind_said_name[i], "%s", kind);
-            return &kind_said[i];
-        }
-    return &kind_said[15];
-}
-
-static bool convo_busy(void) {
-    struct conversation *c = &A.companion;
-    if (c->pending)
-        return true;
-    /* In the middle of talking with them: wait for a lull. */
-    for (int i = c->n - 1; i >= 0 && i >= c->n - 2; i--)
-        if (!strcmp(c->msgs[i].role, "user") && A.now - c->pending_since < 90000)
-            return true;
-    return false;
-}
-
-static void maybe_speak(void) {
-    /* What is still worth saying? Old news isn't. */
-    int pick[3], np = 0, top = 0;
-    for (int i = 0; i < nev; i++) {
-        struct event *e = &ev[i];
-        if (e->spoken)
-            continue;
-        uint64_t stale = !strcmp(e->kind, "task") ? 20 * 60000 : 10 * 60000;
-        if (A.now - e->at > stale) {
-            e->spoken = true;
-            continue;
-        }
-        uint64_t *said = said_slot(e->kind);
-        if (*said && A.now - *said < cooldown(e->kind) && e->level < 3) {
-            e->spoken = true; /* said something like it recently */
-            continue;
-        }
-        if (np < 3)
-            pick[np++] = i;
-        if (e->level > top)
-            top = e->level;
-    }
-    if (!np)
-        return;
-    bool urgent = top >= 3;
-    if (A.screen != SCR_DESKTOP || A.now - A.screen_since < 25000)
-        return;
-    if (!alive_prefs.proactive && !urgent)
-        return;
-    /* They asked for quiet: only danger gets through, and silently. */
-    if (alive_prefs.quiet) {
-        if (urgent) {
-            for (int k = 0; k < np; k++)
-                if (ev[pick[k]].level >= 3) {
-                    char body[240];
-                    snprintf(body, sizeof body, "%s.", ev[pick[k]].text);
-                    body[0] = (char)toupper((unsigned char)body[0]);
-                    if (notify)
-                        notify("Your PC", body, D.ai_name);
-                    else
-                        toast("%s", body);
-                    ev[pick[k]].spoken = true;
-                }
-        }
-        return;
-    }
-    /* Never over them: not while typing, watching something full screen,
-     * talking with it, or with a question or words already on screen. */
-    if (!urgent && (senses_typing() || senses_fullscreen()))
-        return;
-    if (convo_busy() || actions_confirming() || voice_listening() || voice_hearing() || voice_speaking())
-        return;
-    if (A.caption[0] && A.now < A.caption_until)
-        return;
-    /* A small budget, shared by everything: a few times an hour at most. */
-    int last_hour = 0;
-    uint64_t last = 0;
-    for (int i = 0; i < nspoken; i++) {
-        if (A.now - spoken_at[i] < 3600000)
-            last_hour++;
-        if (spoken_at[i] > last)
-            last = spoken_at[i];
-    }
-    bool reserved = strcasestr(A.prof.autonomy, "quiet") || strcasestr(A.prof.autonomy, "don't") ||
-                    strcasestr(A.prof.autonomy, "leave me");
-    if (!urgent && (last_hour >= (reserved ? 2 : 3) || (last && A.now - last < 6 * 60000) || (reserved && top < 2)))
-        return;
-
-    char note[1400];
-    size_t o = (size_t)snprintf(note, sizeof note,
-                                "(Not something they said: you noticed this on your own, just now. ");
-    for (int k = 0; k < np; k++) {
-        struct event *e = &ev[pick[k]];
-        o += (size_t)snprintf(note + o, o < sizeof note ? sizeof note - o : 0, "%s%s", k ? "; also, " : "", e->text);
-        e->spoken = true;
-        *said_slot(e->kind) = A.now;
-    }
-    snprintf(note + o, o < sizeof note ? sizeof note - o : 0,
-             ". Mention it to them in one short, natural sentence, the way you would; offer one small, concrete thing "
-             "only if it would really help. %sNo tags, no question unless you need one.)",
-             urgent ? "It matters: be clear, not alarming. " : "Keep it light; don't lecture or nag. ");
-    if (nspoken == 8)
-        memmove(&spoken_at[0], &spoken_at[1], sizeof spoken_at[0] * 7), nspoken--;
-    spoken_at[nspoken++] = A.now;
-    LOG("alive: speaking up: %s\n", note);
-    companion_prompt(note, 200);
-}
-
 /* ---- the PC's lights, as part of the room ---- */
 
 static bool lights_touched; /* this session changed the lights: hand them back on exit */
@@ -494,43 +346,24 @@ const char *alive_prompt(void) {
                                 "\n\nWhat you can sense right now (live; this is all of it, so never guess a reading "
                                 "that isn't here, and if they ask about one, say plainly you can't feel it and why):\n%s",
                                 sensed);
-    int shown = 0;
-    for (int i = nev - 1; i >= 0 && shown < 6; i--) {
-        if (A.now - ev[i].at > 6 * 3600000ull)
-            break;
-        char when[16];
-        struct tm tm;
-        localtime_r(&ev[i].wall, &tm);
-        strftime(when, sizeof when, "%H:%M", &tm);
-        o += (size_t)snprintf(buf + o, o < sizeof buf ? sizeof buf - o : 0, "%s- %s %s\n", shown ? "" : "Lately:\n", when,
-                              ev[i].text);
-        shown++;
-    }
+    const char *lately = nerve_context();
+    if (lately[0])
+        o += (size_t)snprintf(buf + o, o < sizeof buf ? sizeof buf - o : 0,
+                              "What you know of lately (they = the person, you = you; known to you, never news to "
+                              "announce):%s\n", lately);
     snprintf(buf + o, o < sizeof buf ? sizeof buf - o : 0,
-             "You also have hands beyond the desktop. Use them only when they ask, or clearly would want it, and "
-             "mention what you did in plain words:\n"
+             "More of your body:\n"
              "[[light:all #ff8800]] [[light:keyboard breathe #00aaff]] [[light:fan pulse #ff0000]] [[light:off]] "
-             "[[light:restore]] change the RGB lights on their PC (target: all, a kind such as keyboard, mouse, fan, "
-             "or a device's name; effects: static, breathe, pulse, off; restore gives them back to their own apps).\n"
+             "[[light:restore]] the RGB lights on their PC (target: all, a kind such as keyboard, mouse, fan, or a "
+             "device's name; effects: static, breathe, pulse, off; restore gives them back to their own apps).\n"
              "[[set:volume 40]] [[set:dark on]] [[set:voice off]] [[set:text larger]] [[set:contrast on]] "
-             "[[set:motion less]] [[set:quiet on]] (you stop speaking up on your own) [[set:lights-follow on]] (the "
-             "lights take the desktop's colours) [[set:lights-show on]] (the keyboard glows while you think or talk) "
-             "[[set:sense hardware off]] (any sense by name).\n"
-             "[[notify:Title|text]] posts a notification. [[open:/root/notes.txt]] or [[open:/root/Documents]] opens "
-             "a file or folder; [[open:senses]] shows them everything you can sense, with a switch for each.\n"
-             "[[look:processes]] [[look:hardware]] [[look:lights]] [[look:windows]] [[look:screen]] [[look:network]] "
-             "[[look:notifications]] [[look:files /root]] [[look:file /root/notes.txt]] [[look:actions]] ask this "
-             "computer something read-only. When you need one, reply with just the look tag; the answer comes back "
-             "at once and you continue (three looks at most).\n"
-             "[[search:words]] looks something up on the web and [[read:https://address]] reads a page (a result from "
-             "a search, say): reply with just the tag; what it finds comes back to you in a few seconds, and you "
-             "answer from it and say where it came from. Use them for news, facts you aren't sure of, and anything "
-             "recent.\n"
-             "[[run:command]] runs a shell command (busybox) after they confirm it on screen; nothing runs without "
-             "their yes, so never say it ran until you're told. [[write:~/path/name.ext]]the file's whole text"
-             "[[/write]] writes a file in their home folder without asking (a logo as ~/Pictures/logo.svg for an "
-             "<image src>, notes, a script for them to look at); not hidden files, at most 512 KB; one it replaces "
-             "can be brought back. [[undo]] reverses your last change to the lights, settings or a file.\n");
+             "[[set:motion less]] [[set:quiet on]] [[set:lights-follow on]] [[set:lights-show on]] [[set:sense "
+             "hardware off]] [[set:reflex jev|llm|rules]] (how your reflexes decide what is worth your attention).\n"
+             "[[notify:Title|text]] a notification. [[open:/root/notes.txt]] or [[open:/root/Documents]] opens a "
+             "file or folder in its app; [[open:senses]] shows them everything you can sense, with a switch for each.\n"
+             "[[look:processes|hardware|lights|windows|network|notifications|actions]] a reading of yourself.\n"
+             "[[write:~/path/name.ext]]the file's whole text[[/write]] a file in their home (a replaced one can be "
+             "brought back).\n");
     return buf;
 }
 
@@ -690,7 +523,7 @@ int alive_panel(rect r) {
     char recent[3][160];
     int nr = actions_recent(recent, 3);
     if (nr) {
-        draw_text(A.frame, f, r.x, y, "What it did lately", D.surface_text);
+        draw_text(A.frame, f, r.x, y, "Recent activity", D.surface_text);
         y += lh + 6;
         for (int i = 0; i < nr; i++) {
             y += draw_text_wrapped(A.frame, small, (rect){r.x, y, r.w, 60}, recent[i], D.muted, 1.25f) + 4;
@@ -755,8 +588,7 @@ void alive_tick(void) {
         watch_them(s);
         watch_devices(s);
         watch_network(s);
-        maybe_speak();
-        ambient_lights(s);
+            ambient_lights(s);
     }
     /* An open panel or a question on screen holds the pointer and keys:
      * nothing underneath reacts until it's answered. */

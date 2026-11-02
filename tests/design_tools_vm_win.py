@@ -1,10 +1,10 @@
 """The companion's design tools, in the OS, with Windows QEMU (Hyper-V) and silent
 sound; tests/fake_ai.py plays a companion whose model can see:
-  she styles with things that do nothing here, and is told so, all of it;
-  having changed the look, she is shown pictures of it and says [[ok]];
-  she writes ~/Pictures/logo.svg herself and puts it in the taskbar;
-  she bevels a button the Windows 95 way and turns text bottom to top;
-  a rule of hers that fights is taken out with ui:unstyle;
+  it styles with things that do nothing here, and is told so, all of it;
+  having changed the look, it is shown pictures of it and says [[ok]];
+  it writes ~/Pictures/logo.svg itself and puts it in the taskbar;
+  it bevels a button the Windows 95 way and turns text bottom to top;
+  a rule of its own that fights is taken out with ui:unstyle;
   [[undo]] takes the file back.
   set ISO=build\\test.iso & python tests\\design_tools_vm_win.py [OUTDIR]"""
 import json, os, re, sys, time

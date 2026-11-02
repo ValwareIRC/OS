@@ -58,7 +58,7 @@ char *stylist_last_zoom(void) {
     return z;
 }
 
-/* around what she changed, with room to see it in its place */
+/* around what it changed, with room to see it in its place */
 static rect closeup_rect(const fm_node *f) {
     int padx = f->vis.w / 3 + 12, pady = f->vis.h / 3 + 12;
     rect cr = {f->vis.x - padx, f->vis.y - pady, f->vis.w + 2 * padx, f->vis.h + 2 * pady};
@@ -180,7 +180,7 @@ void stylist_look_at(const char *text, bool pictures, stylist_look *out) {
         out->jpeg_b64[0] = picture_of(work);
         snprintf(out->shows[0], sizeof out->shows[0], "the desktop at rest, nothing open");
         fm_node *f = look_focus ? fm_find(doc, look_focus) : NULL;
-        /* what she changed may be inside a menu: that menu is the one shown open */
+        /* what it changed may be inside a menu: that menu is the one shown open */
         fm_node *in_pop = NULL;
         for (fm_node *a = f; a; a = a->parent)
             if (a->kind == FM_ELEM && (!strcmp(a->tag, "popover") || !strcmp(a->tag, "sheet") || !strcmp(a->tag, "menu")))

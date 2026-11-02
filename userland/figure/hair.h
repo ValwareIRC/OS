@@ -10,7 +10,7 @@ typedef struct {
     float length;   /* back hair: how far below the chin the tips reach, metres (negative: above it) */
     float volume;   /* 0..1 */
     float curl;     /* tips: + outwards, - inwards */
-    float part;     /* where the bangs part or sweep from, -1 (her right) .. 1 */
+    float part;     /* where the bangs part or sweep from, -1 (its right) .. 1 */
     int ahoge;      /* a lock standing up from the crown */
     rgb color, tip; /* at the roots and at the tips */
 } hair_params;

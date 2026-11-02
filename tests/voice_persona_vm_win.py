@@ -1,12 +1,12 @@
-"""Her voice and who she is, in the OS, with Windows QEMU (Hyper-V) and silent
+"""Its voice and who it is, in the OS, with Windows QEMU (Hyper-V) and silent
 sound. tests/fake_ai.py plays the companion:
-  someone she met before she had a personality: she opens a short chat herself;
-  they ask how she sounds: she plays a clip, they choose it, it is downloaded
-  (from Kokoro's published voices) and she speaks with it, through os-speak;
-  what she reads in them ([[trait:]]) never shows; at 15 her own traits are
-  chosen and her character written, each in a context of its own, and her
-  next reply is made knowing who she is;
-  they ask her to be more cutesy: the wish holds at once, and she is rewritten with it.
+  someone it met before it had a personality: it opens a short chat itself;
+  they ask how it sounds: it plays a clip, they choose it, it is downloaded
+  (from Kokoro's published voices) and it speaks with it, through os-speak;
+  what it reads in them ([[trait:]]) never shows; at 15 its own traits are
+  chosen and its character written, each in a context of its own, and its
+  next reply is made knowing who it is;
+  they ask it to be more cutesy: the wish holds at once, and it is rewritten with it.
   python tests\\voice_persona_vm_win.py [OUTDIR]"""
 import json, os, re, sys, time
 
@@ -45,9 +45,9 @@ results = {}
 try:
     vm.start()
     results["desktop"] = bool(vm.wait_for(r"shell: screen desktop", 300))
-    results["she opens a chat"] = bool(vm.wait_for(r"persona: 1 of 15", 60))
+    results["it opens a chat"] = bool(vm.wait_for(r"persona: 1 of 15", 60))
     time.sleep(4)
-    vm.shot("1-she-asks.png")
+    vm.shot("1-it-asks.png")
     vm.focus_companion()
     results["clip played"] = bool(vm.say("how do you sound", r"voice: hearing bm_george"))
     results["voice chosen, fetching"] = bool(vm.say("that one", r"voice: fetching bm_george"))
@@ -64,14 +64,14 @@ try:
     vm.shot("2-conversation.png")
     vm.say("are you there", r"companion|voice: speaking")
     time.sleep(3)
-    results["she knows who she is"] = "persona-seen" in open(vm.ailog).read()
+    results["it knows who it is"] = "persona-seen" in open(vm.ailog).read()
     vm.shot("3-after.png")
-    vm.say("be more cutesy", r"persona: they asked her to change")
-    results["wish taken"] = "persona: they asked her to change" in vm.log_text()
+    vm.say("be more cutesy", r"persona: they asked it to change")
+    results["wish taken"] = "persona: they asked it to change" in vm.log_text()
     results["rewritten with it"] = bool(vm.wait_for(r"persona: rewritten with their wish", 120))
     vm.say("still there", r"voice: speaking")
     time.sleep(3)
-    results["she is what they asked"] = "tune-seen" in open(vm.ailog).read()
+    results["it is what they asked"] = "tune-seen" in open(vm.ailog).read()
     vm.shot("4-tuned.png")
 finally:
     vm.stop()

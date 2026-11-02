@@ -11,6 +11,8 @@
 #include "fxwin.h"
 #include "fx/fx.h"
 #include "voice.h"
+#include "agent.h"
+#include "nerve.h"
 #include "persona.h"
 #include "files.h"
 #include "launcher.h"
@@ -237,7 +239,7 @@ static void collect_whys(char *out, size_t len) {
 static void chat_strip(rect r);
 bool chat_on_desktop(void);
 
-/* Facet 2: the whole reference while apps are being talked about (or one she wrote is being fixed), else a line. */
+/* Facet 2: the whole reference while apps are being talked about (or one it wrote is being fixed), else a line. */
 static int facet_fixing; /* replies left to correct an app that didn't load */
 
 static const char *facet_prompt(void) {
@@ -258,7 +260,7 @@ static const char *facet_prompt(void) {
            "the instructions appear when they do.";
 }
 
-/* [[app:Name]] ... [[/app]]: an app she wrote. Checked first: problems go back to her with their fixes (twice at
+/* [[app:Name]] ... [[/app]]: an app it wrote. Checked first: problems go back to it with their fixes (twice at
  * most); a good one is kept in ~/Apps, joins their apps and opens. */
 static void take_app(const char *raw_name, const char *src) {
     char name[48];
@@ -388,6 +390,10 @@ static const char *companion_system(void) {
              presence_prompt(), facet_prompt(), voice_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
     free(tree);
+    { /* its body: what it feels of itself, and how it moves it (agent.c) */
+        size_t l = strlen(buf);
+        snprintf(buf + l, sizeof buf - l, "%s", body_prompt());
+    }
     if (ai_sees_images(&A.cfg)) { /* a model that sees is shown its changes */
         static const char blind[] = "You can't see the screen: after your tags the system checks the result and tells you "
                                     "what looks wrong";
@@ -467,7 +473,7 @@ static int run_ui_tags(char *text, bool act) {
             preview_edited();
         }
         fm_flash(touched);
-        if (look) { /* its target, shown close up when she is shown the change */
+        if (look) { /* its target, shown close up when it is shown the change */
             const char *v = c + strcspn(c, " ");
             v += strspn(v, " ");
             snprintf(last_look_target, sizeof last_look_target, "%.*s", (int)strcspn(v, " {<"), v);
@@ -694,24 +700,112 @@ void companion_rename_user(const char *raw) {
     LOG("companion: they are called %s now (was %s)\n", name, old[0] ? old : "nothing");
 }
 
-/* [[theme:NAME]]: one of the starter designs, as it comes, applied now (the
- * names in it become theirs: their companion's, their own). */
-static bool apply_starter(const char *raw) {
-    char name[48];
-    int k = 0;
-    for (const char *p = raw + strspn(raw, " \"'"); *p && k < 47; p++)
+/* ---- saved designs: theirs to keep, apply again, and never lose ---- */
+
+#define DESIGNS STATE_DIR "/designs"
+
+/* a design's file name from what it was called: letters, digits, - and _ */
+static void design_slug(const char *raw, char *out, size_t n) {
+    size_t k = 0;
+    for (const char *p = raw + strspn(raw, " \"'"); *p && k < n - 1; p++) {
         if (isalnum((unsigned char)*p) || *p == '-' || *p == '_')
-            name[k++] = (char)tolower((unsigned char)*p);
-        else
+            out[k++] = (char)tolower((unsigned char)*p);
+        else if ((*p == ' ' || *p == '.') && k && out[k - 1] != '-')
+            out[k++] = '-';
+        else if (*p == '"' || *p == '\'' || *p == ']')
             break;
-    name[k] = 0;
-    char path[160];
-    snprintf(path, sizeof path, STYLIST_THEMES "/%s.xml", name);
-    FILE *f = k ? fopen(path, "r") : NULL;
-    if (!f) {
-        LOG("companion: no starter design \"%s\"\n", name);
+    }
+    while (k && out[k - 1] == '-')
+        k--;
+    out[k] = 0;
+}
+
+/* The current design, kept under a name (auto: a backup before a change, the last 12 kept) */
+bool desktop_design_save(const char *name, bool automatic) {
+    if (!A.ui)
+        return false;
+    char slug[64], path[200];
+    if (automatic) {
+        time_t t = time(NULL);
+        struct tm tm;
+        localtime_r(&t, &tm);
+        strftime(slug, sizeof slug, "backup-%Y%m%d-%H%M%S", &tm);
+    } else {
+        design_slug(name, slug, sizeof slug);
+    }
+    if (!slug[0])
+        return false;
+    mkdir(DESIGNS, 0755);
+    snprintf(path, sizeof path, DESIGNS "/%s.xml", slug);
+    char *s = fm_serialize(A.ui);
+    FILE *f = s ? fopen(path, "w") : NULL;
+    if (f)
+        fputs(s, f), fclose(f);
+    free(s);
+    if (!f)
+        return false;
+    if (automatic) { /* backups beyond the last twelve go */
+        DIR *dd = opendir(DESIGNS);
+        char names[256][64];
+        int nb = 0;
+        struct dirent *e;
+        while (dd && (e = readdir(dd)))
+            if (!strncmp(e->d_name, "backup-", 7) && nb < 256)
+                snprintf(names[nb++], sizeof names[0], "%s", e->d_name);
+        if (dd)
+            closedir(dd);
+        qsort(names, (size_t)nb, sizeof names[0], (int (*)(const void *, const void *))strcmp);
+        for (int i = 0; i + 12 < nb; i++) {
+            snprintf(path, sizeof path, DESIGNS "/%s", names[i]);
+            unlink(path);
+        }
+    }
+    LOG("designs: saved %s\n", slug);
+    return true;
+}
+
+/* What is saved, newest first, in words */
+void desktop_design_list(char *out, size_t n) {
+    DIR *dd = opendir(DESIGNS);
+    size_t o = (size_t)snprintf(out, n, "Saved designs:");
+    int k = 0;
+    struct dirent *e;
+    while (dd && (e = readdir(dd)) && o < n - 80) {
+        size_t l = strlen(e->d_name);
+        if (l < 5 || strcmp(e->d_name + l - 4, ".xml"))
+            continue;
+        o += (size_t)snprintf(out + o, n - o, "%s %.*s", k++ ? "," : "", (int)(l - 4), e->d_name);
+    }
+    if (dd)
+        closedir(dd);
+    if (!k)
+        snprintf(out + o, n - o, " none yet");
+}
+
+static bool apply_design_file(const char *path, const char *name);
+
+/* [[theme:NAME]] or [[design:apply NAME]]: a saved design of theirs, else one of the starter designs, applied
+ * now (the names in it become theirs: their companion's, their own). What was there is kept as a backup. */
+static bool apply_starter(const char *raw) {
+    char name[64], path[200];
+    design_slug(raw, name, sizeof name);
+    snprintf(path, sizeof path, DESIGNS "/%s.xml", name);
+    if (!name[0])
+        return false;
+    if (access(path, R_OK) != 0)
+        snprintf(path, sizeof path, STYLIST_THEMES "/%s.xml", name);
+    if (access(path, R_OK) != 0) {
+        LOG("companion: no design \"%s\"\n", name);
         return false;
     }
+    desktop_design_save(NULL, true);
+    return apply_design_file(path, name);
+}
+
+static bool apply_design_file(const char *path, const char *name) {
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return false;
     static char text[262144];
     size_t n = fread(text, 1, sizeof text - 1, f);
     text[n] = 0;
@@ -742,7 +836,7 @@ static bool apply_starter(const char *raw) {
                 fm_attr_set(m, "greeting", d.greeting);
     }
     desktop_adopt(doc, &d, false);
-    LOG("companion: applied starter design %s (for %s)\n", name, D.user_name[0] ? D.user_name : "no name yet");
+    LOG("companion: applied design %s (for %s)\n", name, D.user_name[0] ? D.user_name : "no name yet");
     return true;
 }
 
@@ -788,18 +882,35 @@ static void companion_update(void) {
         }
         if (!blank)
             A.empty_replies = 0;
+        if (person_said)
+            agent_new_request();
+        /* its reflexes woke it and it chose to let it be: no words, and no trace of the moment */
+        if (blank && c->n >= 2 && nerve_is_wake_note(c->msgs[c->n - 2].text)) {
+            free(m->text);
+            c->n--;
+            free(c->msgs[--c->n].text);
+            LOG("companion: let it be\n");
+            return;
+        }
+        /* its body (agent.c): its tags run now, what they return comes back to it as the next step */
+        bool stepping = agent_take(c, from_person);
+        if (stepping && !m->text[strspn(m->text, " \t\r\n")] && !strstr(m->text, "[[")) { /* only movement, no words */
+            free(m->text);
+            c->n--;
+            return;
+        }
         if (actions_take(c, &from_person)) /* senses and hands (actions.c): it looked something up */
             return;
         m = &c->msgs[c->n - 1];
         /* Its edits are measured like its designs (stylist.c): what one
          * breaks goes back to it once, and the tags of that answer count. */
         static bool repairing;
-        static int look_rounds; /* times she has been shown her change since they last spoke */
+        static int look_rounds; /* times it has been shown its change since they last spoke */
         bool repair = repairing;
         repairing = false;
         if (person_said)
             look_rounds = 0;
-        /* "[[ok]]": she looked and it is right */
+        /* "[[ok]]": it looked and it is right */
         for (char *ok; (ok = strstr(m->text, "[[ok]]"));)
             memmove(ok, ok + 6, strlen(ok + 6) + 1);
         fm_doc *target = (from_person || repair) && has_look_tags(m->text) ? preview_target() : NULL;
@@ -807,7 +918,7 @@ static void companion_update(void) {
         bool has_look_tags_ran = target != NULL;
         int ui_ran = run_ui_tags(m->text, from_person || repair);
         {
-            const char *wr = actions_report(); /* [[write]] results join the note she reads next */
+            const char *wr = actions_report(); /* [[write]] results join the note it reads next */
             size_t tl = strlen(tag_report);
             if (wr[0]) {
                 snprintf(tag_report + tl, sizeof tag_report - tl, "%s", wr);
@@ -842,7 +953,7 @@ static void companion_update(void) {
             preview_discard();
         int opened = 0;
         char *o;
-        while ((o = strstr(m->text, "[[app:"))) { /* an app she wrote (its code may hold "]]" of its own) */
+        while ((o = strstr(m->text, "[[app:"))) { /* an app it wrote (its code may hold "]]" of its own) */
             char *name_end = strstr(o, "]]");
             char *close = name_end ? strstr(name_end, "[[/app]]") : NULL;
             char name[64] = "";
@@ -855,7 +966,7 @@ static void companion_update(void) {
                 take_app(name, src);
             free(src);
         }
-        while ((o = strstr(m->text, "[[voice:"))) { /* her voice: hear, use, speed */
+        while ((o = strstr(m->text, "[[voice:"))) { /* its voice: hear, use, speed */
             char *e = strstr(o, "]]");
             char arg[96];
             snprintf(arg, sizeof arg, "%.*s", e ? (int)(e - o - 8) < 95 ? (int)(e - o - 8) : 95 : 0, o + 8);
@@ -880,8 +991,8 @@ static void companion_update(void) {
                 snprintf(note, sizeof note, "(voice: [[voice:%s]] isn't a thing; hear, use, speed or key)", arg);
             convo_add(c, "hidden", note);
         }
-        persona_take(m->text); /* [[trait:]]: what she read in them, private */
-        presence_tags(m->text, from_person); /* her body: [[act:]] [[mood:]] [[figure:]] */
+        persona_take(m->text); /* [[trait:]]: what it read in them, private */
+        presence_tags(m->text, from_person); /* its body: [[act:]] [[mood:]] [[figure:]] */
         while ((o = strstr(m->text, "[[theme:"))) { /* one of the starter designs, as it comes */
             char *e = strstr(o, "]]");
             char nm[64];
@@ -890,6 +1001,34 @@ static void companion_update(void) {
             memmove(o, after, strlen(after) + 1);
             if (from_person && e && !apply_starter(nm))
                 convo_add(c, "hidden", "(The [[theme:]] tag FAILED: there is no starter design by that name.)");
+        }
+        while ((o = strstr(m->text, "[[design:"))) { /* save, apply, list, delete their designs */
+            char *e = strstr(o, "]]");
+            char arg[120];
+            snprintf(arg, sizeof arg, "%.*s", e ? (int)(e - o - 9) < 119 ? (int)(e - o - 9) : 119 : 0, o + 9);
+            char *after = e ? e + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            if (!from_person || !e)
+                continue;
+            char verb[16] = "", note[1400];
+            int off = 0;
+            sscanf(arg, "%15s %n", verb, &off);
+            const char *what = arg + off;
+            if (!strcasecmp(verb, "save"))
+                snprintf(note, sizeof note, "(design: %s)", desktop_design_save(what, false) ? "saved; [[design:apply NAME]] brings it back" : "FAILED: give it a name");
+            else if (!strcasecmp(verb, "apply") || !strcasecmp(verb, "load"))
+                snprintf(note, sizeof note, "(design: %s)", apply_starter(what) ? "applied (what was there is kept as a backup)" : "FAILED: there is no saved or starter design by that name; [[design:list]]");
+            else if (!strcasecmp(verb, "delete")) {
+                char slug[64], path[200];
+                design_slug(what, slug, sizeof slug);
+                snprintf(path, sizeof path, DESIGNS "/%s.xml", slug);
+                snprintf(note, sizeof note, "(design: %s)", slug[0] && unlink(path) == 0 ? "deleted" : "FAILED: no saved design by that name");
+            } else {
+                char list[1200];
+                desktop_design_list(list, sizeof list);
+                snprintf(note, sizeof note, "(design: %s)", list);
+            }
+            convo_add(c, "hidden", note);
         }
         while ((o = strstr(m->text, "[[name:"))) { /* they gave it a new name */
             char *e = strstr(o, "]]");
@@ -957,7 +1096,7 @@ static void companion_update(void) {
             if (preview_showing())
                 m->text = strdup(tag ? "On it. Watch it come together in the preview." : "Have a look in the preview.");
             else
-                m->text = strdup(tag ? "On it. Reworking your space now." : "Done. Have a look.");
+                m->text = strdup(tag ? "Redesigning the desktop now." : "Done. Have a look.");
         }
         voice_say(m->text); /* heard as well as read */
         /* With its window closed, its words appear as a caption instead
@@ -1045,14 +1184,17 @@ static void companion_body(rect r) {
     /* Lay out bubbles bottom-up so the newest stays visible. */
     canvas_clip(A.frame, area);
     int y = area.y + area.h, maxw = (int)(r.w * 0.82f);
-    if (c->pending) {
+    if (c->pending || agent_busy()) {
         y -= 40;
         int dots = 1 + (int)((A.now / 350) % 3);
-        char d[8] = "";
+        char d[80] = "";
+        if (agent_busy() && agent_doing()[0]) /* its body at work: what it is doing */
+            snprintf(d, sizeof d, "%s ", agent_doing());
         for (int i = 0; i < dots; i++)
             strcat(d, ".");
-        fill_round(A.frame, (rect){area.x, y, 70, 34}, 17, color_alpha(D.accent2, 0.25f));
-        draw_text(A.frame, f, area.x + 18, y + 4, d, theme_ink((rect){area.x, y, 70, 34}, D.surface_text, 4.5f));
+        int w = text_width(f, d) + 36;
+        fill_round(A.frame, (rect){area.x, y, w, 34}, 17, color_alpha(D.accent2, 0.25f));
+        draw_text(A.frame, f, area.x + 18, y + 4, d, theme_ink((rect){area.x, y, w, 34}, D.surface_text, 4.5f));
     }
     if (c->error[0]) {
         int h = draw_text_wrapped(NULL, small, (rect){0, 0, maxw, 400}, c->error, 0, 1.25f);
@@ -1188,7 +1330,7 @@ void forget_everything(void) {
 }
 
 /* Back to how it came: everything kept on the disk is erased (their name,
- * the conversation, the memory, the design, her look, the home folder, apps
+ * the conversation, the memory, the design, its look, the home folder, apps
  * from Flathub and their data) and the computer starts again at the very
  * first screen. Nothing is saved on the way out. */
 void factory_reset(void) {
@@ -1227,7 +1369,7 @@ static void about_body(rect r) {
     y += 22;
 
     /* why: the designer's own words, at a comfortable measure */
-    draw_text(A.frame, label, r.x, y, "WHY IT LOOKS LIKE THIS", accent);
+    draw_text(A.frame, label, r.x, y, "DESIGN NOTES", accent);
     y += font_line_height(label) + 8;
     int measure = r.w < 560 ? r.w : 560;
     y += draw_text_wrapped(A.frame, f, (rect){r.x, y, measure, 200}, D.rationale[0] ? D.rationale : "No note was left.",
@@ -1718,6 +1860,14 @@ int fm_host_window_app(int i) {
     return i >= 0 && i < n ? window_app(l[i]) : 0;
 }
 
+/* For its hands (agent.c): the i-th open window's slot, its title, the focused one */
+int desktop_window_slot(int i) {
+    int l[WIN_MAX], n = open_list(l);
+    return i >= 0 && i < n ? l[i] : -1;
+}
+const char *desktop_window_title(int w) { return w >= 0 && w < WIN_MAX ? window_title(w) : ""; }
+int desktop_focused_window(void) { return focused_window(); }
+
 const char *fm_host_window_title(int i) {
     int l[WIN_MAX], n = open_list(l);
     return i >= 0 && i < n ? window_title(l[i]) : "";
@@ -1800,7 +1950,7 @@ void fm_host_draw_view(const char *app, rect r) {
     }
 }
 
-/* The design's own spot for her (its <ai> or <avatar>), as last drawn: she's told where it is. */
+/* The design's own spot for it (its <ai> or <avatar>), as last drawn: it's told where it is. */
 static rect her_spot;
 static uint64_t her_spot_at;
 
@@ -1820,25 +1970,25 @@ void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char
     }
     if (presence_draw_avatar(A.frame, r, active || A.companion.pending != NULL, frame, tint, shot))
         return;
-    fm_host_draw_orb(r, active); /* no face: her own look, if she has one */
+    fm_host_draw_orb(r, active); /* no face: its own look, if it has one */
 }
 
 void fm_host_draw_orb(rect r, bool active) {
     her_spot = r, her_spot_at = A.now ? A.now : 1;
     active = active || A.companion.pending != NULL;
     if (presence_draw_home(A.frame, r, active))
-        return; /* her face, in its frame */
+        return; /* its face, in its frame */
     rect elsewhere;
     if (emblem_free_place(&elsewhere))
-        return; /* she sits somewhere else: the design's spot stays as the design made it */
+        return; /* it sits somewhere else: the design's spot stays as the design made it */
     float s = (float)(r.w < r.h ? r.w : r.h);
     color a = D.accent, b = D.accent2;
     alive_orb(&a, &b, &active); /* attentive while listening */
     if (emblem_draw(A.frame, r.x + r.w / 2.0f, r.y + r.h / 2.0f, s * 0.36f, a, b, active))
-        caption_anchor(r); /* her words appear beside her */
+        caption_anchor(r); /* its words appear beside it */
 }
 
-/* Her look where she placed it herself, under the windows; a click on it is a click on her. */
+/* Its look where it placed it itself, under the windows; a click on it is a click on the companion. */
 static void draw_her_free(int top, bool over_ui) {
     rect r;
     if (presence_mode() != PRESENCE_LIGHT || !emblem_free_place(&r))
@@ -2006,7 +2156,7 @@ static void explain_why(fm_node *n) {
     }
     char q[200];
     const char *what = n->id[0] && n->id[0] != '_' ? n->id : n->tag;
-    snprintf(q, sizeof q, "Why is the %s here, the way it is?", what);
+    snprintf(q, sizeof q, "Why does the %s look like this?", what);
     ask_companion(q);
 }
 
@@ -2124,7 +2274,9 @@ void desktop_close_window(int w) {
 
 /* ---- the desktop ---- */
 
-static void save_ui(void) {
+void desktop_save_ui(void);
+static void save_ui(void) { desktop_save_ui(); }
+void desktop_save_ui(void) {
     char *s = fm_serialize(A.ui);
     FILE *f = fopen(STATE_DIR "/facet.xml", "w");
     if (f && s) {
@@ -2261,11 +2413,11 @@ static void waking_note(void) {
         return;
     const char *who = A.prof.ai_name[0] ? A.prof.ai_name : "Your AI";
     if (said == 0 && mind_builtin_waking_for() >= 2 && !mind_builtin_ready()) {
-        toast("%s is waking up (loading %s)...", who, models_selected()->name);
+        toast("Starting %s (loading %s)...", who, models_selected()->name);
         A.toast_until = A.now + 600000; /* until it is awake */
         said = 1;
     } else if (said == 1 && mind_builtin_ready()) {
-        toast("%s is awake", who);
+        toast("%s is ready", who);
         said = 2;
     }
 }
@@ -2286,9 +2438,18 @@ void desktop_draw(void) {
         open_window(WIN_COMPANION);
     }
     companion_update();
-    alive_tick(); /* senses, moments worth a word, ambient lights */
-    voice_poll(); /* a voice she was given, arriving */
-    persona_poll(); /* who she is: written once known, drifting a little */
+    alive_tick(); /* senses, ambient lights */
+    nerve_tick(); /* what happened, judged by its reflexes; waking it when one earned it */
+    agent_tick(); /* its body: what it did, back to it as the next step; its plans when they're due */
+    if (agent_busy())
+        for (int i = 0; i < A.in.nkeys; i++)
+            if (A.in.keys[i] == K_ESC) {
+                agent_stop();
+                toast("Stopped.");
+                body_feel('p', "stopped what you were doing");
+            }
+    voice_poll(); /* a voice it was given, arriving */
+    persona_poll(); /* who it is: written once known, drifting a little */
     static uint64_t desktop_seen;
     if (!desktop_seen)
         desktop_seen = A.now;
@@ -2305,13 +2466,13 @@ void desktop_draw(void) {
     if (voice_key_wanted[0]) { /* a cloud voice's key: typed into the system, never into the conversation */
         bool oa = voice_key_wanted[0] == 'o';
         voice_key_wanted[0] = 0;
-        char *key = fxwin_secret(oa ? "Your OpenAI API key, for her voice. It stays on this computer."
-                                    : "Your ElevenLabs API key, for her voice. It stays on this computer.");
+        char *key = fxwin_secret(oa ? "Your OpenAI API key, used for the companion's voice. It is stored only on this computer."
+                                    : "Your ElevenLabs API key, used for the companion's voice. It is stored only on this computer.");
         if (key) {
             settings_set(oa ? "voice.openai_key" : "voice.elevenlabs_key", key);
             memset(key, 0, strlen(key));
             free(key);
-            toast("Saved. She can use those voices now.");
+            toast("Key saved. Those voices are now available.");
         }
     }
     /* Ctrl+Space anywhere: talk to the companion */
@@ -2387,14 +2548,14 @@ void desktop_draw(void) {
     fm_input(ui, 3);
     ui->in = &A.in;
     bool keys_to_ui = ui->focus != NULL;
-    if (A.in.right_clicked && top < 0 && ui->hovered)
+    if (A.in.right_clicked && top < 0 && ui->hovered && !te_menu_state()->open) /* not on a field's own menu */
         explain_why(ui->hovered);
 
     if (!cached) {
         fm_render_layer(ui, A.frame, 0);
         draw_her_free(top, over_ui);
     }
-    presence_draw_corner(A.frame); /* her face, when the design has nowhere for it */
+    presence_draw_corner(A.frame); /* its face, when the design has nowhere for it */
     input_state saved = A.in;
     int focused = focused_window();
     for (int i = 0; i < n; i++) {

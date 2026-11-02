@@ -36,6 +36,7 @@ static struct {
     int len;
     int caret, anchor; /* byte offsets; the selection is between them */
     char title[96];
+    text_edit title_ed; /* caret and selection in the title */
     bool title_set;    /* they (or the first save) named it */
     char path[512];    /* "" until it is first saved */
     bool readonly, dirty, failed;
@@ -496,33 +497,23 @@ static void move_to(int o, bool extend) {
 static void title_keys(void) {
     for (int i = 0; i < A.in.nkeys; i++) {
         int k = A.in.keys[i];
-        size_t tl = strlen(N.title);
         if (k == K_ENTER || k == K_TAB || k == K_DOWN) {
             N.focus = 0;
-        } else if (k == K_BACKSPACE && tl) {
-            do
-                tl--;
-            while (tl && (N.title[tl] & 0xc0) == 0x80);
-            N.title[tl] = 0;
-            N.dirty = true, N.changed_at = A.now;
-        } else if (k == K_PASTE || (k >= 32 && k < 127 && !A.in.ctrl)) {
-            char add[96];
-            if (k == K_PASTE)
-                sanitize(add, sizeof add, clipboard_text());
-            else
-                add[0] = (char)k, add[1] = 0;
-            snprintf(N.title + tl, sizeof N.title - tl, "%s", add);
-            N.dirty = true, N.changed_at = A.now;
+            continue;
         }
-        if (N.dirty)
-            N.title_set = true;
+        bool ch = false;
+        if (((A.in.keymod[i] & KM_CTRL) != 0) && (k == 's' || k == 'S' || k == 'n' || k == 'N'))
+            continue;
+        te_key(&N.title_ed, N.title, (int)sizeof N.title, k == '/' ? 0 : k, (A.in.keymod[i] & KM_CTRL) != 0, (A.in.keymod[i] & KM_SHIFT) != 0, false, A.now, &ch);
+        if (ch)
+            N.dirty = true, N.changed_at = A.now, N.title_set = true;
     }
 }
 
 static void text_keys(font *f, int view_lines) {
     for (int i = 0; i < A.in.nkeys; i++) {
         int k = A.in.keys[i];
-        bool sh = A.in.shift, ctrl = A.in.ctrl, sel = N.caret != N.anchor;
+        bool sh = (A.in.keymod[i] & KM_SHIFT) != 0, ctrl = (A.in.keymod[i] & KM_CTRL) != 0, sel = N.caret != N.anchor;
         layout(f, N.lay_w);
         int line = line_of(N.caret);
         int cx = seg_width(f, N.buf + N.lines[line], N.caret - N.lines[line]);
@@ -695,8 +686,11 @@ void notes_draw(rect r) {
 
     /* pointer */
     bool over_text = pt_in(text, A.in.mx, A.in.my);
-    if (A.in.pressed && pt_in(title, A.in.mx, A.in.my))
+    if (A.in.pressed && pt_in(title, A.in.mx, A.in.my)) {
+        if (N.focus != 1)
+            te_reset(&N.title_ed, N.title);
         N.focus = 1;
+    }
     if (ui_button(newb, "New", small, color_alpha(D->surface_text, 0.08f), ink, newb.h / 2.0f, true))
         new_note();
     layout(f, text.w);
@@ -766,12 +760,12 @@ void notes_draw(rect r) {
         N.scroll = 0;
 
     /* title */
-    if (N.title[0])
-        draw_text(A.frame, tf, title.x, title.y + 4, N.title, ink);
-    else
+    if (!N.title[0])
         draw_text(A.frame, tf, title.x, title.y + 4, "Untitled", color_alpha(muted, 0.7f));
-    if (N.focus == 1 && (A.now / 530) % 2 == 0)
-        fill_rect(A.frame, (rect){title.x + text_width(tf, N.title) + 2, title.y + 8, 2, th - 8}, accent);
+    if (N.focus == 1)
+        te_mouse(&N.title_ed, N.title, tf, title, title.x, &A.in, false, A.now);
+    te_draw(A.frame, &N.title_ed, N.title, tf, (rect){title.x - 2, title.y, title.w + 2, th + 6}, title.x, title.y + 4,
+            ink, color_alpha(accent, 0.3f), N.focus == 1, false, A.now);
     fill_rect(A.frame, (rect){r.x + 6, top, r.w - 12, 1}, color_alpha(ink, 0.12f));
 
     /* the text, its selection and the caret: only the lines in view */

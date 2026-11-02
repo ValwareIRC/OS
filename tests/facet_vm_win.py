@@ -1,7 +1,7 @@
 """Facet 2 apps in the OS, end to end, with Windows QEMU (Hyper-V) and silent
 sound. tests/fake_ai.py plays the companion:
-  she opens Daybook (a Facet app that comes with the system);
-  she writes a Water app with a mistake: the problems go back to her, she
+  it opens Daybook (a Facet app that comes with the system);
+  it writes a Water app with a mistake: the problems go back to it, it
   writes it again, and the good one is saved to ~/Apps and opens.
 Screenshots after each.
 
@@ -35,7 +35,7 @@ mind = os.path.join(out, "mind.json")
 open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://10.0.2.2:{port}/v1", "api_key": "",
                                   "model": "fake"}) + "\n")
 alive = os.path.join(out, "alive.conf")
-open(alive, "w").write("proactive=0\n")  # she doesn't speak up on her own: the replies stay in step
+open(alive, "w").write("proactive=0\n")  # it doesn't speak up on its own: the replies stay in step
 desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes", os.environ.get("DESIGN", "starlit") + ".xml")
 log = os.path.join(out, "serial.log")
 if os.path.exists(log):

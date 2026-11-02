@@ -1,7 +1,7 @@
-"""Her face in the OS, tested with Windows QEMU (Hyper-V), for when WSL has no
+"""Its face in the OS, tested with Windows QEMU (Hyper-V), for when WSL has no
 KVM: boots to a desktop whose orb is big enough for a face, presence "face",
-and checks os-figure starts, its frames show in the orb, she follows the
-pointer, and her tags in a reply ([[mood:]], [[act:]]) reach her. The
+and checks os-figure starts, its frames show in the orb, it follows the
+pointer, and its tags in a reply ([[mood:]], [[act:]]) reach it. The
 companion is tests/fake_ai.py. Run with Windows' Python:
 
   python tests\\figure_vm_win.py [OUTDIR]"""
@@ -141,7 +141,7 @@ try:
     orb = rect("ui-heart") or rect("ui-face")
     result["orb"] = orb
     shots.append(q.shot("1-face.png"))
-    if os.environ.get("FIG_DRAG"):  # her own corner frame, dragged somewhere else
+    if os.environ.get("FIG_DRAG"):  # its own corner frame, dragged somewhere else
         sx, sy = W - 220 - 28 + 110, H - 220 - 72 + 110
         q.move(sx, sy)
         time.sleep(0.3)

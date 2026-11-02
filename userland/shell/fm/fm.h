@@ -23,6 +23,9 @@
 
 typedef struct fm_node fm_node;
 typedef struct fm_doc fm_doc;
+struct text_edit;
+/* An <input>/<search> field's editor: caret, selection, undo (made on first use). */
+struct text_edit *fmi_editor(fm_node *n);
 
 /* ---- values ---- */
 
@@ -229,6 +232,7 @@ struct fm_node {
     rect box;                       /* border box from layout */
     rect vis;                       /* box after transforms: where it is drawn and hit */
     float vscale;                   /* accumulated scale (fonts and icons follow it) */
+    struct text_edit *ed;           /* <input>/<search>: caret, selection, undo (textedit.h) */
     float mw, mh;                   /* measured preferred size */
     bool laid_out;
     int content_h;                  /* height of the children, for scrolling */
@@ -391,7 +395,7 @@ void fm_host_action(fm_doc *d, fm_node *src, const char *action);
 bool fm_host_bind(const char *key, char *out, size_t n);
 void fm_host_draw_view(const char *app, rect r);   /* built-in app bodies */
 void fm_host_draw_orb(rect r, bool active);
-/* <avatar frame="rect|circle" tint="none|codec">: her live portrait (the light when she has no face) */
+/* <avatar frame="rect|circle" tint="none|codec">: its live portrait (the light when it has no face) */
 /* shot="face|bust|waist|full": how close the camera is */
 void fm_host_draw_avatar(rect r, const char *frame, const char *tint, const char *shot, bool active);
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover);

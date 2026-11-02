@@ -6,7 +6,7 @@
  * a wing, the crease above, a fine lower lash. Small brows, a nose mark, a
  * small mouth whose shapes follow speech and mood, blush. Every expression
  * is a variant drawn in the character's own style, so a happy ^ ^ or a pout
- * still looks like her.
+ * still looks like it.
  *
  * The texture covers the head's full width and height (see head_uv). Eyes
  * are laid out in "eye units" (0 at the inner corner, 1 at the outer, y up),
@@ -256,8 +256,8 @@ static void closed_line(canvas *cv, const eyeframe *f, const face_params *fp, li
     }
 }
 
-/* The iris itself depends only on the look, not on where she looks or how
- * she feels: drawn once into a small picture (colour, and coverage in the
+/* The iris itself depends only on the look, not on where it looks or how
+ * it feels: drawn once into a small picture (colour, and coverage in the
  * alpha) and placed wherever the eye needs it. One per pupil kind and size. */
 typedef struct {
     int w, h, prx, pry, kind;

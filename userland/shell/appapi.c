@@ -6,8 +6,8 @@
  * folder into the app's sandbox, so the app needs no permission to reach
  * it, and the path says which app is asking. Over it the app speaks
  * HTTP/1.1: the companion's AI (OpenAI's shapes, forwarded to whichever mind
- * they chose, so no key ever reaches the app), who the companion is, her
- * face, her voice and microphone, and what she knows about them.
+ * they chose, so no key ever reaches the app), who the companion is, it
+ * face, its voice and microphone, and what it knows about them.
  *
  * Everything runs in the shell's main loop without waiting; the slow parts
  * (a reply from the mind, sending a VRM) run in a child process that writes
@@ -307,7 +307,7 @@ static void sse(struct conn *c, const char *event, const char *data) {
 }
 
 /* Something for every app following along (`memory`: only those allowed to
- * know what she knows; `skip`: the app it came from). */
+ * know what it knows; `skip`: the app it came from). */
 static void broadcast(const char *event, const char *data, bool memory, int skip) {
     for (int i = 0; i < nconns; i++) {
         struct conn *c = &conns[i];
@@ -884,7 +884,7 @@ static void chat(int i) {
     hand_to_child(i, proxy_child, &x);
 }
 
-/* ---- who she is ---- */
+/* ---- who it is ---- */
 
 static struct {
     unsigned version;
@@ -980,7 +980,7 @@ static void identity_load(void) {
     fclose(f);
 }
 
-/* How she talks, for an app's assistant to take on; the app's own working
+/* How it talks, for an app's assistant to take on; the app's own working
  * rules win where they meet. */
 static void persona(sbuf *b) {
     sb_printf(b, "You are %s, %s's companion, who lives in their computer. Warm, perceptive and brief. You talk "
@@ -1215,7 +1215,7 @@ static void look(struct conn *c) {
     sb_free(&b);
 }
 
-/* ---- what she knows about them ---- */
+/* ---- what it knows about them ---- */
 
 /* The portrait (A.prof.facts: "rhythm" -> "night owl; sharpest after 10pm")
  * is what the companion reads; each "; " piece of it is one entry here,
@@ -1559,7 +1559,7 @@ static void memory_delete(struct conn *c, const char *id) {
     reply(c, 200, b);
 }
 
-/* ---- her voice ---- */
+/* ---- its voice ---- */
 
 static int speaking_conn = -1; /* fd of the request whose line is being said */
 static unsigned speaking_line;
@@ -1646,7 +1646,7 @@ static void voice_stop(struct conn *c) {
     reply(c, 200, b);
 }
 
-/* ---- her ears, lent to an app ---- */
+/* ---- its ears, lent to an app ---- */
 
 static struct {
     int app;           /* holding it, or -1 */
@@ -1799,8 +1799,8 @@ static void mic_frame(const short *s, int n) {
     float rms = (float)sqrt(e / n);
     if (M.floor <= 0)
         M.floor = rms;
-    /* There is no echo cancelling: while her own voice plays, the speakers
-     * reach the microphone too. Then only someone clearly louder than her
+    /* There is no echo cancelling: while its own voice plays, the speakers
+     * reach the microphone too. Then only someone clearly louder than it
      * counts (over_voice says so), and the room's noise isn't relearned. */
     bool over_voice = voice_speaking();
     if (!M.talking && !over_voice)
@@ -1960,7 +1960,7 @@ static void answered(int app, bool ai, bool mem) {
     apps[app].ai = ai, apps[app].mem = mem;
     apps[app].asking = false;
     consent_save();
-    LOG("appapi: %s may %suse the AI and may %sshare what she knows\n", apps[app].id, ai ? "" : "not ", mem ? "" : "not ");
+    LOG("appapi: %s may %suse the AI and may %sshare what it knows\n", apps[app].id, ai ? "" : "not ", mem ? "" : "not ");
 }
 
 /* ---- routing ---- */
@@ -2038,7 +2038,7 @@ static void route(int i) {
         json *j = json_parse(c->body ? c->body : "", c->blen);
         const char *mood = json_str(json_get(j, "mood"), NULL), *act = json_str(json_get(j, "act"), NULL);
         bool shown = false;
-        if (act && !strcmp(act, "smile")) { /* her smile is a mood, not a gesture */
+        if (act && !strcmp(act, "smile")) { /* its smile is a mood, not a gesture */
             act = NULL;
             if (!mood)
                 mood = "happy";
@@ -2047,7 +2047,7 @@ static void route(int i) {
             shown |= presence_avatar("mood", mood);
         if (act)
             shown |= presence_avatar("act", act);
-        /* the other apps following her face; never back to the one that asked */
+        /* the other apps following its face; never back to the one that asked */
         if (mood)
             avatar_broadcast("mood", mood, c->app);
         if (act)

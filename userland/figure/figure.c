@@ -8,7 +8,7 @@
 
 void look_default(look *lk) {
     memset(lk, 0, sizeof *lk);
-    snprintf(lk->name, sizeof lk->name, "%s", "her");
+    snprintf(lk->name, sizeof lk->name, "%s", "companion");
     lk->body = body_defaults();
     lk->face = face_defaults();
     lk->hair = hair_defaults();
@@ -45,7 +45,7 @@ bool figure_build(figure *f, const look *lk, float cell) {
                       {V3(-bi->shoulder_x, bi->shoulder_y - 0.02f * s, 0), 0.06f * s}};
     hair_build(m, &f->head, &lk->hair, bi->bone[BN_HEAD], col, 6, &f->hair);
     outfit_build(m, bi, &lk->outfit);
-    /* the key light's shadows, in her usual pose */
+    /* the key light's shadows, in its usual pose */
     fpose rest;
     fig_pose_rest(m, &rest);
     body_pose_relaxed(bi, &rest);

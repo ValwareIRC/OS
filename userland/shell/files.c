@@ -925,6 +925,7 @@ static void load(void) {
         F.renaming = F.cursor;
         snprintf(F.rn.buf, sizeof F.rn.buf, "%s", F.e[F.cursor].name);
         F.rn.len = (int)strlen(F.rn.buf);
+        te_select_stem(&F.rn.ed, F.rn.buf, F.e[F.cursor].dir);
     }
     F.select_after[0] = 0;
     F.rename_after = false;
@@ -1323,6 +1324,7 @@ static void start_rename(int i) {
     F.renaming = i;
     snprintf(F.rn.buf, sizeof F.rn.buf, "%s", F.e[i].name);
     F.rn.len = (int)strlen(F.rn.buf);
+    te_select_stem(&F.rn.ed, F.rn.buf, F.e[i].dir);
 }
 
 static void commit_rename(void) {
@@ -1616,23 +1618,9 @@ static void keyboard(rect content, bool kb) {
                 F.renaming = -1;
             else if (key == K_ENTER)
                 commit_rename();
-            else if (key == K_BACKSPACE && F.rn.len) {
-                do
-                    F.rn.len--;
-                while (F.rn.len && (F.rn.buf[F.rn.len] & 0xC0) == 0x80);
-                F.rn.buf[F.rn.len] = 0;
-            } else if (key == K_PASTE) {
-                for (const char *p = clipboard_text(); *p && F.rn.len < 250; p++)
-                    if ((unsigned char)*p >= 32)
-                        F.rn.buf[F.rn.len++] = *p;
-                F.rn.buf[F.rn.len] = 0;
-            } else if (!k.ctrl && key >= 32 && key < 0x80 && F.rn.len < 250) {
-                F.rn.buf[F.rn.len++] = (char)key;
-                F.rn.buf[F.rn.len] = 0;
-            } else if (!k.ctrl && key >= 0x80 && key < 0x800 && F.rn.len < 249) {
-                F.rn.buf[F.rn.len++] = (char)(0xC0 | key >> 6);
-                F.rn.buf[F.rn.len++] = (char)(0x80 | (key & 0x3f));
-                F.rn.buf[F.rn.len] = 0;
+            else if (key != '/') { /* a name, not a path */
+                te_key(&F.rn.ed, F.rn.buf, 252, key, (I.keymod[i] & KM_CTRL) != 0, (I.keymod[i] & KM_SHIFT) != 0, false, A.now, NULL);
+                F.rn.len = (int)strlen(F.rn.buf);
             }
         }
         return;
@@ -2059,15 +2047,10 @@ static void rename_field(rect r, font *f) {
     fill_round(A.frame, rect_inset(r, -2), 5, D.accent);
     fill_round(A.frame, r, 4, color_mix(D.surface, RGBA(255, 255, 255, 255), color_luma(D.surface) > 0.5f ? 0.6f : 0.08f));
     color ink = color_luma(D.surface) > 0.5f ? RGBA(20, 18, 22, 255) : D.surface_text;
-    canvas_clip(A.frame, r);
-    int tw = text_width(f, F.rn.buf), x = r.x + 6;
-    if (tw > r.w - 14)
-        x = r.x + r.w - 8 - tw;
     int ty = r.y + (r.h - font_line_height(f)) / 2;
-    draw_text(A.frame, f, x, ty, F.rn.buf, ink);
-    if ((A.now / 530) % 2 == 0)
-        fill_rect(A.frame, (rect){x + tw + 1, ty + 2, 2, font_line_height(f) - 4}, ink);
-    canvas_unclip(A.frame);
+    te_mouse(&F.rn.ed, F.rn.buf, f, r, r.x + 6, &I, false, A.now);
+    te_draw(A.frame, &F.rn.ed, F.rn.buf, f, rect_inset(r, 2), r.x + 6, ty, ink, color_alpha(D.accent, 0.35f), true,
+            false, A.now);
     /* restore the window's clip for whatever comes next */
 }
 
@@ -2497,7 +2480,8 @@ void files_body(rect body) {
         if (!pt_in(rr, I.mx, I.my))
             commit_rename(); /* clicking elsewhere keeps the new name */
     }
-    if (I.pressed && in_content && pt_in((rect){content.x, content.y + header, content.w, content.h - header}, I.mx, I.my)) {
+    bool on_rename = F.renaming >= 0 && pt_in(F.e[F.renaming].r, I.mx, I.my); /* the field's own: caret, selection */
+    if (I.pressed && in_content && !on_rename && pt_in((rect){content.x, content.y + header, content.w, content.h - header}, I.mx, I.my)) {
         F.press_x = I.mx, F.press_y = I.my;
         F.press_idx = over;
         F.press_defer = false;

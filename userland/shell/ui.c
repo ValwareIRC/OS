@@ -1,4 +1,5 @@
 #include "app.h"
+#include "controls.h"
 #include "wallpaper.h"
 #include "image.h"
 #include "fm/fm.h"
@@ -23,65 +24,131 @@ void ui_textfield(rect r, struct textfield *t, bool focused, const char *placeho
     if (focused)
         stroke_round(A.frame, r, radius, 1.5f, color_alpha(fg, 0.5f));
     rect inner = rect_inset(r, 14);
-    canvas_clip(A.frame, inner);
     int ty = r.y + (r.h - font_line_height(f)) / 2;
-    char shown[1024];
-    if (t->secret) {
-        int n = t->len < 64 ? t->len : 64;
-        for (int i = 0; i < n; i++)
-            shown[i] = '*';
-        shown[n] = 0;
-    } else {
-        memcpy(shown, t->buf, (size_t)t->len + 1);
-    }
-    int w = text_width(f, shown), x = inner.x;
-    if (w > inner.w - 4)
-        x = inner.x + inner.w - 4 - w; /* keep the end of long text visible */
-    if (t->len)
-        draw_text(A.frame, f, x, ty, shown, fg);
-    else if (placeholder)
+    t->len = (int)strlen(t->buf);
+    te_mouse(&t->ed, t->buf, f, (rect){r.x, r.y, r.w, r.h}, inner.x, &A.in, t->secret, A.now);
+    if (!t->len && placeholder)
         draw_text(A.frame, f, inner.x, ty, placeholder, muted);
-    if (focused && (A.now / 530) % 2 == 0)
-        fill_rect(A.frame, (rect){x + (t->len ? w : 0) + 1, ty + 2, 2, font_line_height(f) - 4}, fg);
-    canvas_unclip(A.frame);
+    te_draw(A.frame, &t->ed, t->buf, f, (rect){inner.x - 2, r.y, inner.w + 4, r.h}, inner.x, ty, fg,
+            color_alpha(fg, 0.22f), focused, t->secret, A.now);
 }
 
 bool ui_type(struct textfield *t) {
     bool enter = false;
+    t->len = (int)strlen(t->buf);
     for (int i = 0; i < A.in.nkeys; i++) {
         int k = A.in.keys[i];
         if (k == K_ENTER)
             enter = true;
-        else if (k == K_BACKSPACE) {
-            if (t->len) {
-                /* remove one UTF-8 character */
-                do
-                    t->len--;
-                while (t->len && (t->buf[t->len] & 0xc0) == 0x80);
-                t->buf[t->len] = 0;
+        else
+            te_key(&t->ed, t->buf, (int)sizeof t->buf, k, (A.in.keymod[i] & KM_CTRL) != 0, (A.in.keymod[i] & KM_SHIFT) != 0, t->secret, A.now, NULL);
+    }
+    t->len = (int)strlen(t->buf);
+    return enter;
+}
+
+/* ---- the right-click menu of a text field ---- */
+
+static const struct {
+    const char *label, *keys;
+    int key, mod;
+} text_items[] = {
+    {"Undo", "Ctrl+Z", 'z', KM_CTRL},   {"Cut", "Ctrl+X", 'x', KM_CTRL},
+    {"Copy", "Ctrl+C", 'c', KM_CTRL},   {"Paste", "Ctrl+V", K_PASTE, 0},
+    {"Select all", "Ctrl+A", 'a', KM_CTRL},
+};
+#define NTEXT_ITEMS 5
+
+static bool text_item_on(const te_menu *m, int i) {
+    switch (i) {
+    case 0: return m->undo;
+    case 1: case 2: return m->selection && !m->secret;
+    case 3: return clipboard_text()[0] != 0;
+    default: return true;
+    }
+}
+
+static rect text_menu_rect(const te_menu *m, font *f, int *row) {
+    *row = font_line_height(f) + 14;
+    int w = 220, h = NTEXT_ITEMS * *row + 12;
+    int x = m->x + w > A.W - 8 ? A.W - 8 - w : m->x, y = m->y + h > A.H - 8 ? m->y - h : m->y;
+    return (rect){x, y < 8 ? 8 : y, w, h};
+}
+
+void ui_text_menu_input(void) {
+    te_menu *m = te_menu_state();
+    if (!m->open)
+        return;
+    font *f = fm_host_font(A.d.font_body, A.d.body_px - 1);
+    int row;
+    rect r = text_menu_rect(m, f, &row);
+    int key = 0, mod = 0;
+    for (int i = 0; i < A.in.nkeys && m->open; i++) { /* the arrows choose, Enter takes it, Esc closes */
+        int k = A.in.keys[i];
+        if (k == K_ESC) {
+            m->open = false;
+        } else if (k == K_DOWN || k == K_UP) {
+            int d = k == K_DOWN ? 1 : -1, s = m->sel;
+            for (int n = 0; n < NTEXT_ITEMS; n++) {
+                s = s < 0 ? (d > 0 ? 0 : NTEXT_ITEMS - 1) : (s + d + NTEXT_ITEMS) % NTEXT_ITEMS;
+                if (text_item_on(m, s))
+                    break;
             }
-        } else if (k == K_PASTE) {
-            /* printable characters only: line breaks and tabs in a pasted key are noise */
-            for (const char *p = clipboard_text(); *p && t->len < (int)sizeof t->buf - 1; p++)
-                if ((unsigned char)*p >= 32 && *p != 127)
-                    t->buf[t->len++] = *p;
-            t->buf[t->len] = 0;
-        } else if (k >= 32 && k < 127 && t->len < (int)sizeof t->buf - 1) {
-            t->buf[t->len++] = (char)k;
-            t->buf[t->len] = 0;
-        } else if (((k >= 0xa0 && k < K_ENTER) || (k > K_TALK && k < 0x10000)) && t->len < (int)sizeof t->buf - 4) {
-            /* accented letters and symbols from other keyboard layouts, as UTF-8 */
-            if (k < 0x800) {
-                t->buf[t->len++] = (char)(0xc0 | k >> 6);
-            } else {
-                t->buf[t->len++] = (char)(0xe0 | k >> 12);
-                t->buf[t->len++] = (char)(0x80 | ((k >> 6) & 0x3f));
-            }
-            t->buf[t->len++] = (char)(0x80 | (k & 0x3f));
-            t->buf[t->len] = 0;
+            m->sel = s;
+        } else if (k == K_ENTER && m->sel >= 0 && text_item_on(m, m->sel)) {
+            key = text_items[m->sel].key, mod = text_items[m->sel].mod;
+            m->open = false;
         }
     }
-    return enter;
+    if (pt_in(r, A.in.mx, A.in.my) && A.in.moved) {
+        int i = (A.in.my - r.y - 6) / row;
+        m->sel = i >= 0 && i < NTEXT_ITEMS && text_item_on(m, i) ? i : -1;
+    }
+    if (key) {
+    } else if (A.in.clicked && pt_in(r, A.in.mx, A.in.my)) {
+        int i = (A.in.my - r.y - 6) / row;
+        if (i >= 0 && i < NTEXT_ITEMS && text_item_on(m, i)) {
+            key = text_items[i].key, mod = text_items[i].mod;
+            m->open = false;
+        }
+    } else if ((A.in.pressed || A.in.right_clicked) && !pt_in(r, A.in.mx, A.in.my)) {
+        m->open = false;
+    }
+    /* while it is up, the pointer and the keys are the menu's; what it chose is typed into the field */
+    A.in.pressed = A.in.clicked = A.in.right_clicked = false;
+    A.in.wheel = 0;
+    A.in.nkeys = 0;
+    if (key) {
+        A.in.keys[0] = key, A.in.keymod[0] = (uint8_t)mod;
+        A.in.nkeys = 1;
+    }
+}
+
+void ui_text_menu_draw(void) {
+    te_menu *m = te_menu_state();
+    if (!m->open)
+        return;
+    font *f = fm_host_font(A.d.font_body, A.d.body_px - 1);
+    int row;
+    rect r = text_menu_rect(m, f, &row);
+    if (!m->shown) {
+        m->shown = true;
+        LOGRECT("text-menu", r);
+    }
+    float rad = A.d.radius * 0.5f + 4;
+    ctl_panel(r, rad > 14 ? 14 : rad, 1);
+    palette p = pal_on(pal_sample(rect_inset(r, 6)), 1);
+    for (int i = 0; i < NTEXT_ITEMS; i++) {
+        rect it = {r.x + 6, r.y + 6 + i * row, r.w - 12, row};
+        bool on = text_item_on(m, i);
+        if (on && i == m->sel)
+            fill_round(A.frame, it, rad > 8 ? 8 : rad * 0.6f, color_alpha(p.ink, 0.1f));
+        int ty = it.y + (row - font_line_height(f)) / 2;
+        color ink = on ? p.ink : color_alpha(p.ink, 0.38f);
+        draw_text(A.frame, f, it.x + 12, ty, text_items[i].label, ink);
+        int kw = text_width(f, text_items[i].keys);
+        draw_text(A.frame, f, it.x + it.w - 12 - kw, ty, text_items[i].keys, color_alpha(p.muted, on ? 1 : 0.5f));
+    }
 }
 
 /* The presence of the AI: a soft breathing light, livelier while it thinks. */

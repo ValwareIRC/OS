@@ -77,6 +77,11 @@ const char *fmi_place(const fm_node *n, const char *which); /* place=/dock= attr
  * slant and letter-spacing; lower/capitalize; and text drawn with the
  * style's shadow, alignment, wrapping and overflow. */
 font *fmi_text_font(const fm_style *st, float scale);
+/* A field's line: its font, the box it shows in, where its text starts. False without one. */
+bool fmi_input_geom(fm_node *n, font **f, rect *box, int *tx, int *ty);
+/* A field's editor (made on first use). */
+struct text_edit *fmi_editor(fm_node *n);
+uint64_t fmi_now_ms(void);
 void fmi_text_case(const fm_style *st, char *s);
 void fmi_draw_line_in(canvas *c, font *f, rect r, const char *s, color col, const fm_style *st, float scale);
 void fmi_draw_block(canvas *c, font *f, rect r, const char *s, color col, const fm_style *st, float scale);

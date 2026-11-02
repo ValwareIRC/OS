@@ -308,9 +308,9 @@ void choose_draw(void) {
     font *title = lk_head(46), *sub = lk_body(18), *name = lk_body(18),
          *small = lk_body(14), *head = lk_body(13);
     int x0 = A.W / 2 - 640;
-    draw_text(A.frame, title, x0, 70, "Choose a mind", PRE_TEXT);
+    draw_text(A.frame, title, x0, 70, "Choose an AI model", PRE_TEXT);
     draw_text(A.frame, sub, x0, 136,
-              "This computer thinks with an AI of your choosing. It will get to know you, then design this computer for you.",
+              "Choose the AI this computer uses. It learns your preferences, then designs the desktop around them.",
               PRE_MUTED);
 
     int colw = 1280 / 5, y_top = 200;
@@ -390,7 +390,7 @@ void models_draw(void) {
     font *title = lk_head(46), *sub = lk_body(18), *name = lk_body(18),
          *small = lk_body(14);
     int x0 = A.W / 2 - 520, w = 1040;
-    draw_text(A.frame, title, x0, 70, "A mind on this computer", PRE_TEXT);
+    draw_text(A.frame, title, x0, 70, "Run the AI on this computer", PRE_TEXT);
     draw_text_wrapped(A.frame, sub, (rect){x0, 136, w, 60},
                       "Private, and it works without the internet. One capable model comes with the system; bigger "
                       "ones can be downloaded now, or any time later in Settings.",
@@ -511,7 +511,7 @@ void connect_draw(void) {
             snprintf(A.cfg.api_key, sizeof A.cfg.api_key, "%s", A.key.buf);
             connect_cfg = A.cfg;
             if (here)
-                snprintf(A.connect_status, sizeof A.connect_status, "Waking up %s (it takes a moment to load)...",
+                snprintf(A.connect_status, sizeof A.connect_status, "Loading %s...",
                          models_selected()->name);
             else
                 snprintf(A.connect_status, sizeof A.connect_status, "Reaching %s...", p->name);
@@ -555,7 +555,7 @@ void connect_draw(void) {
     }
 
     if (A.models) {
-        draw_text(A.frame, label, x, y, "Which model should be your mind? The suggested one is selected.", PRE_MUTED);
+        draw_text(A.frame, label, x, y, "Choose a model. The recommended one is selected.", PRE_MUTED);
         y += 30;
         int rows = 6;
         if (A.in.wheel)
@@ -738,9 +738,13 @@ static void design_child(void *arg, char **result) {
     *result = out.p;
 }
 
+bool desktop_design_save(const char *name, bool automatic);
+
 void design_begin(const char *extra) {
     if (A.design_job)
         return; /* already designing (a double click, or a tag during a retry) */
+    if (A.ui && (!extra || strcmp(extra, "(retry)"))) /* the design they have now, kept before it is redrawn */
+        desktop_design_save(NULL, true);
     /* Remember the request so a retry asks for the same thing. */
     if (extra && strcmp(extra, "(retry)"))
         snprintf(A.design_instruction, sizeof A.design_instruction, "%s", extra);
@@ -857,14 +861,14 @@ void designing_draw(void) {
     preview_frame();     /* the design as it is written; made theirs when they say */
     if (A.screen != SCR_DESIGNING)
         return;
-    body_take_input();     /* how she looks, and their browser: asked while this is made */
+    body_take_input();     /* how it looks, and their browser: asked while this is made */
     browsers_take_input();
     companion_tick(); /* once the draft is in, they can talk it over */
 
     font *big = font_get(A.prof.type_font[0] ? A.prof.type_font : "Fraunces", 30 * tscale()),
          *body = lk_body(16 * tscale());
     bool ready = !A.design_job;
-    draw_text_centered(A.frame, big, (rect){0, 26, A.W, 46}, ready ? "Here it is. Make it yours." : "Making your space",
+    draw_text_centered(A.frame, big, (rect){0, 26, A.W, 46}, ready ? "Your desktop is ready" : "Designing your desktop",
                        ink(1));
     /* what it is working from: their own portrait, one line at a time */
     char line[300] = "";

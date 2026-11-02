@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
         };
         sheet(&f, views, 6, 3, 384, 512, outp);
     } else if (!strcmp(mode, "clip") && argc > 4) {
-        /* a clip file played on her whole body: 12 moments of it */
+        /* a clip file played on its whole body: 12 moments of it */
         FILE *cf = fopen(argv[4], "rb");
         if (!cf) {
             printf("no clip %s\n", argv[4]);

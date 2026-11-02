@@ -228,6 +228,7 @@ static void download(int i) {
         dl.err_i = i;
         return;
     }
+    mkdir("/var/lib/os-data", 0755); /* not there without a data disk */
     mkdir(MODELS_DIR, 0755);
     snprintf(dl.part, sizeof dl.part, MODELS_DIR "/%s.gguf.part", catalog[i].id);
     pid_t pid = fork();
@@ -238,7 +239,7 @@ static void download(int i) {
             dup2(log, 2);
         }
         /* -C -: a download stopped part way goes on from where it was */
-        execl("/usr/bin/curl", "curl", "-fL", "--retry", "5", "-C", "-", "-s", "-o", dl.part, catalog[i].url,
+        execl("/usr/bin/curl", "curl", "-fL", "--retry", "5", "-C", "-", "-sS", "-o", dl.part, catalog[i].url,
               (char *)NULL);
         _exit(127);
     }
@@ -342,6 +343,7 @@ static void release_poll(void) {
         read_specs();
     bool kept = stat(BUILTIN_KEPT, &st) == 0 && (uint64_t)st.st_size == catalog[0].bytes;
     if (!kept && spec.disk && catalog[0].bytes / (1024 * 1024) + 1024 < spec.free_disk_mb) {
+        mkdir("/var/lib/os-data", 0755);
         mkdir(MODELS_DIR, 0755);
         rel.copying = job_start(keep_child, NULL);
         LOG("models: copying the built-in model to the disk before letting it go\n");

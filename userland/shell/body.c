@@ -1,7 +1,7 @@
 /* How the companion looks: nothing is offered from a list. Once their space
- * is made, she brings it up herself in conversation, suggesting looks made
+ * is made, it brings it up itself in conversation, suggesting looks made
  * up to belong in that design, and makes the one they want (a drawing of
- * herself, a picture, a 3D model, a face, a VRM of theirs). Settings opens
+ * itself, a picture, a 3D model, a face, a VRM of theirs). Settings opens
  * the same conversation. Pictures and models come from the web here too. */
 #include "body.h"
 #include "app.h"
@@ -76,7 +76,7 @@ void body_talk_about_it(bool first) {
     free(b.p);
 }
 
-/* ---- after onboarding: she brings it up herself, once their space is there ---- */
+/* ---- after onboarding: it brings it up itself, once their space is there ---- */
 
 static void bring_it_up(void) {
     if (Q.done)
@@ -95,7 +95,7 @@ static void bring_it_up(void) {
         return;
     Q.done = true;
     settings_set_int("body_asked", 1);
-    LOG("body: asking how she should look\n");
+    LOG("body: asking how it should look\n");
     desktop_open_window(WIN_COMPANION);
     body_talk_about_it(true);
 }
@@ -282,7 +282,7 @@ static void finder_draw(void) {
     char title[220];
     snprintf(title, sizeof title, "Pictures of %s", F.query);
     draw_text(A.frame, font_get_styled("Outfit", 26, 600, false, 0), r.x + 32, r.y + 26, title, ink);
-    draw_text(A.frame, font_get("Manrope", 14), r.x + 32, r.y + 66, "Click one and I'll take it on. Esc for none.",
+    draw_text(A.frame, font_get("Manrope", 14), r.x + 32, r.y + 66, "Choose one to use it, or press Esc to cancel.",
               muted);
     for (int i = 0; i < F.n; i++) {
         rect c = {r.x + 32 + (i % cols) * (tw + gap), r.y + 104 + (i / cols) * (tw + gap), tw, tw};
@@ -297,7 +297,7 @@ static void finder_draw(void) {
         if (over && A.in.clicked) {
             fetch(F.urls[i], 'p');
             F.open = false;
-            toast("Taking it on...");
+            toast("Applying...");
             return;
         }
     }

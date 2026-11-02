@@ -179,6 +179,8 @@ CFG
 llama_server() { # llama.cpp's server (MIT): runs the built-in model and any the person downloads
     local src=$SRC/llama.cpp b=$BLD/llama.cpp
     [ -d "$src/.git" ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp "$src"
+    # kept current (LLAMA_REF pins one): new model families (LFM3, for the reflexes) need a recent llama.cpp
+    git -C "$src" fetch -q --depth 1 origin "${LLAMA_REF:-master}" && git -C "$src" reset -q --hard FETCH_HEAD
     # the CPU features in GGML_CPU (above); no network fetching in it
     in_sdk "cmake -S '$src' -B '$b' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
         $GGML_CPU -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF \

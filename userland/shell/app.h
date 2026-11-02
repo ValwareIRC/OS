@@ -7,6 +7,7 @@
 #include "font.h"
 #include "gfx.h"
 #include "sys.h"
+#include "textedit.h"
 
 #define MAX_MSGS 160
 #define STATE_DIR "/etc/os"
@@ -37,6 +38,7 @@ struct textfield {
     char buf[1024];
     int len;
     bool secret;
+    text_edit ed; /* caret, selection and undo (textedit.h) */
 };
 
 struct conversation {
@@ -167,6 +169,9 @@ void ui_textfield(rect r, struct textfield *t, bool focused, const char *placeho
                   color muted, float radius);
 /* Feeds this frame's typed keys into the field; returns true on Enter. */
 bool ui_type(struct textfield *t);
+/* The right-click menu of a text field: its input first in the frame, drawn over everything at the end. */
+void ui_text_menu_input(void);
+void ui_text_menu_draw(void);
 void ui_orb(canvas *c, float cx, float cy, float r, color a, color b, bool active);
 void ui_cursor(canvas *c, int x, int y);
 void ui_backdrop(color base, color l1, color l2, color depth);
@@ -196,7 +201,7 @@ void main_frame(void);
 void main_modal(void (*draw)(void), const bool *done);
 /* Erases everything kept on the disk, apps too, and restarts at the very first screen. */
 void factory_reset(void);
-/* The design's own spot for her on the screen (its <ai> or <avatar>), if it has one showing. */
+/* The design's own spot for it on the screen (its <ai> or <avatar>), if it has one showing. */
 bool desktop_her_spot(rect *r);
 /* Their own name as they gave it (empty until then), kept apart from any design; and keeping it. */
 const char *their_name(void);

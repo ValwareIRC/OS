@@ -27,7 +27,7 @@ char *voice_poll_heard(void); /* malloc'd text, or NULL */
 bool voice_toggle_pressed(void);
 void voice_indicator(int cx, int cy, color accent);
 
-/* Her voice, chosen in conversation (voice.c): Kokoro voices (af_heart, bm_george, pf_dora, zf_xiaoxiao...),
+/* Its voice, chosen in conversation (voice.c): Kokoro voices (af_heart, bm_george, pf_dora, zf_xiaoxiao...),
  * each heard first from a short clip and downloaded once chosen; or a cloud voice ("openai:nova",
  * "elevenlabs:<voice id>") for people with a key. */
 bool voice_preview(const char *name);       /* plays its clip; false if there is none */

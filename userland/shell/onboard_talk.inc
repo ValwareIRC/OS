@@ -488,7 +488,7 @@ static char *apply_tags(const char *text) {
                 pending_nudge = strdup("(Not yet: you have barely got to know them. Continue the arc: who they are, "
                                        "the rooms, their type and tempo, the two of you, then the mirror.)");
             } else if (persona_read() < PERSONA_WANT && A.onboard_nudges < 4) {
-                /* she doesn't know them yet: a few more questions first (it never shows) */
+                /* it doesn't know them yet: a few more questions first (it never shows) */
                 A.onboard_nudges++;
                 pending_nudge = strdup("(Not quite yet: you don't know them well enough. Say you'd like to know a "
                                        "little more before you make it, and ask one more thing about who they are. "
@@ -928,7 +928,7 @@ void onboard_draw(void) {
     struct conversation *c = &A.onboard;
     if (convo_poll(c) && !c->error[0]) {
         struct msg *m = &c->msgs[c->n - 1];
-        persona_take(m->text); /* what she read in them (private) and wishes about her, taken out first */
+        persona_take(m->text); /* what it read in them (private) and wishes about it, taken out first */
         char *shown = apply_tags(m->text);
         free(m->text);
         palettes_from_prose(shown);
@@ -1055,7 +1055,7 @@ void onboard_draw(void) {
     }
     if (thinking && waking) {
         char who[80], sub[160];
-        snprintf(who, sizeof who, "%s is waking up", A.prof.ai_name[0] ? A.prof.ai_name : "Your AI");
+        snprintf(who, sizeof who, "Starting %s", A.prof.ai_name[0] ? A.prof.ai_name : "Your AI");
         y += centred_text(big, y, maxw, who, ink(1), true);
         int t = mind_builtin_waking_for();
         snprintf(sub, sizeof sub, "Loading %s into memory  \xc2\xb7  %d:%02d", models_selected()->name, t / 60, t % 60);

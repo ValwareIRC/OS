@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "fmi.h"
 #include "../iconart.h"
+#include "../textedit.h"
+#include <time.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -560,7 +562,42 @@ static void draw_text_turned(canvas *c, font *f, rect r, const char *buf, color 
     canvas_free(m);
 }
 
+uint64_t fmi_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
+}
+
+struct text_edit *fmi_editor(fm_node *n) {
+    if (!n->ed) {
+        n->ed = calloc(1, sizeof *n->ed);
+        const char *v = fm_attr_get(n, "value");
+        te_reset(n->ed, v ? v : "");
+    }
+    return n->ed;
+}
+
+bool fmi_input_geom(fm_node *n, font **f, rect *box, int *tx, int *ty) {
+    fm_node *tn = NULL;
+    for (fm_node *k = n->first; k; k = k->next)
+        if (k->kind == FM_TEXT && k->generated)
+            tn = k;
+    if (!tn)
+        return false;
+    const fm_style *s = &n->st;
+    float sc = n->vscale > 0 ? n->vscale : 1;
+    *f = fmi_text_font(s, tn->vscale > 0 ? tn->vscale : sc);
+    int x1 = n->vis.x + n->vis.w - (int)((s->pad[1] + FM_BW(s, 1)) * sc);
+    *tx = tn->vis.x;
+    *box = (rect){tn->vis.x - 1, n->vis.y, x1 - tn->vis.x + 2, n->vis.h};
+    int lh = font_line_height(*f);
+    *ty = tn->vis.h > lh ? tn->vis.y + (tn->vis.h - lh) / 2 : tn->vis.y;
+    return true;
+}
+
 static void draw_text_node(canvas *c, fm_node *t, float op) {
+    if (t->app == -3) /* a field being typed into: its editor draws it */
+        return;
     fm_node *p = t->parent;
     const fm_style *st = p ? &p->st : &t->st;
     color col = p && p->av.init ? p->av.color : st->color;
@@ -1327,7 +1364,16 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     clipbox cb = {0};
     if (clip)
         cb = clip_push(c, r);
+    bool editing = d->focus == n && (tag_is(n, "search") || tag_is(n, "input"));
+    if (editing) /* its value is drawn by the editor below, with the caret and selection */
+        for (fm_node *k = n->first; k; k = k->next)
+            if (k->kind == FM_TEXT && k->generated && k->app == -1)
+                k->app = -3;
     draw_children(d, c, n, op);
+    if (editing)
+        for (fm_node *k = n->first; k; k = k->next)
+            if (k->app == -3)
+                k->app = -1;
     if (clip)
         clip_pop(c, cb);
     /* a scrollbar, when there is more than fits (scrollbar-color / scrollbar-width) */
@@ -1347,15 +1393,18 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     }
 
     /* the text caret of a focused field */
-    if (d->focus == n && (tag_is(n, "search") || tag_is(n, "input"))) {
-        int x = r.x + (int)(s->pad[3] * sc);
-        for (fm_node *k = n->first; k; k = k->next)
-            if (k->kind == FM_TEXT && k->generated && k->app != -2)
-                x = k->vis.x + k->vis.w + 1;
-        if ((time(NULL) & 1) == 0 || 1) {
-            int lh = (int)(s->font_size * sc * 1.2f);
-            fill_rect(c, (rect){x, r.y + (r.h - lh) / 2, (int)fmaxf(1.5f, sc * 1.5f), lh},
-                      color_alpha(anim ? n->av.color : s->color, op));
+    if (editing) {
+        font *ef;
+        rect box;
+        int tx, ty;
+        if (fmi_input_geom(n, &ef, &box, &tx, &ty)) {
+            const char *v = fm_attr_get(n, "value");
+            const char *type = fm_attr_get(n, "type");
+            color col = color_alpha(anim ? n->av.color : s->color, op);
+            clipbox ec = clip_push(c, r);
+            te_draw(c, fmi_editor(n), v ? v : "", ef, box, tx, ty, col, color_alpha(col, 0.25f), true,
+                    type && !strcasecmp(type, "password"), fmi_now_ms());
+            clip_pop(c, ec);
         }
     }
 

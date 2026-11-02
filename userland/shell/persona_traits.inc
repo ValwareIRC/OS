@@ -1,7 +1,7 @@
 /* The personality traits the companion reads in the person and chooses for
- * herself (Valerie's list, 2026-11-01; each once). Onboarding goes on until
- * 15 of the person's are known; she then takes 15 that complement them, and
- * her personality is written from those in a context of its own. The
+ * itself (Valerie's list, 2026-11-01; each once). Onboarding goes on until
+ * 15 of the person's are known; it then takes 15 that complement them, and
+ * its personality is written from those in a context of its own. The
  * person's traits are never shown or spoken of. */
 static const char *const persona_traits[] = {
     "Ambitious", "Compassionate", "Confident", "Introverted", "Extroverted", "Empathetic", "Independent",

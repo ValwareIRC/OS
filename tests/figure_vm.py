@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Her face in the OS: boots to a desktop whose orb is big enough for a face,
+"""Its face in the OS: boots to a desktop whose orb is big enough for a face,
 with presence "face", and checks os-figure starts, its frames show up in the
-orb, she looks towards the pointer, and her tags in a reply ([[mood:]],
-[[act:]]) reach her. The companion is tests/fake_ai.py.
+orb, it looks towards the pointer, and its tags in a reply ([[mood:]],
+[[act:]]) reach it. The companion is tests/fake_ai.py.
 
   python3 tests/figure_vm.py OUTDIR
 

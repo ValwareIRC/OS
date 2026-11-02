@@ -1,14 +1,14 @@
-/* The companion's presence: her own look (emblem.c), or a face drawn by
- * os-figure in a process of its own (a crash there shows her own look, or
+/* The companion's presence: its own look (emblem.c), or a face drawn by
+ * os-figure in a process of its own (a crash there shows its own look, or
  * nothing, and it starts over, a little later each time).
  *
  * Frames come through shared memory (three slots): os-figure says which
  * slot holds a new picture, the shell shows it and gives the one before
  * back. Commands go the other way as lines of text (see userland/figure
- * /main.c). The shell tells her where the pointer is, when she is thinking
+ * /main.c). The shell tells it where the pointer is, when it is thinking
  * (the model is working), listening (the microphone is on) and speaking,
- * and how loud her voice is this moment and which vowel it is (os-play
- * writes that to /run/os-lip as it plays), so her mouth moves with it. */
+ * and how loud its voice is this moment and which vowel it is (os-play
+ * writes that to /run/os-lip as it plays), so its mouth moves with it. */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -36,8 +36,8 @@
 #define FIGURE "/usr/libexec/os-figure"
 #define PRESENCE_FILE STATE_DIR "/presence"
 #define LOOK_FILE STATE_DIR "/figure.xml"
-#define VRM_FILE STATE_DIR "/figure.vrm" /* her own model, if they brought one */
-#define MODEL_FILE STATE_DIR "/emblem-model.glb" /* a 3D model as her emblem (any object) */
+#define VRM_FILE STATE_DIR "/figure.vrm" /* its own model, if they brought one */
+#define MODEL_FILE STATE_DIR "/emblem-model.glb" /* a 3D model as its emblem (any object) */
 #define NSLOT 3
 #define MAX_SIDE 640 /* the largest picture asked for; bigger homes are scaled up */
 #define LIP_PATH "/run/os-lip"
@@ -67,7 +67,7 @@ static struct {
     uint64_t restart_at;
     int fails;
     uint64_t started_at;
-    /* what she was last told */
+    /* what it was last told */
     int view_w, view_h;
     bool hidden;
     uint64_t home_at; /* when a home was last drawn */
@@ -157,7 +157,7 @@ bool presence_set_look(const char *markup) {
 
 /* ---- the process ---- */
 
-/* Her look is a 3D model of theirs: the figure process draws it (a turning
+/* Its look is a 3D model of theirs: the figure process draws it (a turning
  * object), and the emblem shows its frames. */
 static bool model_mode(void) {
     return P.mode == PRESENCE_LIGHT && emblem_kind() == EM_MODEL && access(MODEL_FILE, R_OK) == 0;
@@ -218,7 +218,7 @@ static bool start_figure(void) {
         dup2(to[0], 0);
         dup2(from[1], 1);
         dup2(mfd, 3);
-        int vrm = open(model_mode() ? MODEL_FILE : VRM_FILE, O_RDONLY); /* her own body, or the emblem's model */
+        int vrm = open(model_mode() ? MODEL_FILE : VRM_FILE, O_RDONLY); /* its own body, or the emblem's model */
         if (vrm >= 0 && vrm != 4) {
             dup2(vrm, 4);
             close(vrm);
@@ -268,7 +268,7 @@ static int read_mode(void) {
 
 void presence_init(void) {
     P.mode = read_mode();
-    LOG("presence: %s\n", P.mode == PRESENCE_LIGHT ? "her own look" : P.mode == PRESENCE_FACE ? "a face" : "a face that wanders");
+    LOG("presence: %s\n", P.mode == PRESENCE_LIGHT ? "its own look" : P.mode == PRESENCE_FACE ? "a face" : "a face that wanders");
     if (P.mode != PRESENCE_LIGHT || model_mode())
         P.restart_at = A.now; /* started by the first poll */
 }
@@ -314,19 +314,19 @@ bool presence_set_body(const char *vrm) {
             LOG("presence: couldn't take %s\n", vrm);
             return false;
         }
-        LOG("presence: her body is now %s\n", vrm);
+        LOG("presence: its body is now %s\n", vrm);
     } else {
-        unlink(VRM_FILE); /* the face the OS makes for her */
-        LOG("presence: her body is the one the OS makes\n");
+        unlink(VRM_FILE); /* the face the OS makes for it */
+        LOG("presence: its body is the one the OS makes\n");
     }
-    if (P.pid > 0) /* she comes back in her new body */
+    if (P.pid > 0) /* it comes back in its new body */
         stop_figure();
     P.fails = 0, P.restart_at = A.now;
     presence_set_mode(PRESENCE_FACE);
     return true;
 }
 
-/* ---- what she says back ---- */
+/* ---- what it says back ---- */
 
 static void heard(char *line) {
     int s, w, h;
@@ -368,7 +368,7 @@ static void read_figure(void) {
     }
 }
 
-/* ---- her voice, as os-play measured it ---- */
+/* ---- its voice, as os-play measured it ---- */
 
 static void lip_update(void) {
     if (!P.speaking) {
@@ -436,7 +436,7 @@ void presence_poll(void) {
     read_figure();
     if (!P.ready)
         return;
-    /* not on screen for a moment: she rests */
+    /* not on screen for a moment: it rests */
     bool on_screen = A.screen == SCR_DESKTOP && A.now - P.home_at < 600;
     if (!on_screen && !P.hidden) {
         tell("hide");
@@ -445,7 +445,7 @@ void presence_poll(void) {
     }
     if (!on_screen)
         return;
-    /* the pointer: she follows it while it moves, then looks around again */
+    /* the pointer: it follows it while it moves, then looks around again */
     if (A.in.mx != P.last_mx || A.in.my != P.last_my)
         P.pointer_moved = A.now, P.last_mx = A.in.mx, P.last_my = A.in.my;
     bool follow = A.now - P.pointer_moved < 6000;
@@ -480,7 +480,7 @@ int presence_fds(int *fds, int max) {
     return 1;
 }
 
-/* ---- drawing her home ---- */
+/* ---- drawing its home ---- */
 
 static inline uint32_t sample(const uint32_t *px, int w, int h, float x, float y) {
     /* bilinear, premultiplied */
@@ -499,7 +499,7 @@ static inline uint32_t sample(const uint32_t *px, int w, int h, float x, float y
     return (uint32_t)(a + 0.5f) << 24 | (uint32_t)(r + 0.5f) << 16 | (uint32_t)(g + 0.5f) << 8 | (uint32_t)(b + 0.5f);
 }
 
-static uint64_t orb_home_at; /* when a design's orb last held her */
+static uint64_t orb_home_at; /* when a design's orb last held it */
 
 enum { HOME_ROUND, HOME_RECT, HOME_FREE };
 enum { TINT_NONE, TINT_CODEC };
@@ -524,7 +524,7 @@ bool presence_draw_avatar(canvas *c, rect r, bool active, const char *shape, con
                      tint && !strcasecmp(tint, "codec") ? TINT_CODEC : TINT_NONE, shot);
 }
 
-/* her own frame, when the design has none big enough: in a corner at
+/* its own frame, when the design has none big enough: in a corner at
  * first, then wherever it was dragged to (kept on the disk) */
 #define HOME_POS_FILE STATE_DIR "/presence-home"
 static struct {
@@ -539,7 +539,7 @@ void presence_draw_corner(canvas *c) {
     if ((P.mode == PRESENCE_LIGHT && !model_mode()) || P.pid < 0 || !P.ready || A.now - orb_home_at < 400)
         return;
     rect pl;
-    bool placed = emblem_placed(&pl); /* where she put herself */
+    bool placed = emblem_placed(&pl); /* where it put itself */
     int side = placed ? pl.w : A.H >= 900 ? 220 : A.H >= 700 ? 180 : 140;
     if (!H.loaded) {
         H.loaded = true;
@@ -578,7 +578,7 @@ void presence_draw_corner(canvas *c) {
         if (!A.in.down) {
             H.dragging = false;
             A.in.clicked = false;
-            if (H.moved && placed) { /* moved by them: that's where she is now */
+            if (H.moved && placed) { /* moved by them: that's where it is now */
                 char how[64];
                 snprintf(how, sizeof how, "%.4f %.4f %d", (r.x + side / 2.0) / A.W, (r.y + side / 2.0) / A.H, side);
                 emblem_set_place(how);
@@ -622,7 +622,7 @@ static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const
         int small = ww < wh ? ww : wh;
         /* chosen by the design (shot=), else close in: head and shoulders */
         const char *shot = ws[0] ? ws : small < 140 ? "face" : "bust";
-        /* the design's colours light her: its accent at her edges */
+        /* the design's colours light it: its accent at its edges */
         tell("light fff6ee %06x %06x", D.bg & 0xffffff, D.accent & 0xffffff);
         tell("view %d %d %s", ww, wh, shot);
         P.view_w = ww, P.view_h = wh;
@@ -652,7 +652,7 @@ static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const
         }
         return true;
     }
-    /* behind her: a deep glow in the design's colours (a codec screen's dark green) */
+    /* behind it: a deep glow in the design's colours (a codec screen's dark green) */
     color deep = color_mix(D.bg, RGBA(10, 8, 18, 255), 0.55f), glow = color_mix(D.accent, D.bg, 0.55f);
     if (tint == TINT_CODEC)
         deep = RGBA(4, 18, 12, 255), glow = RGBA(16, 60, 42, 255);
@@ -694,7 +694,7 @@ static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const
         }
     }
     color rim = active ? color_mix(D.accent, RGBA(255, 255, 255, 255), 0.25f) : color_mix(D.accent, D.surface, 0.35f);
-    if (shape == HOME_ROUND) { /* the rim: the design's accent, brighter while she listens or thinks */
+    if (shape == HOME_ROUND) { /* the rim: the design's accent, brighter while it listens or thinks */
         float rimw = sq.w * 0.022f + 1.5f;
         draw_arc(c, cx, cy, rad - rimw * 0.5f, 0, 2 * 3.14159265f, rimw, rim);
     }
@@ -702,7 +702,7 @@ static bool draw_home(canvas *c, rect r, bool active, int shape, int tint, const
     return true;
 }
 
-/* ---- her tags ---- */
+/* ---- its tags ---- */
 
 static void take_tag(char *text, const char *open, bool act, void (*fn)(const char *arg)) {
     char *o;
@@ -718,7 +718,7 @@ static void take_tag(char *text, const char *open, bool act, void (*fn)(const ch
     }
 }
 
-static bool tags_live; /* her face is up to show what the tags say */
+static bool tags_live; /* its face is up to show what the tags say */
 
 static void do_act(const char *a) {
     char w[24] = "";
@@ -760,7 +760,7 @@ static void do_emblem(const char *a) {
         presence_set_body(NULL);
         return;
     }
-    if (!strcasecmp(w, "none")) { /* nothing of her shows, until she's given a look */
+    if (!strcasecmp(w, "none")) { /* nothing of its shows, until it's given a look */
         emblem_clear();
         presence_set_mode(PRESENCE_LIGHT);
         return;
@@ -811,7 +811,7 @@ void presence_tags(char *text, bool act) {
         memmove(dr, after, strlen(after) + 1);
     }
     tags_live = P.mode != PRESENCE_LIGHT && P.pid > 0;
-    /* apps following her face hear them even while she has no face */
+    /* apps following its face hear them even while it has no face */
     take_tag(text, "[[act:", act, do_act);
     take_tag(text, "[[mood:", act, do_mood);
     take_tag(text, "[[figure:", act && P.mode != PRESENCE_LIGHT, do_figure);
@@ -859,7 +859,7 @@ const char *presence_prompt(void) {
     static char face[4400];
     snprintf(face, sizeof face, "%s%s",
              "\nYou have a body: an anime-style figure in a round frame on their desktop, who looks at the pointer, "
-             "breathes, blinks and moves her mouth as you speak. [[act:wave]] (or nod, shake, bow, clap, point, shrug, "
+             "breathes, blinks and moves its mouth as you speak. [[act:wave]] (or nod, shake, bow, clap, point, shrug, "
              "laugh, cheer, yawn, stretch, tilt) makes a gesture; [[mood:happy]] (or calm, sad, excited, sleepy, curious, "
              "proud, worried) sets your face until you change it. Where the design shows you in an <avatar>, its shot "
              "attribute is how close the camera is: [[ui:set #id shot=face]] (head and shoulders, closest), bust, waist "

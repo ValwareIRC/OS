@@ -20,6 +20,7 @@
  * words it volunteered on its own. Every change to a device or a setting is
  * written to /etc/os/actions.log and, where it can be, undone. */
 #include "alive.h"
+#include "settings.h"
 #include "web.h"
 #include "emblem.h"
 #include "voice.h"
@@ -45,7 +46,7 @@
 #define D (A.d)
 #define LOG_FILE STATE_DIR "/actions.log"
 #define LOOK_MARK "(What you looked up"
-#define MAX_LOOKS 3
+#define MAX_LOOKS 30
 
 static void web_tick(void);
 
@@ -261,6 +262,18 @@ static const char *do_set(const char *spec) {
     static char said[160];
     char thing[32] = "", val[64] = "", extra[32] = "";
     sscanf(spec, "%31s %63s %31s", thing, val, extra);
+    if (!strcasecmp(thing, "reflex") || !strcasecmp(thing, "reflexes")) { /* how its reflexes decide */
+        const char *e = !strcasecmp(val, "llm") || !strcasecmp(val, "model") ? "llm"
+                      : !strcasecmp(val, "rules") || !strcasecmp(val, "off") ? "rules" : "jev";
+        settings_set("reflex.engine", e);
+        snprintf(said, sizeof said, "reflexes: %s", e);
+        return said;
+    }
+    if (!strcasecmp(thing, "reflex-model")) {
+        settings_set("reflex.model", val);
+        snprintf(said, sizeof said, "reflex model: %s", val);
+        return said;
+    }
     if (!strcasecmp(thing, "volume")) {
         int prev = volume_get(), v = atoi(val);
         if (!strcasecmp(val, "up")) v = (prev < 0 ? 50 : prev) + 15;
@@ -445,7 +458,7 @@ static bool make_parents(const char *path) {
     return true;
 }
 
-static char write_report[1200]; /* what [[write]] did, for the note she reads next (actions_report) */
+static char write_report[1200]; /* what [[write]] did, for the note it reads next (actions_report) */
 
 const char *actions_report(void) {
     static char out[1200];
@@ -454,7 +467,7 @@ const char *actions_report(void) {
     return out;
 }
 
-/* Writes it; what happened, in words, for the summary she is told. */
+/* Writes it; what happened, in words, for the summary it is told. */
 static const char *write_file(const char *given, const char *text, size_t len) {
     static char said[400];
     char path[700];
@@ -521,6 +534,12 @@ static uint64_t run_started;
 static char run_result[3600]; /* waiting to be told to the companion */
 
 bool actions_confirming(void) { return asking[0] != 0; }
+
+/* Its body asks for this one (it can't be undone): the question goes on screen */
+void actions_ask_run(const char *cmd) {
+    if (!asking[0] && !run_job)
+        snprintf(asking, sizeof asking, "%s", cmd);
+}
 
 static void run_child(void *arg, char **result) {
     const char *cmd = arg;
@@ -815,7 +834,7 @@ bool actions_take(struct conversation *c, bool *from_person) {
         int asked = 0;
         while ((t = find_tag(m->text, "look", arg, sizeof arg))) {
             cut_tag(t);
-            if (looks >= MAX_LOOKS || asked >= 3)
+            if (looks >= MAX_LOOKS || asked >= 8)
                 continue;
             char out[3000];
             if (!strcasecmp(arg, "actions") || !strcasecmp(arg, "log")) {

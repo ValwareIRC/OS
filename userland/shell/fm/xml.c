@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fm.h"
+#include "../textedit.h"
 #include "../../lib/json.h"
 
 #include <ctype.h>
@@ -62,6 +63,10 @@ static void free_node(fm_node *n) {
             fmi_canvas_forget(n);
         extern void fmi_rich_free(fm_node *n);
         fmi_rich_free(n);
+        if (n->ed) {
+            te_free(n->ed);
+            free(n->ed);
+        }
         fm_node *next = n->next;
         free_node(n->first);
         free(n->text);

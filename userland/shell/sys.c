@@ -188,8 +188,10 @@ int input_fds(int fds[2]) {
 }
 
 static void add_key(input_state *in, int k) {
-    if (in->nkeys < 32)
+    if (in->nkeys < 32) {
+        in->keymod[in->nkeys] = (uint8_t)((in->ctrl ? KM_CTRL : 0) | (in->shift ? KM_SHIFT : 0));
         in->keys[in->nkeys++] = k;
+    }
 }
 
 /* Key repeat is the shell's own, at the person's chosen pace (Settings >

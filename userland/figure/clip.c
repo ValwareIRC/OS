@@ -270,7 +270,7 @@ bool clip_builtin(clip *c, const char *name) {
         return clip_from_keys(c, name, 30, false, 6, b, k, 8);
     }
     if (!strcmp(name, "point")) {
-        /* her right arm out towards the picture's left, index finger out */
+        /* its right arm out towards the picture's left, index finger out */
         static const char *const b[] = {"rightUpperArm", "rightLowerArm", "rightHand", "rightMiddleProximal",
                                         "rightRingProximal", "rightLittleProximal", "rightIndexProximal", "head"};
         v3 curl = E(0, 0, 1.3f);
@@ -292,7 +292,7 @@ bool clip_builtin(clip *c, const char *name) {
         return clip_from_keys(c, name, 30, false, 9, b, k, 4);
     }
     if (!strcmp(name, "think")) {
-        /* a hand to her chin, eyes up; held */
+        /* a hand to its chin, eyes up; held */
         static const char *const b[] = {"rightUpperArm", "rightLowerArm", "rightHand", "head", "neck"};
         clip_key k[] = {{0, {R_UA_DOWN, R_LA_REST, E(0, 0, 0), E(0, 0, 0), E(0, 0, 0)}},
                         {0.5f, {E(0, 0.6f, 1.05f), E(0, 2.2f, 0), E(0, 0, -0.5f), E(-0.1f, 0.1f, 0.12f), E(0, 0, 0.04f)}},

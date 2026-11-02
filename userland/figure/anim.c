@@ -1,7 +1,7 @@
 /* Life: breathing, a slow sway, blinks (now and then two), eyes that move in
- * little jumps as eyes do, her head turning to what she looks at, moods
- * drawn on her face, gestures from clips laid over all that, and her mouth
- * shaped by her voice: how loud it is opens it, and which of two bands of
+ * little jumps as eyes do, its head turning to what it looks at, moods
+ * drawn on its face, gestures from clips laid over all that, and its mouth
+ * shaped by its voice: how loud it is opens it, and which of two bands of
  * the voice carries more decides the vowel (a, i, u, e, o). */
 #include <stdlib.h>
 #include <string.h>
@@ -167,7 +167,7 @@ void life_frame(life *L, const figure *f, double now, fpose *pose, face_state *f
     L->gx = easef(L->gx, gtx, 28, dt);
     L->gy = easef(L->gy, gty, 28, dt);
 
-    /* the face for her mood */
+    /* the face for its mood */
     float since = (float)(now - L->mood_since);
     fs->blush = 0;
     switch (L->mood) {
@@ -227,7 +227,7 @@ void life_frame(life *L, const figure *f, double now, fpose *pose, face_state *f
             fs->open = 0;
     }
     /* the gaze, in steps fine enough not to see but coarse enough not to
-     * redraw her face every frame */
+     * redraw its face every frame */
     fs->gx = roundf(L->gx * 25) / 25, fs->gy = roundf(L->gy * 25) / 25;
     fs->open = roundf(fs->open * 12) / 12;
 

@@ -3,6 +3,7 @@
  * the desktop itself, drawn straight to /dev/fb0 from the AI's design. */
 #include "presence.h"
 #include "app.h"
+#include "nerve.h"
 #include "emblem.h"
 #include "fm/fm.h"
 #include "wallpaper.h"
@@ -24,6 +25,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 app A;
@@ -57,7 +59,7 @@ static void splash_draw(void) {
     emblem_draw(A.frame, A.W / 2.0f, A.H / 2.0f - 50, 54 * fade + 1, RGBA(232, 131, 107, 255), RGBA(255, 214, 170, 255), false);
     font *f = font_get("Fraunces", 52), *s = font_get("Inter", 18);
     draw_text_centered(A.frame, f, (rect){0, A.H / 2 + 50, A.W, 70}, "Operating System", color_alpha(RGBA(242, 233, 226, 255), fade));
-    draw_text_centered(A.frame, s, (rect){0, A.H / 2 + 120, A.W, 30}, "a computer that gets to know you",
+    draw_text_centered(A.frame, s, (rect){0, A.H / 2 + 120, A.W, 30}, "Version " OS_VERSION,
                        color_alpha(RGBA(168, 150, 142, 255), fade));
     if (t > 3.2f) {
         if (A.have_design)
@@ -146,10 +148,13 @@ void main_frame(void) {
     wm_frame_begin();
     wls_dispatch();
     portal_poll(); /* os-portal: file choosers, notifications */
-    appapi_poll(); /* apps using the companion: her AI, voice, face, memory */
+    appapi_poll(); /* apps using the companion: its AI, voice, face, memory */
     models_poll(); /* model downloads, wherever they were started */
-    presence_poll(); /* her frames, and what she should know */
+    presence_poll(); /* its frames, and what it should know */
     input_poll(&A.in);
+    if (A.in.clicked || A.in.pressed || A.in.nkeys || A.in.wheel)
+        nerve_person_touched(); /* what follows from this is theirs (nerve.c) */
+    ui_text_menu_input(); /* a text field's right-click menu, when it is up, has the pointer */
     input_state real = A.in;
     if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
@@ -166,6 +171,7 @@ void main_frame(void) {
         A.in = real;
         modal();
     }
+    ui_text_menu_draw();
     capture_frame(false); /* a recording without the pointer takes this */
     ui_cursor(A.frame, A.in.mx, A.in.my);
     wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
@@ -197,7 +203,44 @@ void main_modal(void (*draw)(void), const bool *done) {
     modal = outer;
 }
 
+/* Its log, as it goes to the console, also kept in /tmp/os-shell.log, where the companion can read it (the last
+ * 4 MB: the file starts over past that). */
+static void log_to_file_too(void) {
+    int p[2];
+    if (pipe(p) != 0)
+        return;
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(p[1]);
+        int console = dup(2);
+        int f = open("/tmp/os-shell.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        char buf[8192];
+        off_t size = 0;
+        for (;;) {
+            ssize_t n = read(p[0], buf, sizeof buf);
+            if (n <= 0)
+                _exit(0);
+            if (console >= 0 && write(console, buf, (size_t)n) < 0) {
+            }
+            if (f >= 0) {
+                if (size > (4 << 20)) {
+                    if (ftruncate(f, 0) == 0)
+                        lseek(f, 0, SEEK_SET);
+                    size = 0;
+                }
+                if (write(f, buf, (size_t)n) > 0)
+                    size += n;
+            }
+        }
+    }
+    close(p[0]);
+    if (pid > 0)
+        dup2(p[1], 2);
+    close(p[1]);
+}
+
 int main(void) {
+    log_to_file_too();
     if (!display_open()) {
         fprintf(stderr, "os-shell: no framebuffer\n");
         return 1;
@@ -298,7 +341,7 @@ int main(void) {
     settings_boot(); /* resolution, keyboard and sound as they chose them */
     portal_init();   /* where os-portal reaches us */
     appapi_init();   /* where apps reach the companion */
-    presence_init(); /* the light, or her face (os-figure) */
+    presence_init(); /* the light, or its face (os-figure) */
     set_screen(SCR_SPLASH);
 
     input_fds(frame_fds);

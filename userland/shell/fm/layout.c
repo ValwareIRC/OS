@@ -638,7 +638,7 @@ void fmi_measure(fm_doc *d, fm_node *n, float aw, float ah) {
         cw = ch = fmi_icon_size(n);
     } else if (tag_is(n, "orb")) {
         cw = ch = st->icon_size > 0 ? st->icon_size : 56;
-    } else if (tag_is(n, "avatar")) { /* her portrait: taller than wide unless styled */
+    } else if (tag_is(n, "avatar")) { /* its portrait: taller than wide unless styled */
         cw = 220, ch = 300;
     } else if (tag_is(n, "view")) {
         cw = 420, ch = 320;

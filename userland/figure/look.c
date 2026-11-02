@@ -1,4 +1,4 @@
-/* Reading and writing her look's markup. The text comes from the AI (or
+/* Reading and writing its look's markup. The text comes from the AI (or
  * from the disk), so nothing in it is trusted: unknown words are ignored and
  * every number is kept within bounds. */
 #include <ctype.h>

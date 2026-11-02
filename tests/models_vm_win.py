@@ -1,4 +1,4 @@
-"""Her own models from share links, end to end, with Windows QEMU (Hyper-V)
+"""Its own models from share links, end to end, with Windows QEMU (Hyper-V)
 and silent sound: tests/fake_ai.py as the companion takes a .glb and then a
 .vrm from links that answer with a web page first (s.h4ks.com wants
 ?download=true), each must show up on screen; the state must then save to
@@ -165,7 +165,7 @@ try:
     q.type("wear the vrm\n")
     hit = wait_for(log, r"body: fetched [^\n]*(in use|failed)", 240, m)
     results["vrm fetched"] = bool(hit and "in use" in hit.group(0))
-    results["vrm is her face"] = bool(wait_for(log, r"os-figure: vrm", 90, m))
+    results["vrm is its face"] = bool(wait_for(log, r"os-figure: vrm", 90, m))
     time.sleep(25)
     q.key("esc")
     time.sleep(3)

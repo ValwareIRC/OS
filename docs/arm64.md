@@ -11,7 +11,7 @@ not a goal for now.
 | Kernel (`kernel/`, its own, not Linux) | ported (`kernel/arch/arm64`, `kernel/platform/virt`), young |
 | Desktop, init, the OS's own tools (`userland/`) | the same C code, built for arm64 |
 | Base system: Flatpak, portals, llama.cpp, whisper.cpp (`scripts/build-base.sh`) | builds for the machine it runs on (x86_64 or aarch64) |
-| Piper, her voice (`ports/build-voice.sh`) | the matching prebuilt release (`piper_linux_aarch64`) |
+| Piper, its voice (`ports/build-voice.sh`) | the matching prebuilt release (`piper_linux_aarch64`) |
 | Prism | needs an arm64 Linux build of Prism; without one the image has no Prism |
 | Chromium and other apps | from Flathub, which has aarch64 builds |
 | AI models (`.gguf`) | the same files on every architecture |

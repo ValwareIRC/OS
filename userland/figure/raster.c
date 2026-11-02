@@ -4,7 +4,7 @@
  * itself (baked into the vertices, and optionally a live shadow map),
  * outlines from depth and part edges (as anime line art does),
  * supersampling down to smooth edges, and the split between what is in
- * front of the portal (her frame) and what is behind it, so she can lean
+ * front of the portal (its frame) and what is behind it, so it can lean
  * out of it.
  *
  * Triangles only record which of them is nearest at each sample (a

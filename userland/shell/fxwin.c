@@ -38,7 +38,8 @@ typedef struct {
     char key[256];
     char *buf;
     size_t len, cap;
-    bool used;
+    bool used, secret;
+    text_edit ed; /* caret, selection, undo (textedit.h) */
 } field;
 
 struct fxwin {
@@ -143,7 +144,7 @@ static fx_val h_files(void *c, const char *dir, const char *ending) {
 
 static fx_val h_setting(void *c, const char *k) {
     (void)c;
-    if (!strcmp(k, "person.name")) /* who they are, and who she is */
+    if (!strcmp(k, "person.name")) /* who they are, and who it is */
         return their_name()[0] ? fx_text(their_name()) : fx_none();
     if (!strcmp(k, "companion.name"))
         return fx_text(D.ai_name);
@@ -471,54 +472,22 @@ static void field_set(field *f, const char *s) {
     f->len = n;
 }
 
-static void field_put(field *f, const char *s, size_t n) {
-    if (f->len + n + 1 > f->cap) {
-        f->cap = (f->len + n + 1) * 2;
-        f->buf = realloc(f->buf, f->cap);
-    }
-    memcpy(f->buf + f->len, s, n);
-    f->len += n;
-    f->buf[f->len] = 0;
-}
-
 /* this frame's typing into a field; true if its text changed */
 static bool field_type(field *f, bool multiline) {
     bool changed = false;
     if (!f->buf)
         field_set(f, "");
+    f->ed.multiline = multiline;
     for (int i = 0; i < A.in.nkeys; i++) {
-        int k = A.in.keys[i];
-        if (k == K_BACKSPACE) {
-            if (f->len) {
-                do
-                    f->len--;
-                while (f->len && (f->buf[f->len] & 0xc0) == 0x80);
-                f->buf[f->len] = 0;
-                changed = true;
-            }
-        } else if (k == K_ENTER && multiline) {
-            field_put(f, "\n", 1);
-            changed = true;
-        } else if (k == K_PASTE) {
-            for (const char *p = clipboard_text(); *p; p++)
-                if ((unsigned char)*p >= 32 || (multiline && *p == '\n'))
-                    field_put(f, p, 1);
-            changed = true;
-        } else if (k >= 32 && k < 127) {
-            char ch = (char)k;
-            field_put(f, &ch, 1);
-            changed = true;
-        } else if ((k >= 0xa0 && k < K_ENTER) || (k > K_TALK && k < 0x10000)) {
-            char u[4];
-            int n = 0;
-            if (k < 0x800)
-                u[n++] = (char)(0xc0 | k >> 6);
-            else
-                u[n++] = (char)(0xe0 | k >> 12), u[n++] = (char)(0x80 | ((k >> 6) & 0x3f));
-            u[n++] = (char)(0x80 | (k & 0x3f));
-            field_put(f, u, (size_t)n);
-            changed = true;
+        size_t room = f->len + 8192; /* a paste fits */
+        if (f->cap < room) {
+            f->cap = room;
+            f->buf = realloc(f->buf, f->cap);
         }
+        bool ch = false;
+        te_key(&f->ed, f->buf, (int)f->cap, A.in.keys[i], (A.in.keymod[i] & KM_CTRL) != 0, (A.in.keymod[i] & KM_SHIFT) != 0, f->secret, A.now, &ch);
+        f->len = strlen(f->buf);
+        changed |= ch;
     }
     return changed;
 }
@@ -530,35 +499,16 @@ static void draw_field(rect r, field *f, bool focused, bool multiline, const cha
     stroke_round(A.frame, r, rad, focused ? 2 : 1, focused ? D.accent : color_alpha(ink, 0.18f));
     font *fnt = body_font(D.body_px);
     rect in = {r.x + 10, r.y + 6, r.w - 20, r.h - 12};
-    canvas_clip(A.frame, r);
     const char *text = f->buf ? f->buf : "";
-    bool blink = focused && (A.now / 530) % 2 == 0;
-    if (!*text && placeholder && !focused)
-        draw_text(A.frame, fnt, in.x, in.y + (multiline ? 0 : (in.h - font_line_height(fnt)) / 2), placeholder,
-                  color_alpha(ink, 0.45f));
-    if (multiline) {
-        int h = draw_text_wrapped(NULL, fnt, (rect){0, 0, in.w, 100000}, text, ink, 1.35f);
-        int y0 = h > in.h ? in.y + in.h - h : in.y; /* the end, where typing happens, stays in view */
-        draw_text_wrapped(A.frame, fnt, (rect){in.x, y0, in.w, h + 20}, text, ink, 1.35f);
-        if (blink) {
-            const char *last = strrchr(text, '\n');
-            const char *line = last ? last + 1 : text;
-            int lw = text_width(fnt, line);
-            if (lw > in.w)
-                lw = lw % in.w;
-            int lh = font_line_height(fnt);
-            fill_rect(A.frame, (rect){in.x + lw + 1, y0 + h - lh, 2, lh}, D.accent);
-        }
-    } else {
-        int tw = text_width(fnt, text), x = in.x;
-        if (tw > in.w)
-            x -= tw - in.w; /* the end stays in view */
-        int y = in.y + (in.h - font_line_height(fnt)) / 2;
-        draw_text(A.frame, fnt, x, y, text, ink);
-        if (blink)
-            fill_rect(A.frame, (rect){x + tw + 1, y, 2, font_line_height(fnt)}, D.accent);
+    f->ed.multiline = multiline;
+    int ty = multiline ? in.y : in.y + (in.h - font_line_height(fnt)) / 2;
+    if (!*text && placeholder && !focused) {
+        canvas_clip(A.frame, r);
+        draw_text(A.frame, fnt, in.x, ty, placeholder, color_alpha(ink, 0.45f));
+        canvas_unclip(A.frame);
     }
-    canvas_unclip(A.frame);
+    te_mouse(&f->ed, text, fnt, multiline ? in : r, in.x, &A.in, f->secret, A.now);
+    te_draw(A.frame, &f->ed, text, fnt, in, in.x, ty, ink, color_alpha(D.accent, 0.3f), focused, f->secret, A.now);
 }
 
 static void question_draw(void) {
@@ -573,19 +523,9 @@ static void question_draw(void) {
     draw_text_wrapped(A.frame, f, (rect){r.x + 28, r.y + 28, w - 56, th}, Q.question, D.surface_text, 1.35f);
     int y = r.y + 28 + th + 24;
     if (Q.prompt) {
+        Q.input.secret = Q.secret;
         field_type(&Q.input, false);
-        if (Q.secret) {
-            char *real = Q.input.buf, dots[200];
-            size_t n = real ? strlen(real) : 0;
-            n = n < sizeof dots - 1 ? n : sizeof dots - 1;
-            memset(dots, '*', n);
-            dots[n] = 0;
-            Q.input.buf = dots;
-            draw_field((rect){r.x + 28, y, w - 56, 44}, &Q.input, true, false, NULL);
-            Q.input.buf = real;
-        } else {
-            draw_field((rect){r.x + 28, y, w - 56, 44}, &Q.input, true, false, NULL);
-        }
+        draw_field((rect){r.x + 28, y, w - 56, 44}, &Q.input, true, false, NULL);
         y += 44 + 18;
     }
     rect yes = {r.x + w - 28 - 130, y, 130, 44}, no = {yes.x - 12 - 130, y, 130, 44};
@@ -611,6 +551,7 @@ static int h_ask(void *c, const char *q) {
 }
 
 char *fxwin_secret(const char *q) {
+    te_free(&Q.input.ed);
     memset(&Q, 0, sizeof Q);
     Q.question = q;
     Q.prompt = Q.secret = true;
@@ -624,10 +565,12 @@ char *fxwin_secret(const char *q) {
 
 static char *h_prompt(void *c, const char *q, const char *def) {
     (void)c;
+    te_free(&Q.input.ed);
     memset(&Q, 0, sizeof Q);
     Q.question = q;
     Q.prompt = true;
     field_set(&Q.input, def ? def : "");
+    te_select_all(&Q.input.ed, Q.input.buf); /* what is offered, ready to be typed over */
     main_modal(question_draw, &Q.done);
     char *r = Q.answer ? strdup(Q.input.buf ? Q.input.buf : "") : NULL;
     free(Q.input.buf);

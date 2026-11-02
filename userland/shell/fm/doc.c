@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fmi.h"
+#include "../textedit.h"
 #include "../../lib/json.h"
 
 #include <ctype.h>
@@ -315,22 +316,15 @@ static void clear_hover(fm_node *n) {
     }
 }
 
-static void type_into(fm_doc *d, fm_node *f, int key) {
+static void type_into(fm_doc *d, fm_node *f, int key, int mod) {
     const char *v = fm_attr_get(f, "value");
-    char buf[256];
+    char buf[1024];
     snprintf(buf, sizeof buf, "%s", v ? v : "");
-    size_t len = strlen(buf);
-    if (key == K_BACKSPACE) {
-        while (len > 0 && (buf[len - 1] & 0xC0) == 0x80)
-            len--;
-        if (len)
-            len--;
-        buf[len] = 0;
-    } else if (key == K_ENTER) {
-        if (!len)
+    if (key == K_ENTER) {
+        if (!buf[0])
             return;
         const char *act = fmi_action_of(f);
-        char a[320];
+        char a[1100];
         if (act)
             snprintf(a, sizeof a, "%s:%s", act, buf);
         else
@@ -340,22 +334,13 @@ static void type_into(fm_doc *d, fm_node *f, int key) {
         fm_close_popovers(d, NULL);
         d->focus = NULL;
         return;
-    } else if (key == K_PASTE) {
-        for (const char *p = clipboard_text(); *p && len < sizeof buf - 2; p++)
-            if ((unsigned char)*p >= 32)
-                buf[len++] = *p;
-        buf[len] = 0;
-    } else if (key >= 32 && key < 0x80 && len < sizeof buf - 4) {
-        buf[len++] = (char)key;
-        buf[len] = 0;
-    } else if (key >= 0x80 && key < 0x800 && (key < K_ENTER || key > K_TALK) && len < sizeof buf - 4) {
-        buf[len++] = (char)(0xC0 | key >> 6);
-        buf[len++] = (char)(0x80 | (key & 0x3f));
-        buf[len] = 0;
-    } else {
-        return;
     }
-    fm_attr_set(f, "value", buf);
+    const char *type = fm_attr_get(f, "type");
+    bool changed = false;
+    te_key(fmi_editor(f), buf, sizeof buf, key, (mod & KM_CTRL) != 0, (mod & KM_SHIFT) != 0, type && !strcasecmp(type, "password"),
+           fmi_now_ms(), &changed);
+    if (changed)
+        fm_attr_set(f, "value", buf);
 }
 
 const char *fm_cursor(fm_doc *d, int x, int y) {
@@ -393,7 +378,7 @@ bool fm_input(fm_doc *d, int layer_mask) {
                 used_key = true;
             }
         } else if (d->focus) {
-            type_into(d, d->focus, k);
+            type_into(d, d->focus, k, in->keymod[i]);
             used_key = true;
         }
     }
@@ -419,6 +404,11 @@ bool fm_input(fm_doc *d, int layer_mask) {
         if (!t || !(tag_is(t, "search") || tag_is(t, "input")))
             if (!(hit && d->focus && is_ancestor(d->focus, hit)))
                 d->focus = NULL;
+        if (t && (tag_is(t, "search") || tag_is(t, "input"))) {
+            if (d->focus != t)
+                te_reset(fmi_editor(t), fm_attr_get(t, "value") ? fm_attr_get(t, "value") : "");
+            d->focus = t;
+        }
         /* clicking outside an open popover closes it, unless it's on the
          * button that toggles it (that click toggles it instead) */
         if (any_open(d->desktop->first)) {
@@ -432,6 +422,15 @@ bool fm_input(fm_doc *d, int layer_mask) {
                     fm_close_popovers(d, NULL);
             }
         }
+    }
+    if (d->focus && (in->pressed || in->down)) { /* the caret where they click, a selection where they drag */
+        font *ef;
+        rect box;
+        int tx, ty;
+        const char *v = fm_attr_get(d->focus, "value"), *type = fm_attr_get(d->focus, "type");
+        if (fmi_input_geom(d->focus, &ef, &box, &tx, &ty))
+            te_mouse(fmi_editor(d->focus), v ? v : "", ef, d->focus->vis, tx, in,
+                     type && !strcasecmp(type, "password"), fmi_now_ms());
     }
     if (in->clicked && hit && tag_is(hit, "canvas") && !fmi_action_of(hit))
         fmi_canvas_click(d, hit, in->mx, in->my);

@@ -17,10 +17,10 @@
 #include <unistd.h>
 
 #define READ_FILE STATE_DIR "/persona-read"     /* the person's traits, one a line: never shown */
-#define OWN_FILE STATE_DIR "/persona-traits"    /* hers */
-#define CORE_FILE STATE_DIR "/persona.txt"      /* her personality, as written */
-#define LATELY_FILE STATE_DIR "/persona-lately" /* first line: when; then how she has been lately */
-#define TUNES_FILE STATE_DIR "/persona-tunes"   /* what they asked her to be, one wish a line: theirs to see */
+#define OWN_FILE STATE_DIR "/persona-traits"    /* its own */
+#define CORE_FILE STATE_DIR "/persona.txt"      /* its personality, as written */
+#define LATELY_FILE STATE_DIR "/persona-lately" /* first line: when; then how it has been lately */
+#define TUNES_FILE STATE_DIR "/persona-tunes"   /* what they asked it to be, one wish a line: theirs to see */
 #define DRIFT_MS (3ull * 24 * 3600 * 1000)     /* a little change, every few days at most */
 
 static struct {
@@ -31,7 +31,7 @@ static struct {
     uint64_t lately_at;
     job *building, *drifting, *tuning;
     char *tunes;      /* their wishes, one a line */
-    bool retune;      /* a wish came while she was being rewritten */
+    bool retune;      /* a wish came while it was being rewritten */
     uint64_t build_failed_at;
     int talks_seen; /* replies since the last drift */
     bool chat_asked;
@@ -196,8 +196,8 @@ void persona_take(char *text) {
                 free(P.tunes);
                 P.tunes = t.p;
                 spill(TUNES_FILE, P.tunes);
-                LOG("persona: they asked her to change\n");
-                P.retune = true; /* persona_poll rewrites her (again, if a rewrite is under way) */
+                LOG("persona: they asked it to change\n");
+                P.retune = true; /* persona_poll rewrites it (again, if a rewrite is under way) */
             }
         }
         while (o > text && o[-1] == ' ')
@@ -278,7 +278,7 @@ const char *persona_companion_prompt(void) {
     return buf;
 }
 
-/* ---- building her, in a context of its own (a child process) ---- */
+/* ---- building it, in a context of its own (a child process) ---- */
 
 static int parse_traits(const char *reply, int *out, int max) {
     int n = 0;
@@ -365,7 +365,7 @@ static void build_child(void *arg, char **result) {
         *result = strdup("");
         return;
     }
-    sbuf out; /* her traits, a line of dashes, her character */
+    sbuf out; /* its traits, a line of dashes, its character */
     sb_init(&out);
     for (int k = 0; k < n; k++)
         sb_printf(&out, "%s\n", persona_traits[own[k]]);
@@ -484,15 +484,15 @@ void persona_poll(void) {
     }
     if (!A.provider || !A.cfg.model[0] || A.screen != SCR_DESKTOP)
         return;
-    /* a wish: once she is written (else the writing takes it), rewrite her with it */
+    /* a wish: once it is written (else the writing takes it), rewrite it with it */
     if (P.retune && persona_ready() && !P.tuning && !P.building) {
         P.retune = false;
         P.tuning = job_start(tune_child, NULL);
     }
-    /* 15 read and nobody written yet: write her (a failure waits ten minutes) */
+    /* 15 read and nobody written yet: write it (a failure waits ten minutes) */
     if (P.nread >= PERSONA_WANT && !persona_ready() && !P.building &&
         (!P.build_failed_at || A.now - P.build_failed_at > 600000)) {
-        LOG("persona: writing her\n");
+        LOG("persona: writing it\n");
         P.building = job_start(build_child, NULL);
     }
     /* drift: every few days, after enough talk */

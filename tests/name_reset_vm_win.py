@@ -1,8 +1,8 @@
-"""Their own name, her own look, and starting over, end to end, with Windows
+"""Their own name, its own look, and starting over, end to end, with Windows
 QEMU (Hyper-V) and silent sound. tests/fake_ai.py plays the companion:
   boot 1, a new disk, starlit: they say what to call them ([[user:]]); a
          starter design is applied and must carry their name, never its
-         sample "Sam"; she draws herself and places herself where she likes;
+         sample "Sam"; it draws itself and places itself where it likes;
   boot 2, the same disk: all of it came back;
   then Settings > Privacy > Reset to factory (two clicks): the computer
   restarts at the very first screen, with nothing kept.
@@ -194,10 +194,10 @@ try:
     q.shot("2-neon-valware.png")
     talk(q)
     say(q, log, "back to starlit", r"applied starter design starlit")
-    results["she drew herself"] = bool(say(q, log, "how about you be the moon", r"emblem: placed freely"))
+    results["it drew itself"] = bool(say(q, log, "how about you be the moon", r"emblem: placed freely"))
     q.key("esc")
     time.sleep(6)
-    q.shot("3-starlit-her-moon.png")
+    q.shot("3-starlit-it-moon.png")
     time.sleep(8)
     saves = re.findall(r"store: (saved|failed)", log_text(log))
     results["saved"] = bool(saves) and "failed" not in saves

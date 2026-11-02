@@ -3,7 +3,7 @@
  * face in its round frame, or as a face that sometimes goes out walking.
  * The face is drawn by os-figure (userland/figure), a process of its own;
  * this is the shell's side: starting it, showing its frames in the frame,
- * telling it where the pointer is, when she thinks, listens and speaks. */
+ * telling it where the pointer is, when it thinks, listens and speaks. */
 #include "app.h"
 
 enum { PRESENCE_LIGHT, PRESENCE_FACE, PRESENCE_WANDER };
@@ -14,26 +14,26 @@ void presence_set_mode(int mode);
 /* every pass of the main loop */
 void presence_poll(void);
 int presence_fds(int *fds, int max);
-/* her portrait in r (a circle); false when there is no face to show (the
+/* its portrait in r (a circle); false when there is no face to show (the
  * light is drawn instead) */
 bool presence_draw_home(canvas *c, rect r, bool active);
-/* her own frame in a corner, when the design has no orb big enough */
+/* its own frame in a corner, when the design has no orb big enough */
 void presence_draw_corner(canvas *c);
-/* her portrait in a design's <avatar>: shape circle|rect, tint none|codec */
+/* its portrait in a design's <avatar>: shape circle|rect, tint none|codec */
 bool presence_draw_avatar(canvas *c, rect r, bool active, const char *shape, const char *tint, const char *shot);
-/* runs and removes her body's tags in a reply: [[act:...]] [[mood:...]] [[figure:...]] */
+/* runs and removes its body's tags in a reply: [[act:...]] [[mood:...]] [[figure:...]] */
 void presence_tags(char *text, bool act);
 /* an app asked for a gesture or mood (the companion API): false when there is no face to show it */
 bool presence_avatar(const char *kind, const char *name);
-/* her body: a VRM file of theirs (copied in), or NULL for the face the OS
- * makes; she shows as a face from then on. False if the file couldn't be read. */
+/* its body: a VRM file of theirs (copied in), or NULL for the face the OS
+ * makes; it shows as a face from then on. False if the file couldn't be read. */
 bool presence_set_body(const char *vrm);
 /* the emblem is a 3D model: its frames in r, over what is there (false while there are none) */
 bool presence_draw_model(canvas *c, rect r);
 /* the emblem's model was chosen or changed: the figure process starts again with it */
 void presence_model_changed(void);
-/* lines for the companion's prompt about her body ("" when she has none) */
+/* lines for the companion's prompt about its body ("" when it has none) */
 const char *presence_prompt(void);
-/* her look's markup (the saved one, or the default) */
+/* its look's markup (the saved one, or the default) */
 const char *presence_look(void);
 bool presence_set_look(const char *markup);

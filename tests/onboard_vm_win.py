@@ -3,7 +3,7 @@ sound: tests/fake_ai.py plays the companion (a scripted conversation with a
 learned fact, a room pick and a name), keys go in over QMP, and screenshots
 are kept at each step: the comfort question, the conversation card, the
 pick cards, the designing screen and its browser question. How the companion
-looks is never asked here: there are no looks to pick from; she brings it up
+looks is never asked here: there are no looks to pick from; it brings it up
 in conversation once their space is made.
 
   python tests\\onboard_vm_win.py [OUTDIR]"""

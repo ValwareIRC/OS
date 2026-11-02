@@ -10,7 +10,7 @@
  *   light KEY AMBIENT RIM    colours (rrggbb) from the design
  *   look-begin ... look-end  a new look (figure markup, one line at a time)
  *   pointer X Y | pointer off   where to look, -1..1 across the frame
- *   speak LEVEL F1 F2        her voice now (0..1 each), for her mouth
+ *   speak LEVEL F1 F2        its voice now (0..1 each), for its mouth
  *   speaking 0|1             a reply is being spoken
  *   mood NAME                calm happy sad excited sleepy curious proud worried
  *   act NAME                 a gesture (wave nod shake bow clap point ...)
@@ -20,7 +20,7 @@
  *   quit
  *
  *   ready                    built, and listening
- *   frame SLOT W H HX HY HR  a picture in SLOT (premultiplied ARGB, W x H), her
+ *   frame SLOT W H HX HY HR  a picture in SLOT (premultiplied ARGB, W x H), it
  *                            head's centre and radius in it
  *   err TEXT
  *
@@ -223,7 +223,7 @@ static void draw(double now) {
         figure_face(&G.fig, &fs);
         if (G.fig.vrm)
             figure_vrm_face(&G.fig, &fs, &pose);
-        /* gesturing: the camera eases back so her hands show, then in again */
+        /* gesturing: the camera eases back so its hands show, then in again */
         G.sc.pull = easef(G.sc.pull, G.L.act >= 0 ? 1.0f : 0.0f, G.L.act >= 0 ? 4.0f : 1.5f, dt);
     }
     fcam cam;
@@ -269,7 +269,7 @@ static void command(char *line) {
             if (!G.gather)
                 return;
             if (kind == 1 && G.fig.vrm) {
-                say("look ok (her own model stays)");
+                say("look ok (its own model stays)");
             } else if (kind == 1) {
                 look lk;
                 char why[160] = "";
@@ -391,7 +391,7 @@ int main(int argc, char **argv) {
     if (G.ring == MAP_FAILED)
         return 3;
     close(3);
-    /* fd 4, if open: a VRM model someone brought as her body (read before
+    /* fd 4, if open: a VRM model someone brought as its body (read before
      * the sandbox closes the door) */
     bool have_vrm = false;
     {

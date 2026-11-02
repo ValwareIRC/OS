@@ -22,6 +22,8 @@ enum {
     K_PRINT, /* Print Screen: the capture bar (screenshots and recording) */
 };
 
+enum { KM_CTRL = 1, KM_SHIFT = 2 };
+
 typedef struct input_state {
     int mx, my;        /* pointer position in screen pixels */
     bool down;         /* left button held */
@@ -30,6 +32,7 @@ typedef struct input_state {
     bool right_clicked;
     int wheel;         /* scroll steps this frame */
     int keys[32];      /* characters (Unicode) and K_* codes typed this frame */
+    uint8_t keymod[32]; /* KM_CTRL, KM_SHIFT: what was held with each (a quick chord can start and end in one frame) */
     int nkeys;
     bool ctrl, shift;
     bool moved;

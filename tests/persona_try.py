@@ -1,4 +1,4 @@
-"""Runs persona.c's two prompts (choose her traits, write her character) against
+"""Runs persona.c's two prompts (choose its traits, write its character) against
 a local Ollama model, to read what comes out. Usage: persona_try.py MODEL"""
 import json
 import re

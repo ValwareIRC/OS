@@ -26,6 +26,8 @@
 #include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
+
+static text_edit panel_ed; /* the launcher's own field: caret, selection, undo */
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -582,15 +584,15 @@ static const struct cmd {
     char kind;
 } cmds[] = {
     {"Terminal", "Open a command line", "terminal shell console command prompt", "open:terminal", G_TERMINAL, 'c'},
-    {"Dark mode", "Have your companion redo the space in dark tones", "dark mode night theme dim", "cmd:dark", G_MOON, 'c'},
-    {"Light mode", "Have your companion redo the space in light tones", "light mode day bright theme", "cmd:light", G_SUN, 'c'},
+    {"Dark mode", "Redesign the desktop with dark colours", "dark mode night theme dim", "cmd:dark", G_MOON, 'c'},
+    {"Light mode", "Redesign the desktop with light colours", "light mode day bright theme", "cmd:light", G_SUN, 'c'},
     {"Mute", "Turn the sound off", "mute silence quiet sound off volume", "cmd:volume:0", G_SPEAKER, 'c'},
     {"Unmute", "Turn the sound back on", "unmute sound on volume", "cmd:unmute", G_SPEAKER, 'c'},
     {"Volume up", "Louder", "volume up louder sound", "cmd:volume:+10", G_SPEAKER, 'c'},
     {"Volume down", "Quieter", "volume down quieter sound softer", "cmd:volume:-10", G_SPEAKER, 'c'},
     {"Restart", "Start the computer again", "restart reboot", "power:restart", G_POWER, 'c'},
     {"Shut down", "Turn the computer off", "shut down power off turn off shutdown", "power:off", G_POWER, 'c'},
-    {"Redesign my space", "A fresh take, still true to you", "redesign new look refresh theme change", "redesign", G_SPARK, 'c'},
+    {"Redesign the desktop", "A new design based on your preferences", "redesign new look refresh theme change", "redesign", G_SPARK, 'c'},
     {"Take a screenshot", "An area, a window or the whole screen (Print Screen)",
      "screenshot screen shot capture snip snipping picture print screen grab", "capture:shot", G_PICTURE, 'c'},
     {"Record the screen", "A video of an area, a window or the whole screen",
@@ -602,16 +604,16 @@ static const struct cmd {
     {"Open Trash", "What you deleted, until you empty it", "trash bin deleted recycle", "cmd:trash", G_TRASH, 'c'},
     {"Empty Trash", "Erase what's in Trash for good", "empty trash bin erase", "cmd:empty-trash", G_TRASH, 'c'},
     {"Talk to your companion", "Open your conversation", "talk chat companion conversation", "open:companion", G_SPARK, 'c'},
-    {"What your companion knows about you", "Settings: your portrait, and what to forget",
+    {"What your companion knows about you", "Settings: what the companion knows about you",
      "portrait memory privacy knows facts forget personal data settings", "open:settings", G_GEAR, 's'},
-    {"Larger text", "Comfort: every word bigger", "larger text font size bigger accessibility zoom comfort", "set:text", G_TEXT, 's'},
-    {"Strong contrast", "Comfort: words that stand out more", "contrast high accessibility comfort readable", "set:contrast", G_EYE, 's'},
-    {"Less movement", "Comfort: calmer animation", "reduce motion animation movement less comfort", "set:motion", G_SPARK, 's'},
-    {"Mind", "Settings: the AI behind your companion, and where your words go",
+    {"Larger text", "Larger text everywhere", "larger text font size bigger accessibility zoom comfort", "set:text", G_TEXT, 's'},
+    {"Strong contrast", "Higher-contrast text", "contrast high accessibility comfort readable", "set:contrast", G_EYE, 's'},
+    {"Less movement", "Reduced animation", "reduce motion animation movement less comfort", "set:motion", G_SPARK, 's'},
+    {"AI model", "Settings: which model the companion uses, and where it runs",
      "mind ai model provider privacy connection settings", "open:settings", G_GEAR, 's'},
-    {"Forget me", "Settings: erase what I know of you and start again", "forget erase wipe settings", "open:settings", G_GEAR, 's'},
-    {"Reset to factory", "Settings: erase everything, apps too, and start as it came", "factory reset erase wipe restore", "open:settings", G_GEAR, 's'},
-    {"About this computer", "Version, and why it looks like this", "about version system info computer", "open:about", G_DESKTOP, 's'},
+    {"Forget me", "Settings: erase your profile and start setup again", "forget erase wipe settings", "open:settings", G_GEAR, 's'},
+    {"Reset to factory", "Settings: erase all data and apps, and restore the system", "factory reset erase wipe restore", "open:settings", G_GEAR, 's'},
+    {"About this computer", "Version and design notes", "about version system info computer", "open:about", G_DESKTOP, 's'},
 };
 
 static bool setting_on(const char *target) {
@@ -681,7 +683,7 @@ static void run_command(const char *t) {
                             "readable text. Keep the layout, the accents and everything else that makes it theirs."
                           : "Switch the whole space to a light mode: bright, light surfaces and backgrounds with dark, "
                             "readable text. Keep the layout, the accents and everything else that makes it theirs.");
-        toast("%s is redoing your space in %s tones...", D.ai_name[0] ? D.ai_name : "Your companion", dark ? "dark" : "light");
+        toast("%s is redesigning the desktop in %s colours...", D.ai_name[0] ? D.ai_name : "Your companion", dark ? "dark" : "light");
     } else if (!strncmp(t, "cmd:volume:", 11) || !strcmp(t, "cmd:unmute")) {
         static int before = 70; /* the level to come back to after muting */
         int now = volume_get(), want;
@@ -1233,6 +1235,7 @@ void launcher_open(const char *query) {
     L.open = true;
     L.attached = false;
     snprintf(L.q, sizeof L.q, "%s", query ? query : "");
+    te_reset(&panel_ed, L.q);
     L.searched_once = false;
     L.sel = 0;
     L.scroll = 0;
@@ -1319,31 +1322,10 @@ static void run(const struct res *r) {
     L.attached = false;
 }
 
-/* Applies one typed key to a query; false if it isn't typing. */
-static bool type_key(char *q, size_t n, int k) {
-    size_t len = strlen(q);
-    if (k == K_BACKSPACE) {
-        while (len > 0 && (q[len - 1] & 0xC0) == 0x80)
-            len--;
-        if (len)
-            len--;
-        q[len] = 0;
-    } else if (k == K_PASTE) {
-        for (const char *p = clipboard_text(); *p && len < n - 2; p++)
-            if ((unsigned char)*p >= 32)
-                q[len++] = *p;
-        q[len] = 0;
-    } else if (k >= 32 && k < 0x80 && len < n - 2) {
-        q[len++] = (char)k;
-        q[len] = 0;
-    } else if (k >= 0xA0 && k < K_ENTER && len < n - 3) { /* Latin-1 letters; K_* keys start at 0x100 */
-        q[len++] = (char)(0xC0 | k >> 6);
-        q[len++] = (char)(0x80 | (k & 0x3f));
-        q[len] = 0;
-    } else {
-        return false;
-    }
-    return true;
+/* Applies one typed key to a query (moving the caret, selecting and editing too); false if it isn't for the text. */
+
+static bool type_key(text_edit *e, char *q, size_t n, int k, int mod) {
+    return te_key(e, q, (int)n, k, (mod & KM_CTRL) != 0, (mod & KM_SHIFT) != 0, false, A.now, NULL);
 }
 
 static void move_sel(int d) {
@@ -1386,10 +1368,11 @@ void launcher_input(fm_doc *ui) {
         const char *v = fm_attr_get(f, "value");
         snprintf(L.q, sizeof L.q, "%s", v ? v : "");
         int keep[32], nk = 0;
+        uint8_t keepm[32];
         bool typed = false, ran = false;
         for (int i = 0; i < A.in.nkeys; i++) {
             int k = A.in.keys[i];
-            if (type_key(L.q, sizeof L.q, k)) {
+            if (type_key(fmi_editor(f), L.q, sizeof L.q, k, A.in.keymod[i])) {
                 typed = true;
                 continue;
             }
@@ -1408,13 +1391,14 @@ void launcher_input(fm_doc *ui) {
                 run(&R[L.sel]);
                 break;
             } else
-                keep[nk++] = k;
+                keepm[nk] = A.in.keymod[i], keep[nk++] = k;
         }
         if (!ran && L.field) {
             fm_attr_set(f, "value", L.q);
             refresh_results();
         }
         memcpy(A.in.keys, keep, sizeof keep[0] * (size_t)nk);
+        memcpy(A.in.keymod, keepm, (size_t)nk);
         A.in.nkeys = nk;
         /* the pointer over the list is the list's */
         if (L.panel.w && pt_in(L.panel, A.in.mx, A.in.my)) {
@@ -1432,7 +1416,7 @@ void launcher_input(fm_doc *ui) {
     /* the panel takes everything while it is up */
     for (int i = 0; i < A.in.nkeys && L.open; i++) {
         int k = A.in.keys[i];
-        if (type_key(L.q, sizeof L.q, k))
+        if (type_key(&panel_ed, L.q, sizeof L.q, k, A.in.keymod[i]))
             continue;
         refresh_results();
         if (k == K_ESC || k == K_META)
@@ -1715,20 +1699,15 @@ static void draw_panel(void) {
     ui_glyph(A.frame, gl, G_SEARCH, 2.0f, color_contrast(D.accent, D.surface) > 2.2f ? D.accent : D.surface_text);
     int tx = gl.x + 40, ty = y + (field_h - font_line_height(qf)) / 2;
     rect fr = {tx, y, w - (tx - x) - 20, field_h};
-    canvas_clip(A.frame, fr);
-    int tw = text_width(qf, L.q), sx = tx;
-    if (tw > fr.w - 6)
-        sx = tx + fr.w - 6 - tw;
-    if (L.q[0])
-        draw_text(A.frame, qf, sx, ty, L.q, D.surface_text);
-    else {
+    if (!L.q[0]) {
         char ph[160];
-        snprintf(ph, sizeof ph, "Apps, files, settings, sums, or ask %s", D.ai_name[0] ? D.ai_name : "me");
+        snprintf(ph, sizeof ph, "Apps, files, settings, calculations, or ask %s", D.ai_name[0] ? D.ai_name : "the AI");
+        canvas_clip(A.frame, fr);
         draw_text(A.frame, qf, tx, ty, ph, color_alpha(D.muted, 0.9f));
+        canvas_unclip(A.frame);
     }
-    if ((A.now / 530) % 2 == 0)
-        fill_rect(A.frame, (rect){sx + (L.q[0] ? tw : 0) + 2, ty + 3, 2, font_line_height(qf) - 6}, D.accent);
-    canvas_unclip(A.frame);
+    te_mouse(&panel_ed, L.q, qf, fr, tx, &L.in, false, A.now);
+    te_draw(A.frame, &panel_ed, L.q, qf, fr, tx, ty, D.surface_text, color_alpha(D.accent, 0.3f), true, false, A.now);
     LOGRECT("launcher-field", fr);
 
     if (NR) {

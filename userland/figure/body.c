@@ -195,7 +195,7 @@ void body_layout(fmodel *m, const body_params *bp, body_info *bi) {
     float upper = 0.17f * H * bp->arms, fore = 0.145f * H * bp->arms;
     float knee_y = bi->crotch_y * 0.56f, ankle_y = 0.058f * s;
     for (int k = 0; k < 2; k++) {
-        float sx = k == 0 ? 1.0f : -1.0f; /* 0: her left, +X */
+        float sx = k == 0 ? 1.0f : -1.0f; /* 0: its left, +X */
         bi->elbow[k] = V3(sx * (bi->shoulder_x + upper), bi->shoulder_y, -0.006f * s);
         bi->wrist[k] = V3(sx * (bi->shoulder_x + upper + fore), bi->shoulder_y, 0);
         bi->knee[k] = V3(sx * (bi->hip_x - 0.014f * s), knee_y, 0.008f * s);

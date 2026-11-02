@@ -1,11 +1,11 @@
 /* The companion's own look, wherever the OS draws it (the <ai> element of a
  * design, the captions, the companion's window, Settings). Nothing is built
- * in: until she has a look, nothing is drawn, and every design stands on its
- * own without her. Her look is made in conversation, fitted to the design
- * and to what the person wants: a drawing she writes of herself (a small
- * canvas script that shows what she's doing its own way), a picture, a 3D
- * model, or a face (presence.c). She also chooses where it sits: the
- * design's own spot for her, or anywhere on the screen, at any size. */
+ * in: until it has a look, nothing is drawn, and every design stands on its
+ * own without it. Its look is made in conversation, fitted to the design
+ * and to what the person wants: a drawing it writes of itself (a small
+ * canvas script that shows what it's doing its own way), a picture, a 3D
+ * model, or a face (presence.c). It also chooses where it sits: the
+ * design's own spot for it, or anywhere on the screen, at any size. */
 #include "emblem.h"
 #include "app.h"
 #include "voice.h"
@@ -424,7 +424,7 @@ bool emblem_draw_kind(canvas *cv, int kind, float cx, float cy, float r, color a
     bool still = A.prof.reduce_motion;
     if (still)
         t = 2.0f, level = 0;
-    /* a drawing shows what she's doing its own way */
+    /* a drawing shows what it's doing its own way */
     if (kind == EM_DRAWN)
         return emblem_draw_drawing(cv, cx, cy, r, a, b, state, level, t);
     if (kind != EM_PICTURE && kind != EM_MODEL)

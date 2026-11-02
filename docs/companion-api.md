@@ -16,7 +16,7 @@ it can change anything inside itself.
 
 ## Consent
 
-- The first request asks her once, with one prompt and two lines:
+- The first request asks it once, with one prompt and two lines:
   "Prism wants to **use your AI**" and "**share what I know about you**, both ways".
   Each line can be allowed on its own.
 - While the prompt is up, requests are held open for up to 2 minutes, then answered normally if
@@ -29,7 +29,7 @@ it can change anything inside itself.
 ## AI
 
 - `POST /v1/chat/completions` (streaming or not) and `GET /v1/models`. The OS forwards each request to
-  whichever mind she chose (built-in, local or cloud) and adds nothing to the prompt.
+  whichever mind it chose (built-in, local or cloud) and adds nothing to the prompt.
 - `/v1/models` lists one model, `"os"`, with a `label` (e.g. "Claude Sonnet (yours)"). For the model on this
   computer it also says `"context"`: how many tokens it can hold, which depends on the memory (4096 to 16384).
 - `503 {"error":"no_mind"}` when no mind is set up.
@@ -44,14 +44,14 @@ it can change anything inside itself.
 
 - `GET /identity` returns:
 
-      {"name":"Mita","pronouns":"she","persona":"<personality text>",
+      {"name":"Mita","pronouns":"they","persona":"<personality text>",
        "voice":{"id":"en_US-amy","pitch":1.0},
        "vrm":{"version":17,"sha256":"…"},"emblem":"drawing","version":42}
 
-  `pronouns` is only filled if she set them. `emblem` is how the companion looks, a look she and the
+  `pronouns` is only filled if it set them. `emblem` is how the companion looks, a look it and the
   person made together in conversation: `face` (the figure, or the VRM when there is one), `drawing`
-  (one she drew of herself), `picture`, `model`, or `none` (no look yet: nothing of her shows). There
-  are no built-in looks; an app that can't show hers shows nothing in its place rather than a stand-in.
+  (one it drew of itself), `picture`, `model`, or `none` (no look yet: nothing of its shows). There
+  are no built-in looks; an app that can't show its own shows nothing in its place rather than a stand-in.
 - `GET /identity/vrm` returns the VRM file, with its sha256 as the ETag. `vrm` is null when the
   companion has no VRM; the app then keeps its own face.
 - Changes arrive on `/events` as `identity {"version":n}`.
@@ -89,8 +89,8 @@ no wallpaper picture). Uses the AI line of consent.
 - On `/events`:
   - `mood {"name"}` and `act {"name"}`, using the same names as the companion's `[[mood:]]` and `[[act:]]`;
   - `speaking {"level","f1","f2"}` every 20 ms while the OS speaks;
-  - `gaze {"x","y"}`: where she looks, each -1.2..1.2 from the middle of her frame; x grows to the
-    right of the screen and y grows **upwards** (the pointer above her is positive y). Sent while the
+  - `gaze {"x","y"}`: where it looks, each -1.2..1.2 from the middle of its frame; x grows to the
+    right of the screen and y grows **upwards** (the pointer above it is positive y). Sent while the
     pointer moves, at most 20 times a second.
 - `POST /avatar {"mood":"happy"}` or `{"act":"wave"}`: the desktop companion does the same.
 - Apps render the VRM themselves; the OS does not send frames.
@@ -122,8 +122,8 @@ no wallpaper picture). Uses the AI line of consent.
        "at":"2026-10-31T12:00:00Z","source":"onboarding","app":null}
 
   - `kind` is a learned field (`rhythm`, `protect`, `words`, `voice`, `presence`, `boundaries`,
-    `redesign`), `about` (something she said about herself) or `note`.
-  - `source` is `onboarding`, `companion`, `person` (she typed it) or `app`, with `app` then holding
+    `redesign`), `about` (something it said about itself) or `note`.
+  - `source` is `onboarding`, `companion`, `person` (they typed it) or `app`, with `app` then holding
     the app id.
 - `GET /memory` returns `{"version":n,"entries":[…]}`.
 - `GET /memory?since=n` returns only the changes. A forgotten entry comes back as `{"id","deleted":true}`.

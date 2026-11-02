@@ -56,7 +56,7 @@ static bool showing(void) {
     if (A.screen == SCR_DESIGNING)
         B.onboarding = true;
     if (!B.onboarding || (A.screen != SCR_DESIGNING && A.screen != SCR_DESKTOP) || body_asking())
-        return false; /* one question at a time: how she looks comes first */
+        return false; /* one question at a time: how it looks comes first */
     if (asked_before()) {
         B.done = true;
         return false;
@@ -128,7 +128,7 @@ void browsers_draw(void) {
     stroke_round(A.frame, r, 22, 1, color_alpha(ink, 0.12f));
     draw_text(A.frame, ft, r.x + 28, r.y + 24, "Would you like a web browser?", ink);
     draw_text(A.frame, fs, r.x + 28, r.y + 30 + font_line_height(ft),
-              "While I make your space. It downloads now and is ready when you arrive.", muted);
+              "It downloads in the background while your desktop is set up.", muted);
 
     int k = 0;
     for (int i = 0; i < NWANTED; i++) {

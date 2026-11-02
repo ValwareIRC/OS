@@ -337,7 +337,7 @@ static void bangs(const hctx *cx) {
     for (int layer = 1; layer >= 0; layer--) {
         int m = layer ? n - 1 : n;
         for (int i = 0; i < m; i++) {
-            float f = layer ? -1 + 2.0f * (i + 0.5f) / (n - 1) : -1 + 2.0f * i / (n - 1); /* -1 her right .. 1 her left */
+            float f = layer ? -1 + 2.0f * (i + 0.5f) / (n - 1) : -1 + 2.0f * i / (n - 1); /* -1 its right .. 1 its left */
             float j = hash1(i * 7 + layer * 31 + 3) - 0.5f;
             lockdesc L = {0};
             L.th = f * 0.95f + j * 0.05f;
@@ -408,7 +408,7 @@ static void back_hair(const hctx *cx, float ytip, int n) {
     /* an inner layer, a little longer, and an outer one over its gaps */
     for (int layer = 0; layer < 2; layer++)
         for (int i = 0; i < n; i++) {
-            float f = (i + 0.5f * layer) / (n - 1 + 0.5f * layer); /* 0..1 from her left round the back to her right */
+            float f = (i + 0.5f * layer) / (n - 1 + 0.5f * layer); /* 0..1 from its left round the back to its right */
             float th = 1.3f + f * (2 * PI_F - 2.6f);
             float j = hash1(i * 13 + layer * 101) - 0.5f;
             lockdesc L = {0};

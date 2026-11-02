@@ -1,5 +1,5 @@
 #pragma once
-/* A whole figure: a look (everything chosen about her) made into a model. */
+/* A whole figure: a look (everything chosen about it) made into a model. */
 #include "body.h"
 #include "face.h"
 #include "hair.h"
@@ -12,7 +12,7 @@ typedef struct {
     face_params face;
     hair_params hair;
     outfit_params outfit;
-    /* her room, seen behind her in the frame */
+    /* its room, seen behind it in the frame */
     rgb wall, wall2, floor_col, lamp;
     int props;          /* ROOM_* bits */
     /* manner */
@@ -40,11 +40,11 @@ typedef struct {
     char vrm_title[64], vrm_author[64], vrm_licence[300];
 } figure;
 
-/* a VRM (0.x or 1.0) as her body, from the file's bytes; false with a reason */
+/* a VRM (0.x or 1.0) as its body, from the file's bytes; false with a reason */
 bool figure_load_vrm(figure *f, const unsigned char *data, size_t len, char *why, size_t whylen);
 /* any glTF binary (.glb) as a prop: its meshes placed as its nodes say, sized to fit, on one bone */
 bool figure_load_prop(figure *f, const unsigned char *data, size_t len, char *why, size_t whylen);
-/* her face's state on a VRM: blinking, the jaw, the eyes (adjusts the pose) */
+/* its face's state on a VRM: blinking, the jaw, the eyes (adjusts the pose) */
 void figure_vrm_face(figure *f, const face_state *fs, fpose *pose);
 
 void look_default(look *lk);

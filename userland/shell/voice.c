@@ -166,7 +166,7 @@ void voice_say(const char *text) {
     close(p[1]);
 }
 
-/* ---- choosing her voice ---- */
+/* ---- choosing its voice ---- */
 
 static const struct {
     const char *prefix, *what;
@@ -190,7 +190,7 @@ static bool known_clip(const char *name) {
     return access(p, R_OK) == 0;
 }
 
-static char clip_next[64]; /* heard after what she is saying now */
+static char clip_next[64]; /* heard after what it is saying now */
 
 bool voice_preview(const char *name) {
     if (!known_clip(name) || access("/dev/dsp", W_OK) != 0)
@@ -293,9 +293,9 @@ void voice_poll(void) {
         LOG("voice: %s %s\n", want, ok ? "arrived" : "couldn't be fetched");
         if (ok) {
             settings_set("voice.name", want);
-            toast("Her new voice is here.");
+            toast("Voice downloaded.");
         } else {
-            toast("That voice couldn't be downloaded. Is the internet there?");
+            toast("The voice could not be downloaded. Check the internet connection.");
         }
     }
 }

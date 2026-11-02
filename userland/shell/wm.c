@@ -3,6 +3,8 @@
 #include "launcher.h"
 #include "app.h"
 #include "fm/fm.h"
+#include "nerve.h"
+const char *desktop_window_title(int w);
 #include "wl/wl.h"
 
 #include <math.h>
@@ -829,6 +831,7 @@ void wm_cursor(canvas *c, int x, int y) {
 /* ---- window events ---- */
 
 void wm_opened(int w) {
+    nerve(0, "window", 0, "opened \"%.80s\"", desktop_window_title(w));
     if (w < 0 || w >= WIN_MAX)
         return;
     memset(&ww[w], 0, sizeof ww[w]);
@@ -840,6 +843,8 @@ void wm_opened(int w) {
 }
 
 void wm_unmapped(int w) {
+    if (w >= 0 && w < WIN_MAX)
+        nerve(0, "window", 0, "\"%.80s\" closed", desktop_window_title(w));
     for (int i = 0; i < NGHOST; i++)
         if (ghosts[i].used && ghosts[i].waiting && ghosts[i].w == w) {
             ghosts[i].waiting = false; /* it closed: now it fades */
@@ -853,10 +858,14 @@ void wm_unmapped(int w) {
 
 void wm_close(int w) {
     if (w >= 0 && w < WIN_MAX && A.win[w].open)
+        nerve(0, "window", 0, "closed \"%.80s\"", desktop_window_title(w));
+    if (w >= 0 && w < WIN_MAX && A.win[w].open)
         ww[w].pending_close = true;
 }
 
 void wm_minimize(int w) {
+    if (w >= 0 && w < WIN_MAX && A.win[w].open && !A.win[w].minimized)
+        nerve(0, "window", 0, "minimized \"%.80s\"", desktop_window_title(w));
     if (w >= 0 && w < WIN_MAX && A.win[w].open && !A.win[w].minimized)
         ww[w].pending_min = true;
 }
@@ -1020,6 +1029,7 @@ static void drop_key(int k, int count) {
             count--;
             continue;
         }
+        A.in.keymod[o] = A.in.keymod[i];
         A.in.keys[o++] = A.in.keys[i];
     }
     A.in.nkeys = o;
@@ -1030,6 +1040,8 @@ void wm_keys(void) {
     bool tap_meta = false;
     int tabs = 0, escs = 0, spaces = 0, arrows[4] = {0};
     int keep = 0;
+    if (A.in.nraw)
+        nerve_person_touched(); /* a key: what it does is theirs */
     for (int i = 0; i < A.in.nraw; i++) {
         int code = A.in.raw[i].code;
         bool down = A.in.raw[i].down, take = false;
@@ -1111,7 +1123,7 @@ void wm_keys(void) {
     drop_key(K_RIGHT, arrows[2]);
     drop_key(K_DOWN, arrows[3]);
     if (tap_meta && A.in.nkeys < 32)
-        A.in.keys[A.in.nkeys++] = K_META;
+        A.in.keymod[A.in.nkeys] = 0, A.in.keys[A.in.nkeys++] = K_META;
     if (sw.open) {
         /* the switcher has the pointer and keys while it is up */
         for (int i = 0; i < sw.n; i++)

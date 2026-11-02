@@ -1,4 +1,4 @@
-/* Framing and lighting her. */
+/* Framing and lighting it. */
 #include <string.h>
 
 #include "scene.h"

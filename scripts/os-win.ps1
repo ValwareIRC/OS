@@ -145,8 +145,8 @@ if ($Fullscreen) {
     [IO.File]::WriteAllText($size, "max $($mw)x$($mh)")
 }
 $facetArgs += @("-fw_cfg", "name=opt/os/display,file=$size")
-# Her own body: a VRM model (-Vrm path, or figure.vrm beside the launchers),
-# handed to the OS at boot; it keeps it (/etc/os/figure.vrm) and shows her
+# Its own body: a VRM model (-Vrm path, or figure.vrm beside the launchers),
+# handed to the OS at boot; it keeps it (/etc/os/figure.vrm) and shows it
 # face in the design's orb.
 if (-not $Vrm -and (Test-Path (Join-Path $root "figure.vrm"))) { $Vrm = Join-Path $root "figure.vrm" }
 if ($Vrm) { $facetArgs += @("-fw_cfg", ("name=opt/os/figure.vrm,file=" + ((Resolve-Path $Vrm).Path -replace ",", ",,"))) }

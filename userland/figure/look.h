@@ -1,5 +1,5 @@
 #pragma once
-/* Her look as markup: what the AI writes to describe her, and what is kept
+/* Its look as markup: what the AI writes to describe it, and what is kept
  * on the disk (/etc/os/figure.xml).
  *
  *   <figure name="Ember" height="1.52" heads="6.4">
@@ -16,7 +16,7 @@
  *   </figure>
  *
  * Anything left out keeps its default; numbers are kept within sensible
- * bounds, so no look can make her unrecognisable or break the drawing. */
+ * bounds, so no look can make it unrecognisable or break the drawing. */
 #include "figure.h"
 
 bool look_parse(const char *text, look *lk, char *why, size_t whylen);

@@ -9,8 +9,8 @@ void appapi_init(void);
 int appapi_fds(int *out, int max);
 void appapi_poll(void);
 
-/* What the desktop companion just did, for the apps following her face
- * (presence.c): a gesture or mood, where she looks (-1.2..1.2). */
+/* What the desktop companion just did, for the apps following its face
+ * (presence.c): a gesture or mood, where it looks (-1.2..1.2). */
 void appapi_avatar_event(const char *kind, const char *name);
 void appapi_gaze(float x, float y);
 

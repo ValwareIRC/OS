@@ -1,12 +1,12 @@
-/* A VRM model as her body: someone's own avatar instead of a generated one.
+/* A VRM model as its body: someone's own avatar instead of a generated one.
  *
  * A VRM is a glTF binary (GLB) with a humanoid map (which node is the hips,
  * the left upper arm ...), a licence, expressions and material settings.
  * Its humanoid bones get our (VRM 1.0) names, so the gestures, the life
- * layer and recorded clips drive it as they drive a generated figure. Her
+ * layer and recorded clips drive it as they drive a generated figure. It
  * face then moves through what the model has: a blink shape, its jaw, its
  * eye bones. The model is drawn as it was made (its licence may forbid
- * changes), only scaled to her height and turned to face the camera.
+ * changes), only scaled to its height and turned to face the camera.
  *
  * The bytes are untrusted: every index and size is checked. This runs in
  * os-figure, which the sandbox keeps from touching anything else. */
@@ -254,7 +254,7 @@ bool figure_load_vrm(figure *f, const unsigned char *data, size_t len, char *why
     for (int i = 0; i < nn; i++)
         if (bn[i] != -1)
             used[i] = true;
-    /* model space: her height, facing +Z (VRM 0.x faces -Z) */
+    /* model space: its height, facing +Z (VRM 0.x faces -Z) */
     float top = 0;
     json *meshes = json_get(g.root, "meshes");
     /* height from the meshes' bounds (accessor max of POSITION) */

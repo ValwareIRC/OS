@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "settings.h"
+#include "nerve.h"
 #include "app.h"
 #include "emblem.h"
 #include "fm/fm.h"
@@ -574,7 +575,7 @@ static int page_appearance(rect c, int y) {
     if (pick != (dark ? 1 : 0) && appearance_can_switch())
         appearance_set_dark(pick == 1);
     if (!appearance_can_switch())
-        draw_text(A.frame, SMALL(), c.x + 256, y + (38 - LH(SMALL())) / 2, "This design sets its own light.", P.muted);
+        draw_text(A.frame, SMALL(), c.x + 256, y + (38 - LH(SMALL())) / 2, "This design has a fixed colour scheme.", P.muted);
     y += 38 + 26;
 
     y = settings_section(c, y, "Text size");
@@ -599,7 +600,7 @@ static int page_appearance(rect c, int y) {
         const char *label, *sub;
         bool on;
     } rows[2] = {{"Strong contrast", "Text reads at 7:1 against whatever is behind it", A.prof.high_contrast},
-                 {"Less movement", "Still wallpaper, no glides or swells", A.prof.reduce_motion}};
+                 {"Less movement", "A static wallpaper and minimal animation", A.prof.reduce_motion}};
     for (int i = 0; i < 2; i++) {
         row_label(c, y, 48, rows[i].label, rows[i].sub);
         if (ctl_switch((rect){c.x + c.w - 52, y + 12, 48, 26}, rows[i].on, &P)) {
@@ -894,7 +895,7 @@ static void mind_use(const char *model) {
     char b[200];
     snprintf(b, sizeof b, "%s now thinks with %s%s%s.", D.ai_name[0] ? D.ai_name : "Your companion", mind.p->name,
              A.cfg.model[0] ? ", " : "", A.cfg.model);
-    notify("Mind changed", b, "settings");
+    notify("AI model changed", b, "settings");
     mind_reset();
     mind.step = MIND_SHOW;
 }
@@ -973,7 +974,7 @@ static int page_mind(rect c, int y) {
     if (mind.step == MIND_SHOW)
         name_row(c, &y, f);
     if (mind.step == MIND_SHOW) { /* how I look: made in conversation, never picked from a list */
-        y = settings_section(c, y, "How I look");
+        y = settings_section(c, y, "Companion appearance");
         rect me = {c.x, y, 96, 96};
         bool shown = presence_mode() != PRESENCE_LIGHT
                          ? false
@@ -986,10 +987,10 @@ static int page_mind(rect c, int y) {
                            : shown ? "This is how I look right now. Tell me if you'd like something else: describe it, "
                                      "give me a picture, a link, a 3D model or a VRM, and I'll take it on."
                                    : "I don't have a look of my own yet. Tell me what you'd like to see, or ask me to "
-                                     "come up with something that fits your space.";
+                                     "come up with something that suits your desktop.";
         int th = draw_text_wrapped(A.frame, f, (rect){tx, y + 4, c.x + c.w - tx, 120}, says, P.ink, 1.35f);
         rect b = {tx, y + 4 + th + 12, 180, 40};
-        if (ctl_button(b, "Talk about it", f, true, true, &P)) {
+        if (ctl_button(b, "Change it", f, true, true, &P)) {
             desktop_open_window(WIN_COMPANION);
             body_talk_about_it(false);
         }
@@ -1000,20 +1001,20 @@ static int page_mind(rect c, int y) {
         rect card = {c.x, y, c.w, 112};
         fill_round(A.frame, card, 18, color_alpha(P.ink, 0.05f));
         font *big = settings_font(SF_SECTION);
-        const char *name = A.provider ? A.provider->name : A.cfg.provider[0] ? A.cfg.provider : "No mind yet";
+        const char *name = A.provider ? A.provider->name : A.cfg.provider[0] ? A.cfg.provider : "Not set up";
         draw_text(A.frame, fm_host_font(D.font_heading, 22), card.x + 24, card.y + 24, name, P.ink);
         bool here = A.provider && !strcmp(A.provider->id, "builtin");
         draw_text(A.frame, f, card.x + 24, card.y + 30 + LH(big) + 6,
                   here ? models_selected()->name : A.cfg.model[0] ? A.cfg.model : "No model chosen", P.muted);
         y += card.h + 16;
         y += draw_text_wrapped(A.frame, f, (rect){c.x, y, c.w, 200},
-                               is_local() ? "Your words stay on your own machines: this computer, or one you run."
-                                          : "Your words go to this service when you talk, and nowhere else.",
+                               is_local() ? "Runs on this computer (or one you run). Nothing is sent elsewhere."
+                                          : "Conversations are sent to this provider. Nothing else is.",
                                P.ink, 1.35f) + 18;
         rect b = {c.x, y, 200, 40};
         if (log_now)
             LOGRECT("settings-mind-change", b);
-        if (ctl_button(b, "Change mind", f, true, true, &P)) {
+        if (ctl_button(b, "Change provider", f, true, true, &P)) {
             mind_reset();
             mind.step = MIND_CHOOSE;
         }
@@ -1027,8 +1028,7 @@ static int page_mind(rect c, int y) {
             mind.step = MIND_MODELS;
         }
         y += 40 + 16;
-        y += note_text(c, y, "Changing the mind keeps your desktop, your portrait and your conversation. Only who "
-                             "does the thinking changes.");
+        y += note_text(c, y, "Changing the provider keeps your desktop, profile and conversation history.");
         return y - y0 + 10;
     }
     if (mind.step == MIND_MODELS) {
@@ -1162,7 +1162,7 @@ static int page_mind(rect c, int y) {
         y += draw_text_wrapped(A.frame, SMALL(), (rect){c.x, y, c.w, 120}, mind.status, mind.failed ? P.ink : P.muted, 1.3f) + 10;
         return y - y0;
     }
-    y = settings_section(c, y, "Which model?");
+    y = settings_section(c, y, "Model");
     for (int i = 0; i < mind.n && i < 40; i++) {
         rect row = {c.x, y, c.w, 38};
         bool sel = i == mind.sel, hover = ui_hover(row);
@@ -1176,7 +1176,7 @@ static int page_mind(rect c, int y) {
     rect use = {c.x, y, 180, 42};
     if (log_now)
         LOGRECT("settings-mind-use", use);
-    if (ctl_button(use, "Use this mind", f, true, true, &P))
+    if (ctl_button(use, "Use this model", f, true, true, &P))
         mind_use(mind.models[mind.sel]);
     y += 42 + 10;
     return y - y0;
@@ -1212,17 +1212,42 @@ static int page_privacy(rect c, int y) {
         y += row.h + 4;
     }
     y += 6;
-    y += note_text(c, y, "Kept only on this computer. It shapes how your space looks and how I talk with you.") + 24;
-    y = settings_section(c, y, "Where your words go");
+    y += note_text(c, y, "Stored on this computer only.") + 24;
+    y = settings_section(c, y, "AI provider");
     snprintf(line, sizeof line, "%s, %s. %s", A.provider ? A.provider->name : A.cfg.provider, A.cfg.model,
-             is_local() ? "Your words stay on your own machines." : "Your words go to this service when you talk with me.");
+             is_local() ? "Runs locally." : "Conversations are sent to this provider.");
     y += draw_text_wrapped(A.frame, f, (rect){c.x, y, c.w, 200}, line, P.ink, 1.3f) + 8;
-    snprintf(line, sizeof line, "How present I am: %s. Reshaping the space: %s.",
-             A.prof.autonomy[0] ? A.prof.autonomy : "I ask first", A.prof.redesign[0] ? A.prof.redesign : "only when you ask");
+    snprintf(line, sizeof line, "Speaks up: %s. Redesigns: %s.",
+             A.prof.autonomy[0] ? A.prof.autonomy : "asks first", A.prof.redesign[0] ? A.prof.redesign : "only when asked");
     y += note_text(c, y, line) + 24;
+    /* its reflexes (reflex.c): what decides, on this computer, what is worth its attention */
+    y = settings_section(c, y, "Event filter");
+    {
+        static const char *const engines_l[] = {"Decision model", "Small LLM", "Rules only"};
+        static const char *const engines_v[] = {"jev", "llm", "rules"};
+        const char *cur = reflex_engine();
+        int ci = !strcmp(cur, "llm") ? 1 : !strcmp(cur, "rules") ? 2 : 0;
+        int pick = ctl_segmented((rect){c.x, y, 420, 38}, engines_l, 3, ci, BODY(), &P);
+        if (pick != ci)
+            settings_set("reflex.engine", engines_v[pick]);
+        y += 38 + 10;
+        if (ci != 2) {
+            static const char *const models_l[] = {"LFM3 1.7B", "Qwen3 1.7B", "Qwen3 0.6B"};
+            static const char *const models_v[] = {"lfm3-1.7b", "qwen3-1.7b", "qwen3-0.6b"};
+            const char *m = settings_get("reflex.model", "lfm3-1.7b");
+            int mi = !strcmp(m, "qwen3-1.7b") ? 1 : !strcmp(m, "qwen3-0.6b") ? 2 : 0;
+            int mp = ctl_segmented((rect){c.x, y, 420, 34}, models_l, 3, mi, SMALL(), &P);
+            if (mp != mi)
+                settings_set("reflex.model", models_v[mp]);
+            y += 34 + 10;
+        }
+        y += note_text(c, y, reflex_status()) + 4;
+        y += note_text(c, y, "Decides which system events are worth interrupting for. Runs on this computer only, "
+                             "never on the AI provider. Your own actions are never reported back to you.") + 24;
+    }
     /* apps that asked to use the companion (the companion API), and what each may */
     if (appapi_app_count()) {
-        y = settings_section(c, y, "Apps that use me");
+        y = settings_section(c, y, "App access");
         for (int i = 0; i < appapi_app_count(); i++) {
             draw_text(A.frame, f, c.x, y + 8, appapi_app_label(i), P.ink);
             static const char *const what[2] = {"Your AI", "What I know about you"};
@@ -1237,9 +1262,9 @@ static int page_privacy(rect c, int y) {
             }
             y += 44;
         }
-        y += note_text(c, y, "Apps reach me through this computer, never with your keys.") + 24;
+        y += note_text(c, y, "Apps use the AI through this computer and never see your keys.") + 24;
     }
-    y = settings_section(c, y, "Start again");
+    y = settings_section(c, y, "Reset");
     static uint64_t confirm_at;
     bool confirming = confirm_at && A.now - confirm_at < 5000;
     rect fb = {c.x, y, confirming ? 260 : 160, 42};
@@ -1257,7 +1282,7 @@ static int page_privacy(rect c, int y) {
         confirm_at = A.now;
     }
     y += 42 + 12;
-    y += note_text(c, y, "Forget me erases the portrait, the design, your notes and the connection, and starts again.") + 18;
+    y += note_text(c, y, "Forget me erases your profile, design, notes and AI connection, then restarts setup.") + 18;
     static uint64_t reset_at;
     bool resetting = reset_at && A.now - reset_at < 5000;
     rect rb = {c.x, y, resetting ? 300 : 200, 42};
@@ -1277,9 +1302,8 @@ static int page_privacy(rect c, int y) {
         reset_at = A.now;
     }
     y += 42 + 12;
-    y += note_text(c, y, "Reset to factory erases everything this computer keeps: your name, our conversations, what I "
-                         "remember, your design, how I look, your files, and the apps you installed with their data. "
-                         "It restarts at the very first screen, as it came.");
+    y += note_text(c, y, "Reset to factory erases all data on this computer (profile, conversations, design, files "
+                         "and installed apps) and restarts from the first screen.");
     return y - y0 + 10;
 }
 
@@ -1402,7 +1426,7 @@ static int page_list(struct page *out) {
                                          {"Display", SYM_DISPLAY, page_display, NULL},
                                          {"Sound", SYM_SPEAKER, page_sound, NULL},
                                          {"Keyboard", SYM_KEYBOARD, page_keyboard, NULL},
-                                         {"Mind", SYM_MIND, page_mind, NULL}};
+                                         {"AI", SYM_MIND, page_mind, NULL}};
     static const struct page after[] = {{"Privacy", SYM_SHIELD, page_privacy, NULL}, {"About", SYM_INFO, page_about, NULL}};
     int n = 0;
     for (size_t i = 0; i < sizeof before / sizeof before[0]; i++)
