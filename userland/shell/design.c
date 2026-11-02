@@ -12,7 +12,7 @@
 
 static const char *const app_ids[APP_COUNT] = {"files", "companion", "notes", "settings", "about", "terminal", "redesign", "power"};
 static const char *const app_names[APP_COUNT] = {"Files", "Companion", "Notes", "Settings", "About", "Terminal", "Redesign",
-                                                 "Power off"};
+                                                 "Shut down"};
 
 const char *app_default_name(int app) { return app >= 0 && app < APP_COUNT ? app_names[app] : ""; }
 const char *app_id(int app) { return app >= 0 && app < APP_COUNT ? app_ids[app] : ""; }

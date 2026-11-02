@@ -663,24 +663,24 @@ static void record_pick(int i) {
         char fact[240];
         snprintf(fact, sizeof fact, "%s%s%s", pk->label[i], pk->desc[i][0] ? ": " : "", pk->desc[i]);
         portrait_learn(&A.prof, "room", fact);
-        snprintf(msg, sizeof msg, "%s. That one feels like home.", pk->label[i]);
+        snprintf(msg, sizeof msg, "%s.", pk->label[i]);
     } else if (!strcmp(k, "type")) {
         snprintf(A.prof.type_font, sizeof A.prof.type_font, "%s", pk->font[i]);
         char said[160];
         snprintf(said, sizeof said, "your words in %s", pk->font[i]);
         portrait_learn(&A.prof, "type", said);
-        snprintf(msg, sizeof msg, "That one, the %s.", i == 0 ? "first" : i == 1 ? "second" : i == 2 ? "third" : "last");
+        snprintf(msg, sizeof msg, "%s.", pk->font[i]);
     } else if (!strcmp(k, "tempo")) {
         A.prof.tempo = pk->n > 1 ? (float)i / (float)(pk->n - 1) : 0.5f;
         char said[160];
-        snprintf(said, sizeof said, "things move like %s", i == 0 ? "something almost asleep" : i == 1 ? "a slow breath" : "something awake");
+        snprintf(said, sizeof said, "motion: %s", i == 0 ? "calm" : i == 1 ? "gentle" : "lively");
         portrait_learn(&A.prof, "tempo", said);
         snprintf(msg, sizeof msg, "%s.", pk->value[i]);
     } else if (!strcmp(k, "palette")) {
         snprintf(A.prof.palette_name, sizeof A.prof.palette_name, "%s", pk->label[i]);
         memcpy(A.prof.palette, pk->swatch[i], sizeof A.prof.palette);
         A.prof.has_palette = true;
-        snprintf(msg, sizeof msg, "I choose %s.", pk->label[i][0] ? pk->label[i] : "that one");
+        snprintf(msg, sizeof msg, "%s.", pk->label[i][0] ? pk->label[i] : "This one");
     } else {
         if (!strcmp(k, "mood"))
             snprintf(A.prof.mood, sizeof A.prof.mood, "%s", pk->value[i]);
@@ -1082,10 +1082,10 @@ void onboard_draw(void) {
         /* every pick says what it is asking */
         static const char *const cap[][2] = {
             {"comfort", "Choose what feels right. You can change it any time."},
-            {"room", "Which of these feels like home?"},
-            {"type", "Which of these sounds like you?"},
+            {"room", "Which of these would you like to look at every day?"},
+            {"type", "Which typeface would you like to read?"},
             {"tempo", "How fast should things move?"},
-            {"palette", "Which of these feels like yours?"},
+            {"palette", "Which colours would you like?"},
         };
         y += 16;
         for (size_t k = 0; k < sizeof cap / sizeof cap[0]; k++)

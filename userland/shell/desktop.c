@@ -1355,61 +1355,9 @@ void factory_reset(void) {
 /* Settings and its pages live in settings.c. */
 static void settings_body(rect r) { settings_draw(r); }
 
-/* About: what this is, and why it looks the way it does, in the design's
- * own colours and type (the palette and faces are shown, not just named). */
-static void about_body(rect r) {
-    color under = theme_under((rect){r.x, r.y, r.w, 60});
-    color ink = theme_fit(D.surface_text, under, 4.5f), muted = theme_fit(D.muted, under, 3.0f);
-    color accent = theme_fit(D.accent, under, 3.0f);
-    float hp = D.heading_px * 0.62f < 26 ? 26 : D.heading_px * 0.62f;
-    font *f = BF(D.body_px), *h = HF(hp), *small = BF(D.body_px - 3), *label = HF(D.body_px - 3);
-    r = rect_inset(r, 6);
-    /* who: its light, the name, and for whom */
-    int hh = font_line_height(h);
-    int tx = emblem_draw(A.frame, r.x + 26.0f, r.y + 28.0f, 17, D.accent, D.accent2, false) ? 66 : 4;
-    draw_text(A.frame, h, r.x + tx, r.y + 28 - hh / 2 - 8, "Operating System", ink);
-    char who[160];
-    if (D.user_name[0])
-        snprintf(who, sizeof who, "Version " OS_VERSION "  \xc2\xb7  shaped for %s by %s", D.user_name, D.ai_name);
-    else
-        snprintf(who, sizeof who, "Version " OS_VERSION "  \xc2\xb7  shaped by %s", D.ai_name);
-    draw_text(A.frame, small, r.x + tx, r.y + 28 + hh / 2 - 6, who, muted);
-    int y = r.y + 76;
-    fill_rect(A.frame, (rect){r.x, y, r.w, 1}, color_alpha(ink, 0.12f));
-    y += 22;
-
-    /* why: the designer's own words, at a comfortable measure */
-    draw_text(A.frame, label, r.x, y, "DESIGN NOTES", accent);
-    y += font_line_height(label) + 8;
-    int measure = r.w < 560 ? r.w : 560;
-    y += draw_text_wrapped(A.frame, f, (rect){r.x, y, measure, 200}, D.rationale[0] ? D.rationale : "No note was left.",
-                           ink, 1.45f) + 24;
-
-    /* the palette and the type, shown */
-    draw_text(A.frame, label, r.x, y, "PALETTE", accent);
-    draw_text(A.frame, label, r.x + r.w / 2, y, "TYPE", accent);
-    y += font_line_height(label) + 10;
-    const color sw[5] = {D.bg, D.surface, D.text, D.accent, D.accent2};
-    for (int i = 0; i < 5; i++) {
-        rect s = {r.x + i * 40, y, 30, 30};
-        fill_round(A.frame, s, 15, sw[i] | 0xff000000u);
-        stroke_round(A.frame, s, 15, 1, color_alpha(ink, 0.18f));
-    }
-    font *hs = HF(22), *bs = BF(D.body_px);
-    draw_text(A.frame, hs, r.x + r.w / 2, y - 2, D.font_heading, ink);
-    draw_text(A.frame, bs, r.x + r.w / 2, y + font_line_height(hs), D.font_body, muted);
-    y += 30 + font_line_height(hs) + 10;
-
-    /* credits, quietly, at the foot */
-    const char *credits = "Kernel, drivers, network stack and desktop written for this operating system. Uses mbed TLS "
-                          "(Apache-2.0), stb_truetype (public domain), fonts under the SIL Open Font License, and "
-                          "Mozilla's CA list.";
-    int ch = draw_text_wrapped(NULL, small, (rect){0, 0, r.w, 200}, credits, 0, 1.35f);
-    int cy = r.y + r.h - ch;
-    if (cy < y + 8)
-        cy = y + 8;
-    draw_text_wrapped(A.frame, small, (rect){r.x, cy, r.w, ch}, credits, muted, 1.35f);
-}
+/* About: the system and the computer it runs on (Settings > About, on its own). The design's notes are in
+ * Settings > Appearance. */
+static void about_body(rect r) { settings_about_draw(r); }
 
 static float ease_out(float t) {
     t = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -2009,6 +1957,51 @@ static void draw_her_free(int top, bool over_ui) {
         open_window(WIN_COMPANION);
 }
 
+/* An app with no picture of its own (one the companion made, say) gets the symbol of what it is, by its name:
+ * a list for Todo, a clock for Stopwatch, the sun for Forecast. -1: nothing fits (its first letter, then). */
+static int glyph_for_app(const char *id, const char *label) {
+    static const struct {
+        const char *words;
+        int glyph;
+    } kinds[] = {
+        {"todo task list check chore agenda plan", G_LIST},
+        {"clock timer stopwatch alarm time countdown pomodoro", G_CLOCK},
+        {"weather forecast sun sky", G_SUN},
+        {"night moon sleep dream", G_MOON},
+        {"day book journal diary note notes write writer memo document text letter", G_DOC},
+        {"calc calculator math budget money", G_CALC},
+        {"music audio song player radio podcast sound", G_MUSIC},
+        {"photo picture image camera paint draw gallery", G_PICTURE},
+        {"terminal shell console code", G_TERMINAL},
+        {"file files folder", G_FOLDER},
+        {"search find", G_SEARCH},
+        {"setting settings config prefs", G_GEAR},
+        {"download downloads", G_DOWNLOAD},
+        {"view watch eye", G_EYE},
+    };
+    char both[160];
+    snprintf(both, sizeof both, " %s %s ", id ? id : "", label ? label : "");
+    for (char *p = both; *p; p++)
+        *p = (*p >= 'A' && *p <= 'Z') ? (char)(*p + 32) : (*p == '-' || *p == '_' || *p == '.') ? ' ' : *p;
+    for (size_t k = 0; k < sizeof kinds / sizeof kinds[0]; k++) {
+        char w[24];
+        for (const char *s = kinds[k].words; *s;) {
+            size_t n = strcspn(s, " ");
+            if (n && n < sizeof w - 2) {
+                snprintf(w, sizeof w, "%.*s", (int)n, s);
+                if (strstr(both, w)) /* (contained: "stopwatch", "dailytodo") */
+                    return kinds[k].glyph;
+            }
+            s += n;
+            while (*s == ' ')
+                s++;
+        }
+    }
+    return -1;
+}
+
+int app_glyph_for(const char *id, const char *label) { return glyph_for_app(id, label); }
+
 void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover) {
     /* colour, mono and classic pictures (iconart.c); the older tiles below */
     if (app >= 0 && app < APP_COUNT &&
@@ -2072,6 +2065,8 @@ void fm_host_draw_icon(rect r, int app, const fm_style *st, bool hover) {
         draw_line(A.frame, cx, cy - s * 0.26f, cx - s * 0.24f, cy + s * 0.18f, s / 20 + 1, ink);
         draw_line(A.frame, cx - s * 0.24f, cy + s * 0.18f, cx + s * 0.24f, cy + s * 0.18f, s / 20 + 1, ink);
         draw_line(A.frame, cx + s * 0.24f, cy + s * 0.18f, cx, cy - s * 0.26f, s / 20 + 1, ink);
+    } else if (glyph_for_app(id, label) >= 0) {
+        ui_glyph(A.frame, rect_inset(r, (int)(s * 0.24f)), glyph_for_app(id, label), s / 22 + 1, ink);
     } else {
         char letter[2] = {label && *label ? *label : '?', 0};
         if (letter[0] >= 'a' && letter[0] <= 'z')
@@ -2610,7 +2605,7 @@ void desktop_draw(void) {
         fill_rect(A.frame, (rect){0, 0, A.W, A.H}, color_alpha(D.bg, 0.35f));
         panel(r, D.radius + 6);
         char q[96];
-        snprintf(q, sizeof q, "%s now?", A.power_restart ? "Restart" : "Power off");
+        snprintf(q, sizeof q, "%s now?", A.power_restart ? "Restart" : "Shut down");
         draw_text_centered(A.frame, HF(D.heading_px * 0.8f), (rect){r.x, r.y + 36, r.w, 50}, q, D.surface_text);
         font *f = BF(D.body_px);
         if (ui_button((rect){r.x + 40, r.y + 130, 200, 50}, "Not yet", f, color_alpha(D.surface_text, 0.12f), D.surface_text,

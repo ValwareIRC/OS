@@ -1,8 +1,7 @@
 # The Terminal app hands its own coloured prompt in PS1; the serial console doesn't.
 [ -n "$PS1" ] || export PS1='$PWD# '
-echo
-if [ -n "$BASH_VERSION" ]; then
-    echo "Operating System terminal. The usual tools are here; 'busybox' lists them."
-else
+# no banner in the Terminal app: a terminal opens on a prompt. The development console says what it is.
+if [ -z "$BASH_VERSION" ]; then
+    echo
     echo "Operating System development shell (busybox). Type 'busybox' for the tool list."
 fi

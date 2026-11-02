@@ -50,6 +50,8 @@ class Vm:
         if os.path.basename(iso) == "dev.iso":  # the development discs: the big files on a second one
             qargs += ["-drive", "id=big,file=" + os.path.join(os.path.dirname(iso), "big.iso").replace(os.sep, "/") +
                       ",media=cdrom,if=none,readonly=on", "-device", "ide-cd,drive=big,bus=ide.3"]
+        if os.environ.get("HANGDUMP"):  # every minute, what each thread is doing (kernel/proc/proc.c)
+            qargs += ["-fw_cfg", "name=opt/os/hangdump,string=1"]
         if self.disk:
             qargs += ["-drive", "id=disk0,file=" + self.disk.replace(os.sep, "/").replace(",", ",,") +
                       ",format=raw,if=none,snapshot=on", "-device", "ide-hd,drive=disk0,bus=ide.0"]

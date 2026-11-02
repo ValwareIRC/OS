@@ -228,3 +228,6 @@ void companion_tick(void);
 /* The design job (onboard.c): takes in a finished design, a failure, or
  * starts a retry. */
 void design_poll(void);
+
+/* The symbol of what an app is, by its id or name (enum ui_glyph); -1 if nothing fits (desktop.c). */
+int app_glyph_for(const char *id, const char *label);

@@ -1086,8 +1086,8 @@ static void search(const char *q_in) {
         int nr = recent_list(&rec);
         for (int i = 0; i < nr && NR < 8; i++) {
             const struct recent *r = &rec[i];
-            if (r->kind == 'f') {
-                if (access(r->target, F_OK))
+            if (r->kind == 'f') { /* their own things only: not system programs looked at for them */
+                if (access(r->target, F_OK) || strncmp(r->target, HOME_DIR "/", strlen(HOME_DIR) + 1))
                     continue;
                 pretty_dir(r->target, sub, sizeof sub);
             } else if (r->kind == 'a') {
@@ -1095,9 +1095,13 @@ static void search(const char *q_in) {
                     continue;
                 snprintf(sub, sizeof sub, "App");
             } else {
-                snprintf(sub, sizeof sub, "%s", r->kind == 'x' ? "Program" : r->kind == 's' ? "Setting" : "Command");
+                snprintf(sub, sizeof sub, "%s", r->kind == 'x' ? "App" : r->kind == 's' ? "Setting" : "Command");
             }
             struct res *x = add(GR_RECENT, 1000 - i, r->kind, r->title, sub, r->target);
+            if (x && x->kind == 'f') {
+                struct stat st;
+                x->fkind = stat(r->target, &st) == 0 && S_ISDIR(st.st_mode) ? FK_FOLDER : file_kind(r->target, false);
+            }
             if (x && (x->kind == 'c' || x->kind == 's'))
                 for (size_t k = 0; k < sizeof cmds / sizeof cmds[0]; k++)
                     if (!strcmp(cmds[k].target, r->target))
@@ -1160,7 +1164,7 @@ static void search(const char *q_in) {
     for (int i = 0; i < ndents; i++) {
         int sc = fuzzy(s, dents[i].name);
         if (sc >= 200)
-            add(GR_APPS, sc + 20 + recency(dents[i].exec), 'x', dents[i].name, dents[i].comment[0] ? dents[i].comment : "Program",
+            add(GR_APPS, sc + 20 + recency(dents[i].exec), 'x', dents[i].name, dents[i].comment[0] ? dents[i].comment : "App",
                 dents[i].exec);
     }
     /* commands and settings */
@@ -1493,7 +1497,8 @@ static float ease(float t) {
 }
 
 static void result_icon(rect ic, const struct res *r, bool sel) {
-    static fm_style none; /* the design's own icon shape and style */
+    static fm_style none; /* the design's own icon shape and style, drawn whole */
+    none.opacity = 1; /* (left at zero, an app's icon was drawn invisible: "Files" with no icon) */
     color tile = sel ? RGBA(255, 255, 255, 46) : color_alpha(D.accent, 0.16f);
     color ink = sel ? readable_on(D.accent) : D.accent;
     if (!sel && color_contrast(D.accent, D.surface) < 2.2f)
@@ -1516,7 +1521,9 @@ static void result_icon(rect ic, const struct res *r, bool sel) {
         return;
     case 'x':
     case 'g': {
-        /* an app from Flathub shows the icon its catalog brings */
+        /* its own icon: an installed app's (its .desktop file names it), a Flathub one's from the catalogue */
+        if (r->kind == 'x' && app_icon_draw(A.frame, ic, r->title, r->target, 0, LOOK_COLOR, 0, 1.0f, sel))
+            return;
         if (r->kind == 'g' && app_icon_draw(A.frame, ic, r->target, "", 0, LOOK_COLOR, 0, 1.0f, sel))
             return;
         unsigned h = 2166136261u;
@@ -1524,6 +1531,11 @@ static void result_icon(rect ic, const struct res *r, bool sel) {
             h = (h ^ (uint8_t)*p) * 16777619u;
         color t = color_mix(D.accent, D.accent2, (float)(h % 100) / 100.0f);
         fill_round_vgradient(A.frame, ic, rad, color_mix(t, RGBA(255, 255, 255, 255), 0.18f), t);
+        int g = app_glyph_for(r->target, r->title);
+        if (g >= 0) {
+            ui_glyph(A.frame, rect_inset(ic, ic.w / 4), g, 1.7f, readable_on(t));
+            return;
+        }
         char letter[2] = {r->title[0] >= 'a' && r->title[0] <= 'z' ? (char)(r->title[0] - 32) : r->title[0], 0};
         draw_text_centered(A.frame, font_get(D.font_heading, ic.h * 0.5f), ic, letter, readable_on(t));
         return;

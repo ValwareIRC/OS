@@ -10,6 +10,7 @@
 
 /* The Settings window's content. */
 void settings_draw(rect r);
+void settings_about_draw(rect r); /* the About window: the system and the computer */
 /* At boot, once the design is loaded: the resolution, keyboard layout and
  * repeat, and the sound level they chose. */
 void settings_boot(void);

@@ -18,6 +18,7 @@
 
 #include <math.h>
 #include <fcntl.h>
+#include <sys/statvfs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -653,6 +654,14 @@ static int page_appearance(rect c, int y) {
     if (ctl_button((rect){c.x, y, bw, 40}, line, BODY(), true, !A.redesigning, &P))
         design_begin("Give the whole space a fresh take, still true to who they are.");
     y += 40 + 10;
+    if (D.rationale[0]) { /* why it looks like this, in the words of whoever designed it */
+        y += 12;
+        y = settings_section(c, y, "About this design");
+        y += note_text(c, y, D.rationale);
+        char faces[160];
+        snprintf(faces, sizeof faces, "Type: %s for headings, %s for text.", D.font_heading, D.font_body);
+        y += note_text(c, y, faces);
+    }
     return y - y0;
 }
 
@@ -1344,7 +1353,7 @@ static int page_privacy(rect c, int y) {
 static int page_about(rect c, int y) {
     int y0 = y;
     static uint64_t read_at;
-    static char cpu[96], mem[64], up[64], kern[96];
+    static char cpu[96], mem[64], up[64], kern[96], disk[96];
     static int cores;
     static float used = 0;
     if (!read_at || A.now - read_at > 1000) {
@@ -1390,6 +1399,12 @@ static int page_about(rect c, int y) {
             snprintf(up, sizeof up, "%ld days, %ld h", s / 86400, (s % 86400) / 3600);
         /* uname says "Linux" so Linux apps run; the kernel is this system's own */
         snprintf(kern, sizeof kern, "Its own, written for this system (runs Linux apps)");
+        struct statvfs sv; /* where their apps and models are kept */
+        if (statvfs("/var/lib/os-data", &sv) == 0 && sv.f_blocks && access("/var/lib/os-data/.theirs", F_OK) == 0)
+            snprintf(disk, sizeof disk, "%.0f GB free of %.0f GB", (double)sv.f_bavail * sv.f_frsize / 1e9,
+                     (double)sv.f_blocks * sv.f_frsize / 1e9);
+        else
+            snprintf(disk, sizeof disk, "No disk: nothing is kept after it shuts down");
     }
     draw_text(A.frame, fm_host_font(D.font_heading, 30), c.x, y, "Operating System", P.ink);
     y += 44;
@@ -1401,9 +1416,15 @@ static int page_about(rect c, int y) {
     const struct net_state *n = net_state();
     struct {
         const char *k, *v;
-    } rows[] = {{"Processor", buf}, {"Memory", mem}, {"Up for", up}, {"Display", disp},
-                {"Network", n->has_ip ? n->ip : n->link ? "Connecting" : "Offline"}, {"Kernel", kern}};
-    for (int i = 0; i < 6; i++) {
+    } rows[] = {{"Processor", buf},
+                {"Memory", mem},
+                {"Graphics", "Drawn by the processor (no graphics driver yet)"},
+                {"Storage", disk},
+                {"Display", disp},
+                {"Network", n->has_ip ? n->ip : n->link ? "Connecting" : "Offline"},
+                {"Kernel", kern},
+                {"Up for", up}};
+    for (int i = 0; i < (int)(sizeof rows / sizeof rows[0]); i++) {
         draw_text(A.frame, BODY(), c.x, y, rows[i].k, P.muted);
         ctl_text_fit(A.frame, BODY(), c.x + 150, y, c.w - 150, rows[i].v, P.ink);
         y += LH(BODY()) + 6;
@@ -1420,6 +1441,12 @@ static int page_about(rect c, int y) {
                          "(Apache-2.0), stb_truetype (public domain), Lua (MIT), fonts under the SIL Open Font License, "
                          "and Mozilla's CA list.");
     return y - y0 + 10;
+}
+
+/* The About window: the same page, on its own. */
+void settings_about_draw(rect r) {
+    P = pal_on(pal_sample(r), 1);
+    page_about(rect_inset(r, 14), r.y + 18);
 }
 
 /* ======================================================================

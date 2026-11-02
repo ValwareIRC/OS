@@ -1123,7 +1123,8 @@ void files_open_path(const char *path) {
     int k = file_kind(path, false);
     const char *name = base_name(path);
     LOG("files: open %s (%s)\n", path, file_kind_name(k));
-    recent_add('f', name, path);
+    if (!strncmp(path, HOME_DIR "/", strlen(HOME_DIR) + 1) && !strstr(path, "/."))
+        recent_add('f', name, path);
     if (k == FK_IMAGE && image_name_ok(name)) {
         char dir[PATHN];
         dir_name(path, dir, sizeof dir);

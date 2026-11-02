@@ -549,7 +549,7 @@ static void repair_menus(fm_doc *d) {
     snprintf(markup, sizeof markup,
              "<popover id=\"%s\" placement=\"auto\" align=\"start\"><search/><applist apps=\"all\" labels=\"right\"/>%s"
              "</popover>",
-             id, any_power_button(d->desktop->first) ? "" : "<divider/><button what=\"power:off\" icon=\"power\">Power Off</button>");
+             id, any_power_button(d->desktop->first) ? "" : "<divider/><button what=\"power:off\" icon=\"power\">Shut down</button>");
     fm_parse_fragment(d, d->desktop, markup);
     d->changed = true;
     fm_report(d, 0, false, "#%s didn't exist, so its button opened nothing: a plain menu was put back", id);
