@@ -1570,7 +1570,8 @@ static const struct sent sys_user[] = {
     CONST("max_net_namespaces", ns_max),
     CONST("max_pid_namespaces", ns_max),
     CONST("max_time_namespaces", ns_max),
-    FILE_RW("max_user_namespaces", show_max_userns, store_max_userns),
+    {.name = "max_user_namespaces", .type = VN_REG, .mode = 0644, .show = show_max_userns, .store = store_max_userns,
+     .ns_root_owned = true},
     CONST("max_uts_namespaces", ns_max),
     {0},
 };

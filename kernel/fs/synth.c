@@ -1,5 +1,6 @@
 #include <kernel/lib.h>
 #include <kernel/mm.h>
+#include <kernel/ns.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
 #include <linux/abi.h>
@@ -113,6 +114,12 @@ static struct vnode *make_node(const struct sent *e, const int id[3], struct vno
             n->owned = true, n->uid = o.uid, n->gid = o.gid;
     } else if (pn && pn->owned && pn->id[0] == id[0]) {
         n->owned = true, n->uid = pn->uid, n->gid = pn->gid;
+    } else if (e->ns_root_owned) {
+        uint32_t k;
+        if (uid_from_user(0, &k))
+            n->uid = k;
+        if (gid_from_user(0, &k))
+            n->gid = k;
     }
     v->uid = n->uid, v->gid = n->gid;
     v->data = n;

@@ -39,6 +39,9 @@ struct sent {
     /* This entry and everything under it belong to the process id[0] (its
      * effective user and group), as /proc/<pid> does on Linux; else root's. */
     bool proc_owned;
+    /* A setting each user namespace has its own of (/proc/sys/user/max_user_namespaces): it belongs to the
+     * root of the viewer's namespace, who may change it there (bwrap does, in every Flatpak sandbox). */
+    bool ns_root_owned;
 };
 
 struct snode {
