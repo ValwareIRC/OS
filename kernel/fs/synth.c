@@ -84,11 +84,18 @@ static const struct vnode_ops synth_ops, synth_magic_ops;
 
 /* A new vnode for entry `e` with ids `id`, under `parent` (referenced by
  * the child: generated directories exist only while something uses them). */
+struct owner_ask {
+    uint32_t uid, gid;
+};
+
+static void take_owner(struct process *p, void *arg) {
+    struct owner_ask *o = arg;
+    o->uid = p->euid, o->gid = p->egid;
+}
+
 static struct vnode *make_node(const struct sent *e, const int id[3], struct vnode *parent) {
     struct snode *n = kmalloc(sizeof *n);
     struct vnode *v = vnode_alloc(e->type, e->mode, e->follow ? &synth_magic_ops : &synth_ops);
-    if (v)
-        v->uid = v->gid = 0; /* the kernel's, not the reader's */
     if (!n || !v) {
         kfree(n);
         kfree(v);
@@ -96,6 +103,18 @@ static struct vnode *make_node(const struct sent *e, const int id[3], struct vno
     }
     n->ent = e;
     memcpy(n->id, id, sizeof n->id);
+    /* whose it is: a process's own entries are its owner's (it reads its fds, writes its uid_map...); the rest
+     * is the kernel's, not the reader's */
+    struct snode *pn = parent ? parent->data : NULL;
+    n->owned = false, n->uid = n->gid = 0;
+    if (e->proc_owned && id[0] > 0) {
+        struct owner_ask o = {0, 0};
+        if (proc_inspect(id[0], take_owner, &o) == 0)
+            n->owned = true, n->uid = o.uid, n->gid = o.gid;
+    } else if (pn && pn->owned && pn->id[0] == id[0]) {
+        n->owned = true, n->uid = pn->uid, n->gid = pn->gid;
+    }
+    v->uid = n->uid, v->gid = n->gid;
     v->data = n;
     v->ino = node_ino(e, id);
     v->nlink = e->type == VN_DIR ? 2 : 1;

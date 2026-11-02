@@ -79,3 +79,7 @@ const char *ai_pick_model(const struct ai_provider *p, char **ids, int n);
 /* Persisted configuration (/etc/os/mind.json). */
 int ai_config_load(struct ai_config *cfg);
 int ai_config_save(const struct ai_config *cfg);
+
+/* The key this computer's own model servers answer only to (see ai.c). */
+#define AI_LOCAL_KEY_FILE "/etc/os/local-model.key"
+const char *ai_local_key(void);

@@ -17,6 +17,7 @@
  * own <search> field. */
 #include "launcher.h"
 #include "app.h"
+#include "priv.h"
 #include "files.h"
 #include "iconart.h"
 #include "fm/fm.h"
@@ -814,6 +815,8 @@ static struct {
     job *refresh;
     uint64_t at; /* last refresh started */
     job *install;
+    int install_priv;  /* asked of init (the desktop runs as the person) */
+    int refresh_priv;
     char inst_id[160], inst_name[96];
     bool inst_quiet; /* installed for later (onboarding): not opened when done */
 } fh;
@@ -942,9 +945,22 @@ static void flathub_poll(void) {
         catalog_load(); /* what an earlier refresh left */
     /* a fresh list at start, again daily; every minute while there is none (no network yet) */
     uint64_t every = fh.n ? 24ull * 3600 * 1000 : 60 * 1000;
-    if (!fh.refresh && (!fh.at || A.now - fh.at > every)) {
+    if (!fh.refresh && fh.refresh_priv <= 0 && (!fh.at || A.now - fh.at > every)) {
         fh.at = A.now ? A.now : 1;
-        fh.refresh = job_start(catalog_child, NULL);
+        if (priv_available()) /* the catalogue lives in the system installation: root's to update */
+            fh.refresh_priv = priv_send("catalog");
+        else
+            fh.refresh = job_start(catalog_child, NULL);
+    }
+    bool cok;
+    char *ctext = NULL;
+    if (fh.refresh_priv > 0 && priv_take(fh.refresh_priv, &cok, &ctext)) {
+        fh.refresh_priv = 0;
+        if (cok)
+            catalog_load();
+        else
+            LOG("launcher: Flathub's list didn't come: %.200s\n", ctext ? ctext : "");
+        free(ctext);
     }
     if (fh.refresh && job_poll(fh.refresh, &res)) {
         job_free(fh.refresh);
@@ -954,8 +970,21 @@ static void flathub_poll(void) {
         free(res);
         res = NULL;
     }
-    if (fh.install && job_poll(fh.install, &res)) {
-        job_free(fh.install);
+    bool pok = false;
+    char *ptext = NULL;
+    bool priv_done = fh.install_priv > 0 && priv_take(fh.install_priv, &pok, &ptext);
+    if (priv_done) { /* what it said, where the reasons are looked for */
+        FILE *lf = fopen("/tmp/flatpak-install.log", "w");
+        if (lf) {
+            fputs(ptext ? ptext : "", lf);
+            fclose(lf);
+        }
+        free(ptext);
+        fh.install_priv = 0;
+    }
+    if (priv_done || (fh.install && job_poll(fh.install, &res))) {
+        if (fh.install || fh.install_priv > 0)
+            job_free(fh.install);
         fh.install = NULL;
         launcher_apps_changed();
         if (offer_installed(fh.inst_id)) {
@@ -978,13 +1007,26 @@ static void flathub_poll(void) {
 }
 
 static void flathub_install(const char *id, const char *name) {
-    if (fh.install) {
+    if (!flatpak_id_ok(id)) { /* the catalogue comes from the internet: never put into a command unchecked */
+        LOG("launcher: \"%.80s\" isn't an app ID; not installed\n", id);
+        toast("That app couldn't be installed.");
+        return;
+    }
+    if (fh.install || fh.install_priv > 0) {
         toast("Still installing %s. One app at a time.", fh.inst_name);
         return;
     }
     fh.inst_quiet = false;
     snprintf(fh.inst_id, sizeof fh.inst_id, "%s", id);
     snprintf(fh.inst_name, sizeof fh.inst_name, "%s", name);
+    if (priv_available()) { /* installing is root's work: asked of init */
+        char e[300];
+        snprintf(e, sizeof e, "install %s", fh.inst_id);
+        fh.install_priv = priv_send(e);
+        LOG("launcher: installing %s from Flathub\n", id);
+        toast(fh.install_priv > 0 ? "Installing %s from Flathub..." : "%s couldn't be installed.", name);
+        return;
+    }
     fh.install = job_start(install_child, fh.inst_id);
     LOG("launcher: installing %s from Flathub\n", id);
     toast(fh.install ? "Installing %s from Flathub..." : "%s couldn't be installed.", name);

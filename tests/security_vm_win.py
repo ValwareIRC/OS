@@ -49,11 +49,20 @@ try:
     mark = len(log())
     vm.say("make me a pad", r"appgate: asking about", 90)
     asked = vm.wait_for(r"appgate: asking about [^\n]*Pad\.facet: (\d+) new, (\d+) held, rules level (\d)", 30, mark)
-    results["nothing runs before they decide"] = bool(asked) and "appgate: " not in log()[mark:].split("asking about")[0]
+    time.sleep(3)
+    # asked, and still waiting: not allowed, no window of its own yet
+    results["nothing runs before they decide"] = bool(asked) and "Pad.facet allowed" not in log()[mark:] and \
+        not re.search(r'window [^\n]*opened "Pad"', log()[mark:])
     results["the rules warn (level 2) with no model"] = bool(asked and asked.group(3) == "2")
     time.sleep(4)
     vm.shot("1-gate.png")
-    told = vm.wait_for(r"An app is asking to be allowed", 60)
+    told = None
+    for _ in range(60):  # the note goes to the AI: its requests are in ai.log
+        ai = open(vm.ailog, encoding="utf-8", errors="replace").read()
+        if "An app is asking to be allowed" in ai:
+            told = True
+            break
+        time.sleep(1)
     ai = open(vm.ailog, encoding="utf-8", errors="replace").read()
     i = ai.find("An app is asking to be allowed")
     note = ai[i:ai.find("\"}", i)] if told and i >= 0 else ""  # the note alone (the rest is their conversation)

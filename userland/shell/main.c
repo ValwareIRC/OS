@@ -3,6 +3,7 @@
  * the desktop itself, drawn straight to /dev/fb0 from the AI's design. */
 #include "presence.h"
 #include "app.h"
+#include "priv.h"
 #include "nerve.h"
 #include "emblem.h"
 #include "fm/fm.h"
@@ -97,6 +98,39 @@ static uint64_t tree_sig(const char *path, uint64_t h) {
     return h;
 }
 
+/* The person's home is theirs: anything in it not owned by them (made by the system, which runs as root, until the
+ * desktop itself runs as them) is given back, a few seconds after it appears. Links are changed, not followed. */
+static void own_home(const char *path, int depth) {
+    struct stat st;
+    if (depth > 64 || lstat(path, &st) < 0)
+        return;
+    if (st.st_uid != SESSION_UID || st.st_gid != SESSION_UID)
+        if (lchown(path, SESSION_UID, SESSION_UID) < 0)
+            return;
+    if (!S_ISDIR(st.st_mode))
+        return;
+    DIR *d = opendir(path);
+    struct dirent *e;
+    while (d && (e = readdir(d)))
+        if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) {
+            char c[1024];
+            if (snprintf(c, sizeof c, "%s/%s", path, e->d_name) < (int)sizeof c)
+                own_home(c, depth + 1);
+        }
+    if (d)
+        closedir(d);
+}
+
+static void keep_home_theirs(void) {
+    static uint64_t at;
+    if (getuid() != 0) /* the desktop runs as them: what it makes is theirs already */
+        return;
+    if (A.now - at < 4000)
+        return;
+    at = A.now;
+    own_home("/root", 0);
+}
+
 static void save_child(void *arg, char **result) {
     (void)arg;
     *result = strdup(store_save() ? "saved" : "failed");
@@ -108,9 +142,15 @@ static void keep_on_disk(void) {
     static bool usable = true, primed;
     static uint64_t last_check, saved_sig, changed_at;
     static job *saving;
+    static int saving_priv; /* asked of init (the desktop runs as the person) */
     if (!usable)
         return;
     char *res;
+    bool sok;
+    if (saving_priv > 0 && priv_take(saving_priv, &sok, NULL)) {
+        LOG("store: %s\n", sok ? "saved" : "failed");
+        saving_priv = 0;
+    }
     if (saving && job_poll(saving, &res)) {
         LOG("store: %s\n", res ? res : "?");
         free(res);
@@ -120,7 +160,7 @@ static void keep_on_disk(void) {
     if (A.now - last_check < 2000)
         return;
     last_check = A.now;
-    if (!store_available()) {
+    if (priv_available() ? !priv_store_kept() : !store_available()) {
         usable = false;
         return;
     }
@@ -132,8 +172,11 @@ static void keep_on_disk(void) {
     }
     if (sig != saved_sig && !changed_at)
         changed_at = A.now;
-    if (changed_at && A.now - changed_at > 3000 && !saving) {
-        saving = job_start(save_child, NULL);
+    if (changed_at && A.now - changed_at > 3000 && !saving && saving_priv <= 0) {
+        if (priv_available())
+            saving_priv = priv_send("save");
+        else
+            saving = job_start(save_child, NULL);
         saved_sig = sig;
         changed_at = 0;
     }
@@ -180,6 +223,7 @@ void main_frame(void) {
     wm_frame_end();
     wls_frame_done((uint32_t)A.now); /* apps draw their next frame now */
     keep_on_disk();
+    keep_home_theirs();
 
     /* Sleep until input arrives, an app has something to say, or the
      * next animation frame (~30 fps). */
@@ -252,7 +296,29 @@ int main(void) {
     A.in.mx = A.W / 2;
     A.in.my = A.H / 2;
     fonts_init("/usr/share/fonts");
+    LOG("shell: running as %s\n", getuid() == 0 ? "root (an older init)" : "the person");
     mkdir(STATE_DIR, 0700);
+    /* the system's state (keys, the companion's memory, app grants): root's alone; the home: the person's */
+    chmod(STATE_DIR, 0700);
+    { /* this boot's key for the local model servers (ai_local_key) */
+        unsigned char r[24];
+        int fd = open("/dev/urandom", O_RDONLY);
+        bool got = fd >= 0 && read(fd, r, sizeof r) == (ssize_t)sizeof r;
+        if (fd >= 0)
+            close(fd);
+        FILE *kf = got ? fopen(AI_LOCAL_KEY_FILE, "w") : NULL;
+        if (kf) {
+            fchmod(fileno(kf), 0600);
+            for (size_t i = 0; i < sizeof r; i++)
+                fprintf(kf, "%02x", r[i]);
+            fputc('\n', kf);
+            fclose(kf);
+        } else {
+            LOG("shell: no key for the local model servers\n");
+        }
+    }
+    if (getuid() == 0 && (chown("/root", SESSION_UID, SESSION_UID) < 0 || chmod("/root", 0700) < 0))
+        LOG("shell: the home couldn't be given to the person\n"); /* (as the person, init has given it) */
     /* A home with somewhere to put things. */
     static const char *const home[] = {"/root/Documents", "/root/Music", "/root/Pictures", "/root/Projects", NULL};
     for (int i = 0; home[i]; i++)
@@ -279,7 +345,8 @@ int main(void) {
     /* Restore an existing mind and design (persisted under /etc/os). */
     /* Whatever was kept on the disk comes back first: the mind, the design,
      * the portrait, their files. */
-    int kept = store_restore();
+    /* as the person, init has put it back already (the raw disk is root's); as root (an older init), here */
+    int kept = priv_available() ? priv_store_restored() : store_restore();
     if (kept > 0)
         LOG("store: restored %d files from the disk\n", kept);
     else if (kept == 0)

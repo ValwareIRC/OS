@@ -177,6 +177,18 @@ void ui_cursor(canvas *c, int x, int y);
 void ui_backdrop(color base, color l1, color l2, color depth);
 void ui_icon(canvas *c, rect r, const design *d, int app, bool hover);
 color readable_on(color bg);
+/* A Flatpak app ID ("org.gimp.GIMP"): letters, digits, '.', '_' and '-', with a dot, nothing a shell would read
+ * as anything else. Every ID put into a command passes this first. */
+static inline bool flatpak_id_ok(const char *id) {
+    int n = 0, dots = 0;
+    for (const char *p = id; p && *p; p++, n++) {
+        char c = *p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'))
+            return false;
+        dots += c == '.';
+    }
+    return n > 2 && n < 256 && dots >= 1 && id[0] != '-' && id[0] != '.';
+}
 /* Draws an app's symbol (also used for folders = APP_FILES, documents = APP_NOTES). */
 void icon_symbol(canvas *c, rect box, int app, float stroke, color col);
 

@@ -486,10 +486,8 @@ static int64_t access_at(int dirfd, uint64_t upath, uint64_t mode, int flags) {
     int r = lookup_at(dirfd, upath, flags, &v);
     if (r < 0)
         return r;
-    /* Single-user system for now: root may do anything except execute
-     * files without any x bit, as on Linux. */
-    if ((mode & 1) && v->type == VN_REG && !(v->mode & 0111))
-        r = -EACCES;
+    /* the real user's permissions (R_OK 4, W_OK 2, X_OK 1 are the same bits) */
+    r = vfs_permission_real(v, (int)(mode & 7));
     vnode_put(v);
     return r;
 }
@@ -609,7 +607,9 @@ static int64_t mkdir_at(int dirfd, uint64_t upath, uint64_t mode) {
     struct path dir;
     char name[NAME_MAX + 1];
     r = parent_at(dirfd, path, &dir, name, sizeof name);
-    if (r == 0) {
+    if (r == 0 && (r = vfs_may_create(dir.v)) < 0)
+        path_put(&dir);
+    else if (r == 0) {
         r = dir.v->ops->mkdir ? dir.v->ops->mkdir(dir.v, name, (uint32_t)mode & ~proc_current()->umask & 07777)
                               : -EROFS;
         path_put(&dir);
@@ -637,7 +637,14 @@ static int64_t unlink_at(int dirfd, uint64_t upath, bool dir_only) {
     char name[NAME_MAX + 1];
     r = parent_at(dirfd, path, &dir, name, sizeof name);
     if (r == 0) {
-        r = dir.v->ops->unlink ? dir.v->ops->unlink(dir.v, name, dir_only) : -EROFS;
+        struct vnode *victim = NULL;
+        if (dir.v->ops->lookup && dir.v->ops->lookup(dir.v, name, &victim) < 0)
+            victim = NULL;
+        r = vfs_may_delete(dir.v, victim);
+        if (victim)
+            vnode_put(victim);
+        if (r == 0)
+            r = dir.v->ops->unlink ? dir.v->ops->unlink(dir.v, name, dir_only) : -EROFS;
         path_put(&dir);
     }
     kfree(path);
@@ -681,7 +688,21 @@ static int64_t rename_at(int odirfd, uint64_t uold, int ndirfd, uint64_t unew, u
     char oname[NAME_MAX + 1], nname[NAME_MAX + 1];
     if ((r = parent_at(odirfd, opath, &odir, oname, sizeof oname)) == 0 &&
         (r = parent_at(ndirfd, npath, &ndir, nname, sizeof nname)) == 0) {
-        if (odir.mnt != ndir.mnt && odir.mnt && ndir.mnt && odir.mnt != ndir.mnt)
+        struct vnode *src = NULL, *dst = NULL;
+        if (odir.v->ops->lookup && odir.v->ops->lookup(odir.v, oname, &src) < 0)
+            src = NULL;
+        if (ndir.v->ops->lookup && ndir.v->ops->lookup(ndir.v, nname, &dst) < 0)
+            dst = NULL;
+        int pr = vfs_may_delete(odir.v, src);
+        if (pr == 0)
+            pr = dst ? vfs_may_delete(ndir.v, dst) : vfs_may_create(ndir.v);
+        if (src)
+            vnode_put(src);
+        if (dst)
+            vnode_put(dst);
+        if (pr < 0)
+            r = pr;
+        else if (odir.mnt != ndir.mnt && odir.mnt && ndir.mnt && odir.mnt != ndir.mnt)
             r = -EXDEV; /* across mounts, even of the same file system, as Linux */
         else
             r = (flags & 1) && name_exists(ndir.v, nname) ? -EEXIST /* RENAME_NOREPLACE */
@@ -720,7 +741,9 @@ static int64_t symlink_at(uint64_t utarget, int dirfd, uint64_t upath) {
         struct path dir;
         char name[NAME_MAX + 1];
         r = parent_at(dirfd, path, &dir, name, sizeof name);
-        if (r == 0) {
+        if (r == 0 && (r = vfs_may_create(dir.v)) < 0)
+            path_put(&dir);
+        else if (r == 0) {
             r = dir.v->ops->symlink ? dir.v->ops->symlink(dir.v, name, target) : -EROFS;
             path_put(&dir);
         }
@@ -754,8 +777,12 @@ static int64_t link_at(int odirfd, uint64_t uold, int ndirfd, uint64_t unew, int
     struct path dir;
     char name[NAME_MAX + 1];
     r = parent_at(ndirfd, path, &dir, name, sizeof name);
-    if (r == 0) {
-        r = dir.v->ops->link ? dir.v->ops->link(dir.v, name, target) : -EPERM;
+    if (r == 0 && (r = vfs_may_create(dir.v)) < 0)
+        path_put(&dir);
+    else if (r == 0) {
+        /* a hard link to someone else's file needs to be able to write it, or own it (protected_hardlinks) */
+        r = vfs_owner_or(target, 3) || vfs_permission(target, MAY_READ | MAY_WRITE) == 0 ? 0 : -EPERM;
+        r = r ? r : dir.v->ops->link ? dir.v->ops->link(dir.v, name, target) : -EPERM;
         path_put(&dir);
     }
     kfree(path);
@@ -805,6 +832,10 @@ SYSCALL(readlinkat) {
 }
 
 static int64_t chmod_vnode(struct vnode *v, uint64_t mode) {
+    if (!vfs_owner_or(v, 3)) { /* only its owner changes who may do what with it */
+        vnode_put(v);
+        return -EPERM;
+    }
     v->mode = (uint32_t)mode & 07777;
     vnode_put(v);
     return 0;
@@ -861,6 +892,8 @@ SYSCALL(truncate) {
         return r;
     int64_t t = path_may_write(&p);
     if (t == 0)
+        t = vfs_permission(p.v, MAY_WRITE);
+    if (t == 0)
         t = do_truncate(p.v, a2);
     path_put(&p);
     return t;
@@ -871,6 +904,10 @@ SYSCALL(ftruncate) {
     struct file *f = fd_get((int)a1);
     if (!f)
         return -EBADF;
+    if ((f->flags & O_ACCMODE) == O_RDONLY) { /* only what it opened for writing */
+        file_put(f);
+        return -EINVAL;
+    }
     int64_t t = do_truncate(f->vnode, a2);
     file_put(f);
     return t;

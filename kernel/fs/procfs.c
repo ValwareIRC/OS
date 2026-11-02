@@ -1237,7 +1237,8 @@ static const struct sent tid_children[] = {
     FILE_RO("status", show_status),
     {0},
 };
-static const struct sent tid_ent = {.name = "task", .type = VN_DIR, .mode = 0555, .children = tid_children};
+static const struct sent tid_ent = {.name = "task", .type = VN_DIR, .mode = 0555, .children = tid_children,
+                                    .proc_owned = true};
 
 /* /proc/<pid>/ */
 static const struct sent pid_children[] = {
@@ -1269,7 +1270,8 @@ static const struct sent pid_children[] = {
     FILE_RO("wchan", show_zero),
     {0},
 };
-static const struct sent pid_ent = {.name = "pid", .type = VN_DIR, .mode = 0555, .children = pid_children};
+static const struct sent pid_ent = {.name = "pid", .type = VN_DIR, .mode = 0555, .children = pid_children,
+                                    .proc_owned = true};
 
 static int pid_nth(struct snode *dir, uint64_t i, char *name, size_t size, int *id) {
     (void)dir;

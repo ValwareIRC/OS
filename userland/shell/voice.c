@@ -125,8 +125,10 @@ void voice_say(const char *text) {
         if (nul >= 0)
             dup2(nul, 2);
         const char *v = voice_current();
+        /* a number, whatever the settings file holds (it goes into a command) */
         char speed[16];
-        snprintf(speed, sizeof speed, "%s", settings_get("voice.speed", "1.0"));
+        float sp = (float)atof(settings_get("voice.speed", "1.0"));
+        snprintf(speed, sizeof speed, "%.2f", (double)(sp < 0.7f || sp > 1.4f ? 1.0f : sp));
         if (!strncmp(v, "openai:", 7) || !strncmp(v, "elevenlabs:", 11))
             _exit(cloud_speak(v, 0) ? 0 : 1); /* (the text is on stdin) */
         if (kokoro_ready(v)) {

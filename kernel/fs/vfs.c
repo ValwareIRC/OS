@@ -1,5 +1,6 @@
 #include <kernel/lib.h>
 #include <kernel/mm.h>
+#include <kernel/ns.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
 #include <linux/abi.h>
@@ -47,6 +48,73 @@ void vnode_put(struct vnode *v) {
         v->refcount = -1000; /* freed: a later put says so above, before the heap notices */
         kfree(v);
     }
+}
+
+/* ---- permissions ---- */
+
+bool proc_has_cap(int cap);
+
+/* privileged over v: the capability, and v's owner and group named in the caller's user namespace */
+static bool cap_over(const struct vnode *v, int cap) {
+    return proc_has_cap(cap) && uid_to_user(v->uid) != OVERFLOW_ID && gid_to_user(v->gid) != OVERFLOW_ID;
+}
+
+#define CAP_CHOWN 0
+#define CAP_DAC_OVERRIDE 1
+#define CAP_DAC_READ_SEARCH 2
+#define CAP_FOWNER 3
+
+static int permission_as(const struct vnode *v, int mask, uint32_t uid, uint32_t gid, bool caps) {
+    if (!mask)
+        return 0;
+    if (caps) {
+        if (v->type == VN_DIR) {
+            if (cap_over(v, CAP_DAC_OVERRIDE) || (!(mask & MAY_WRITE) && cap_over(v, CAP_DAC_READ_SEARCH)))
+                return 0;
+        } else {
+            /* execute: some x bit, even for the privileged */
+            bool exec_ok = !(mask & MAY_EXEC) || (v->mode & 0111);
+            if (exec_ok && cap_over(v, CAP_DAC_OVERRIDE))
+                return 0;
+            if (mask == MAY_READ && cap_over(v, CAP_DAC_READ_SEARCH))
+                return 0;
+        }
+    }
+    uint32_t bits = uid == v->uid ? (v->mode >> 6) & 7 : gid == v->gid ? (v->mode >> 3) & 7 : v->mode & 7;
+    return (bits & (uint32_t)mask) == (uint32_t)mask ? 0 : -EACCES;
+}
+
+int vfs_permission(const struct vnode *v, int mask) {
+    struct process *p = proc_current();
+    if (!p) /* the kernel itself */
+        return 0;
+    return permission_as(v, mask, p->euid, p->egid, true);
+}
+
+int vfs_permission_real(const struct vnode *v, int mask) {
+    struct process *p = proc_current();
+    if (!p)
+        return 0;
+    /* access(): the real user; its capabilities only if the real user is root */
+    return permission_as(v, mask, p->uid, p->gid, p->uid == 0);
+}
+
+int vfs_may_create(const struct vnode *dir) { return vfs_permission(dir, MAY_WRITE | MAY_EXEC); }
+
+int vfs_may_delete(const struct vnode *dir, const struct vnode *victim) {
+    int r = vfs_permission(dir, MAY_WRITE | MAY_EXEC);
+    if (r < 0)
+        return r;
+    struct process *p = proc_current();
+    if (p && (dir->mode & 01000) && victim && p->euid != victim->uid && p->euid != dir->uid &&
+        !cap_over(victim, CAP_FOWNER))
+        return -EPERM; /* a sticky directory (/tmp): only the owner takes a name out */
+    return 0;
+}
+
+bool vfs_owner_or(const struct vnode *v, int cap) {
+    struct process *p = proc_current();
+    return !p || p->euid == v->uid || cap_over(v, cap);
 }
 
 uint32_t vnode_stat_mode(const struct vnode *v) {
@@ -162,6 +230,9 @@ static int walk(const struct path *base, const char *path, int flags, struct pat
             path_parent(&cur, &proot);
             continue;
         }
+        r = vfs_permission(cur.v, MAY_EXEC); /* going through a directory is searching it */
+        if (r < 0)
+            break;
         struct path next = {mount_get(cur.mnt), NULL};
         r = cur.v->ops->lookup ? cur.v->ops->lookup(cur.v, name, &next.v) : -ENOTDIR;
         if (r < 0) {
@@ -260,6 +331,7 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
     struct path at = {0};
     int r;
     bool writing = (flags & O_ACCMODE) != O_RDONLY || (flags & O_TRUNC);
+    bool created = false; /* made by this call: its maker uses it whatever its mode says */
     if (flags & O_CREAT) {
         struct path dir;
         char name[NAME_MAX + 1];
@@ -286,6 +358,9 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
             } else if (r == -ENOENT) {
                 r = path_may_write(&dir);
                 if (r == 0)
+                    r = vfs_may_create(dir.v);
+                created = r == 0;
+                if (r == 0)
                     r = dir.v->ops->create ? dir.v->ops->create(dir.v, name, mode & ~proc_current()->umask, &v)
                                            : -EROFS;
                 if (r == 0) {
@@ -301,6 +376,15 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
     if (r < 0)
         return r;
 
+    /* what it opens for, against its permissions (a file this call just made is its maker's to use) */
+    if (r == 0 && !(flags & O_PATH) && !created) {
+        int mask = ((flags & O_ACCMODE) != O_WRONLY ? MAY_READ : 0) | (writing ? MAY_WRITE : 0);
+        r = vfs_permission(at.v, mask);
+        if (r < 0) {
+            path_put(&at);
+            return r;
+        }
+    }
     struct vnode *v = at.v;
     if ((flags & O_DIRECTORY) && v->type != VN_DIR)
         r = -ENOTDIR;

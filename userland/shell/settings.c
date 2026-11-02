@@ -1461,10 +1461,12 @@ void settings_draw(rect r) {
         logged_at = A.now;
     int ox0 = A.frame->cx0, oy0 = A.frame->cy0, ox1 = A.frame->cx1, oy1 = A.frame->cy1;
     struct page pages[5 + MAX_EXTRA + 3];
-    /* Settings opened again (by them, an app, a design or the companion): never straight onto Security */
-    static uint64_t seen_open;
-    if (A.win[WIN_SETTINGS].opened_at != seen_open) {
-        seen_open = A.win[WIN_SETTINGS].opened_at;
+    /* Settings shown again after a while unseen (opened by them, an app, a design or the companion, or brought back):
+     * never straight onto Security. It is drawn every frame while it shows, so a gap means it was away. */
+    static uint64_t last_drawn;
+    bool again = !last_drawn || A.now - last_drawn > 400;
+    last_drawn = A.now;
+    if (again) {
         if (!strcmp(current, "Security"))
             snprintf(current, sizeof current, "Appearance");
         LOG("settings: opened on %s\n", current);

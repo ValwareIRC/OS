@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "ai.h"
 #include "http.h"
 #include "json.h"
@@ -78,6 +79,22 @@ const struct ai_provider *ai_find_provider(const char *id) {
         if (!strcmp(ai_providers[i].id, id))
             return &ai_providers[i];
     return NULL;
+}
+
+/* The key this computer's own model servers (llama-server on 127.0.0.1) answer only to: made by the shell each
+ * boot in /etc/os, readable by root alone, so no app on the machine can use the model behind the system's back.
+ * "none" where there is no key (another server, or a test). */
+const char *ai_local_key(void) {
+    static char key[80];
+    if (!key[0]) {
+        FILE *f = fopen(AI_LOCAL_KEY_FILE, "r");
+        if (!f || !fgets(key, sizeof key, f))
+            snprintf(key, sizeof key, "none");
+        if (f)
+            fclose(f);
+        key[strcspn(key, "\r\n")] = 0;
+    }
+    return key;
 }
 
 static void trim_slash(char *s) {
@@ -282,7 +299,7 @@ static int chat_openai(const struct ai_config *cfg, const struct ai_provider *p,
         snprintf(auth, sizeof auth, "api-key: %s", cfg->api_key);
     } else {
         snprintf(url, sizeof url, "%s/chat/completions", cfg->base_url);
-        snprintf(auth, sizeof auth, "Authorization: Bearer %s", cfg->api_key[0] ? cfg->api_key : "none");
+        snprintf(auth, sizeof auth, "Authorization: Bearer %s", cfg->api_key[0] ? cfg->api_key : ai_local_key());
     }
     const char *headers[] = {"Content-Type: application/json", auth, NULL};
     sbuf b;
@@ -535,7 +552,7 @@ int ai_list_models(const struct ai_config *cfg, char ***ids, char *err, int errl
         return 0;
     } else {
         snprintf(url, sizeof url, "%s/models", c.base_url);
-        snprintf(h1, sizeof h1, "Authorization: Bearer %s", c.api_key[0] ? c.api_key : "none");
+        snprintf(h1, sizeof h1, "Authorization: Bearer %s", c.api_key[0] ? c.api_key : ai_local_key());
         headers[0] = h1;
     }
     struct http_response r;

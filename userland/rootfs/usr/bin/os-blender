@@ -7,10 +7,10 @@
 #                                          clickable parts, export to ~/Models)
 #   os-blender render FILE.glb|.blend OUT.png [W H]
 #                                          a picture of it with Cycles, lit like the desktop's studio
-#   os-blender install                     install Blender (Flathub, about 400 MB), if it isn't yet
+#   (Blender itself is installed like any app: [[install: org.blender.Blender]], about 400 MB, once)
 #   os-blender gui [FILE]                  open Blender itself
 #
-# Blender comes from Flathub (org.blender.Blender) the first time it is needed.
+# Blender comes from Flathub (org.blender.Blender).
 set -u
 APP=org.blender.Blender
 HELP=/usr/share/os/blender
@@ -20,11 +20,9 @@ have() { flatpak info "$APP" >/dev/null 2>&1; }
 
 install_it() {
     have && return 0
-    echo "os-blender: installing Blender from Flathub (about 400 MB, once)..." >&2
-    flatpak install -y --noninteractive flathub "$APP" >&2 || {
-        echo "os-blender: Blender couldn't be installed (is the internet there? see above)" >&2
-        exit 1
-    }
+    # installing apps is the system's work (the desktop asks init for it): not something a command here can do
+    echo "os-blender: Blender isn't installed yet. Install it first: [[install: $APP]] (about 400 MB, once)." >&2
+    exit 3
 }
 
 # the helpers go where the sandboxed Blender can read them (home is shared with it; /usr isn't)

@@ -103,8 +103,10 @@ void mind_builtin_start(void) {
             dup2(fileno(log), 1);
             dup2(fileno(log), 2);
         }
+        /* it answers only to the system (ai_local_key); its health is open */
         execl(SERVER, "llama-server", "-m", model, "-t", threads, "-c", ctx, "--host", "127.0.0.1", "--port", "8080",
-              "--alias", "os", "--jinja", "--no-webui", on_disk ? "--load-mode" : (char *)NULL, "none", (char *)NULL);
+              "--alias", "os", "--jinja", "--no-webui", "--api-key-file", AI_LOCAL_KEY_FILE,
+              on_disk ? "--load-mode" : (char *)NULL, "none", (char *)NULL);
         _exit(127);
     }
     if (health)

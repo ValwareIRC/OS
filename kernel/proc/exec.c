@@ -153,7 +153,7 @@ static int open_exec(const char *path, struct vnode **out) {
     int r = vfs_lookup_path(NULL, path, LOOKUP_FOLLOW, &p);
     if (r < 0)
         return r;
-    if (p.v->type != VN_REG || !(p.v->mode & 0111) || (mount_flags(p.mnt) & MNT_NOEXEC)) {
+    if (p.v->type != VN_REG || vfs_permission(p.v, MAY_EXEC) < 0 || (mount_flags(p.mnt) & MNT_NOEXEC)) {
         path_put(&p);
         return -EACCES;
     }

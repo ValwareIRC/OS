@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "app.h"
+#include "priv.h"
 #include "emblem.h"
 #include "models.h"
 #include "mind.h"
@@ -1318,7 +1319,10 @@ void forget_everything(void) {
     notes_forget();
     theme_follow_design();
     unlink(STATE_DIR "/companion.txt");
-    store_wipe(); /* and from the disk */
+    if (priv_available()) /* and from the disk */
+        priv_send("wipe");
+    else
+        store_wipe();
     convo_clear(&A.companion);
     memset(&A.prof, 0, sizeof A.prof);
     A.have_design = false;
@@ -1336,6 +1340,12 @@ void forget_everything(void) {
 void factory_reset(void) {
     LOG("reset: back to factory\n");
     alive_shutdown();
+    if (priv_available()) { /* root's work, asked of init */
+        priv_call("factory-reset", 20000);
+        priv_call("wipe", 60000);
+        priv_call("restart", 5000);
+        return;
+    }
     store_mark_factory_reset();
     store_wipe();
     sync();
@@ -2612,9 +2622,14 @@ void desktop_draw(void) {
             A.confirm_power = false;
         if (ui_button((rect){r.x + r.w - 240, r.y + 130, 200, 50}, "Yes", f, D.accent, readable_on(D.accent), D.radius * 0.6f, true)) {
             alive_shutdown(); /* the lights go back to their own apps */
-            store_save(); /* the last word goes to the disk */
-            sync();
-            reboot(A.power_restart ? RB_AUTOBOOT : RB_POWER_OFF);
+            if (priv_available()) { /* root's work, asked of init: the last word to the disk, then the power */
+                priv_call("save", 60000);
+                priv_call(A.power_restart ? "restart" : "power-off", 5000);
+            } else {
+                store_save(); /* the last word goes to the disk */
+                sync();
+                reboot(A.power_restart ? RB_AUTOBOOT : RB_POWER_OFF);
+            }
         }
         for (int i = 0; i < A.in.nkeys; i++)
             if (A.in.keys[i] == K_ESC)

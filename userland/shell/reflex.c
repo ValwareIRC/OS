@@ -172,7 +172,7 @@ static void server_tick(void) {
         int log = open("/tmp/os-reflex.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (log >= 0)
             dup2(log, 1), dup2(log, 2);
-        execl(SERVER, "llama-server", "-m", path, "-t", "2", "-c", "2048", "-np", "1", "--host", "127.0.0.1", "--port",
+        execl(SERVER, "llama-server", "-m", path, "-t", "2", "-c", "6144", "-np", "1", "--api-key-file", AI_LOCAL_KEY_FILE, "--host", "127.0.0.1", "--port",
               PORT, "--jinja", "--no-webui", (char *)NULL);
         _exit(127);
     }
@@ -279,7 +279,9 @@ static char *request(char which) {
 }
 
 static json *ask(const char *body, struct http_response *r) {
-    const char *h[] = {"Content-Type: application/json", NULL};
+    char auth[120];
+    snprintf(auth, sizeof auth, "Authorization: Bearer %s", ai_local_key());
+    const char *h[] = {"Content-Type: application/json", auth, NULL};
     http_request("POST", "http://127.0.0.1:" PORT "/v1/chat/completions", h, body, strlen(body), 30, r);
     return r->status == 200 && r->body ? json_parse(r->body, r->body_len) : NULL;
 }

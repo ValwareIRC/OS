@@ -121,6 +121,22 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
 int vfs_mkdir_p(const char *path, uint32_t mode);
 int vfs_create_node(const char *path, struct vnode *node);
 
+/* Permissions (fs/vfs.c), as Unix has them: the owner's, the group's and everyone else's read, write and
+ * execute bits decide what a process may do with a file, for every process but one holding the capability to
+ * override them, over a file whose owner its user namespace can name (as Linux: a sandbox's "root" is nobody to
+ * the real system's files). Execute needs some x bit even for root. */
+#define MAY_EXEC 1
+#define MAY_WRITE 2
+#define MAY_READ 4
+int vfs_permission(const struct vnode *v, int mask);
+/* as the process's real user and group (access()) */
+int vfs_permission_real(const struct vnode *v, int mask);
+/* making a name in dir, and taking victim's name out of it (a sticky directory keeps others' names) */
+int vfs_may_create(const struct vnode *dir);
+int vfs_may_delete(const struct vnode *dir, const struct vnode *victim);
+/* the owner, or a process privileged over it with capability cap */
+bool vfs_owner_or(const struct vnode *v, int cap);
+
 struct file *file_from_vnode(struct vnode *v, uint32_t flags);
 void file_ref(struct file *f);
 void file_put(struct file *f);

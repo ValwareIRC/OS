@@ -2,6 +2,8 @@
 /* The companion's body: see agent.h. */
 #include "agent.h"
 #include "app.h"
+#include "priv.h"
+#include "launcher.h"
 #include "alive.h"
 #include "web.h"
 #include "picture.h"
@@ -137,7 +139,8 @@ const char *body_prompt(void) {
            "  [[in: 20m | what to do]] [[at: 09:00 | what to do]] [[every: 1d at 08:30 | what to do]]: you, later "
            "(the task comes back to you then, to do). [[agenda]] what you planned; [[forget: n]].\n"
            "\nMAKING 3D. Blender is yours, without a window: write a Python script and run it with "
-           "[[sh: os-blender run ~/Models/name.py]] (the first time it installs Blender, about 400 MB: say so). "
+           "[[sh: os-blender run ~/Models/name.py]] (Blender itself first, once: [[install: org.blender.Blender]], "
+           "about 400 MB; say so). "
            "`from osui import *` gives helpers: reset(); mat(preset, colour) with presets gold, rose-gold, silver, "
            "chrome, brushed-steel, gunmetal, copper, brass, bronze, glass, frosted-glass, tinted-glass, crystal, "
            "lacquer, car-paint, ceramic, porcelain, plastic, glossy-plastic, rubber, felt, velvet, leather, wood, "
@@ -401,6 +404,12 @@ static void grep_walk(const char *path, const char *words, int depth, int *found
     fclose(f);
 }
 
+/* installs asked of init, until they come back */
+static struct {
+    int id;
+    char what[200];
+} installing[8];
+
 /* one queued tool for the child */
 #define QMAX 16
 static struct {
@@ -418,15 +427,26 @@ static void child_tools(void *unused, char **result) {
         sb_printf(&out, "[[%s: %.300s%s]] ->\n", k, a, strlen(a) > 300 ? "..." : "");
         if (!strcmp(k, "sh")) {
             shell_child(a, 300, &out);
+        } else if ((!strcmp(k, "install") || !strcmp(k, "uninstall")) && !flatpak_id_ok(a)) {
+            sb_printf(&out, "\"%.80s\" isn't a Flatpak app ID (like org.gimp.GIMP): find it first with "
+                            "[[sh: flatpak search NAME]]\n", a);
         } else if (!strcmp(k, "install") || !strcmp(k, "uninstall")) {
             char cmd[400];
             snprintf(cmd, sizeof cmd, !strcmp(k, "install") ? "flatpak install -y --noninteractive flathub '%s' 2>&1 | tail -20"
                                                             : "flatpak uninstall -y --noninteractive '%s' 2>&1 | tail -20", a);
             shell_child(cmd, 1500, &out);
         } else if (!strcmp(k, "kill")) {
+            /* process numbers only */
             char cmd[120];
-            snprintf(cmd, sizeof cmd, "kill %s 2>&1 && echo stopped", a);
-            shell_child(cmd, 20, &out);
+            bool ok = a[0] != 0;
+            for (const char *p = a; *p; p++)
+                ok &= (*p >= '0' && *p <= '9') || *p == ' ';
+            if (!ok) {
+                sb_printf(&out, "[[kill: N]] takes process numbers (see [[ps]]); to stop by name: [[sh: pkill NAME]]\n");
+            } else {
+                snprintf(cmd, sizeof cmd, "kill %s 2>&1 && echo stopped", a);
+                shell_child(cmd, 20, &out);
+            }
         } else if (!strcmp(k, "find")) {
             char pat[200] = "", dir[600] = HOME;
             const char *in = strstr(a, " in ");
@@ -888,6 +908,28 @@ static bool agent_take_now(struct conversation *c, bool from_person) {
         n_tools++;
         if (!strcmp(name, "run"))
             snprintf(name, sizeof name, "sh");
+        /* installing is root's work, asked of init (the desktop runs as the person): it comes back on its own */
+        if ((!strcmp(name, "install") || !strcmp(name, "uninstall")) && priv_available()) {
+            if (!flatpak_id_ok(a)) {
+                sb_printf(&now_out, "[[%s: %.80s]] -> not a Flatpak app ID (like org.gimp.GIMP): find it first with "
+                                    "[[sh: flatpak search NAME]]\n\n", name, a);
+            } else {
+                char e[300];
+                snprintf(e, sizeof e, "%s %s", name, a);
+                int id = priv_send(e);
+                for (int k = 0; k < 8 && id > 0; k++)
+                    if (!installing[k].id) {
+                        installing[k].id = id;
+                        snprintf(installing[k].what, sizeof installing[k].what, "%s %s", name, a);
+                        break;
+                    }
+                sb_printf(&now_out, "[[%s: %s]] -> %s; it takes a while: you'll be told when it is done\n\n", name, a,
+                          id > 0 ? (!strcmp(name, "install") ? "installing from Flathub" : "uninstalling")
+                                 : "couldn't be asked for");
+            }
+            free(arg);
+            continue;
+        }
         /* the slower ones, to the child, in order */
         if (!strcmp(name, "sh") || !strcmp(name, "find") || !strcmp(name, "grep") || web || !strcmp(name, "install") ||
             !strcmp(name, "uninstall") || !strcmp(name, "kill")) {
@@ -1044,6 +1086,22 @@ static bool agent_take_now(struct conversation *c, bool from_person) {
  * ------------------------------------------------------------------- */
 
 void agent_tick(void) {
+    for (int k = 0; k < 8; k++) { /* an install or uninstall init finished */
+        bool ok;
+        char *text = NULL;
+        if (installing[k].id && priv_take(installing[k].id, &ok, &text)) {
+            char note[1200];
+            const char *tail = text ? text : "";
+            size_t tl = strlen(tail);
+            snprintf(note, sizeof note, "(What your body did: [[%s]] -> %s%s%.600s)", installing[k].what,
+                     ok ? "done" : "failed", ok ? "" : ": ", ok ? "" : (tl > 600 ? tail + tl - 600 : tail));
+            LOG("agent: %s %s\n", installing[k].what, ok ? "done" : "failed");
+            installing[k].id = 0;
+            free(text);
+            launcher_apps_changed();
+            companion_note(note, true);
+        }
+    }
     emblem_busy_hint = emblem_busy_hint || working != NULL;
     char *res = NULL;
     if (working && job_poll(working, &res)) {

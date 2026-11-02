@@ -25,7 +25,9 @@ static float ask_local(void *ctx, int model, const char *req, const char *code) 
     sbuf b;
     sb_init(&b);
     sb_add(&b, req);
-    const char *h[] = {"Content-Type: application/json", NULL};
+    char auth[120];
+    snprintf(auth, sizeof auth, "Authorization: Bearer %s", ai_local_key());
+    const char *h[] = {"Content-Type: application/json", auth, NULL};
     struct http_response r;
     http_request("POST", "http://127.0.0.1:8092/v1/chat/completions", h, b.p, b.len, 90, &r);
     sb_free(&b);
@@ -210,9 +212,8 @@ static void gate_draw(void) {
             draw_text_wrapped(A.frame, body, (rect){x + 34, y, cw - 40, 400}, says[i], ink, 1.3f);
             int th = rh[i] - lh - 14;
             char tag[160];
-            snprintf(tag, sizeof tag, "%s%s  \xc2\xb7  line %d of its code", c->required ? "needed for it to open"
-                                                                                       : "optional: it runs without this",
-                     c->dynamic ? "  \xc2\xb7  from an address or path it makes while running" : "", c->line);
+            snprintf(tag, sizeof tag, "%s%s  \xc2\xb7  line %d", c->required ? "needed for it to open" : "optional",
+                     c->dynamic ? "  \xc2\xb7  an address or path it makes while running" : "", c->line);
             draw_text(A.frame, small, x + 34, y + th + 2, tag, muted);
             rect hit = {x, y, cw, rh[i] - 6};
             if (!locked && A.in.clicked && pt_in(hit, A.in.mx, A.in.my))
@@ -298,10 +299,15 @@ bool appgate_admit(const char *path, const fx_app *app, const char *src, fx_gran
         G.is_new[G.g.newcaps[i]] = true;
     for (int i = 0; i < G.g.nheld; i++)
         G.was_held[G.g.held[i]] = true;
-    for (int i = 0; i < G.m.n; i++)
-        G.on[i] = G.was_held[i] || G.is_new[i] || G.m.c[i].required; /* refused optional ones stay refused */
     G.warnings = security_warnings_on() && !security_app_quiet(path);
     G.mismatch = fx_mismatch(&G.m, G.warn, sizeof G.warn);
+    for (int i = 0; i < G.m.n; i++) {
+        const fx_cap *c = &G.m.c[i];
+        /* what the rules warn about starts unticked when it is optional: they opt in, never out */
+        bool warned = G.mismatch > 0 && (c->kind == FXC_INTERNET || ((c->kind == FXC_READ || c->kind == FXC_WRITE) &&
+                                                                     !strcmp(c->what, "~")));
+        G.on[i] = G.was_held[i] || c->required || (G.is_new[i] && !warned); /* refused optional ones stay refused */
+    }
     if (G.warnings)
         G.review = job_start(review_child, NULL); /* without a model it answers "unavailable" quickly */
     G.opened = A.now;
@@ -422,8 +428,9 @@ int security_page(int x0, int y0, int w, int h) {
                 continue;
             char says[400];
             fx_cap_says(&c, says, sizeof says);
+            /* allowed: as it is; refused: said so, in the muted colour (no glyphs a font might not have) */
             char line[460];
-            snprintf(line, sizeof line, "%s %s", g.yes[k] ? "\xe2\x9c\x93" : "\xe2\x9c\x97", says);
+            snprintf(line, sizeof line, "%s%s", g.yes[k] ? "" : "Refused: ", says);
             y += draw_text_wrapped(A.frame, small, (rect){x + 14, y, w - 14, 200}, line, g.yes[k] ? ink : muted, 1.3f) + 2;
             shown++;
         }

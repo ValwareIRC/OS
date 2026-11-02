@@ -1237,6 +1237,9 @@ static void thread_teardown_tests(void) {
         _exit(0); /* the spinner did not notice */
     }
     int status = wait_with_deadline(pid, 5000);
+    if (!(status != -1 && WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV)) /* which way it went wrong */
+        printf("utest: (TLB shootdown: %s)\n", status == -1 ? "munmap hung waiting for the other CPU (killed after 5 s)"
+               : WIFEXITED(status) ? "the other CPU kept reading the unmapped page" : "ended by another signal");
     CHECK(status != -1 && WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV,
           "munmap seen by a thread on another CPU (TLB shootdown)");
 
@@ -1734,6 +1737,7 @@ static void ramfs_perf_test(void) {
 #include "ns_tests.inc"
 #include "ext2_tests.inc"
 #include "lock_tests.inc"
+#include "perm_tests.inc"
 
 #ifdef __aarch64__
 #define MACHINE "aarch64"
@@ -1882,6 +1886,7 @@ static void tests(void) {
     base_tests();
     ext2_tests();
     lock_tests();
+    perm_tests();
     doc_fd_tests();
     shared_mapping_tests();
     ramfs_perf_test();
@@ -2109,20 +2114,6 @@ static void piper_mode(void) {
            r, stat("/tmp/x.wav", &st) == 0 ? (long)st.st_size : -1L);
 }
 
-/* The graphical experience (first boot, then the AI-designed desktop). */
-static pid_t spawn_gui(void) {
-    if (access("/bin/os-shell", X_OK) != 0)
-        return -1;
-    pid_t pid = fork();
-    if (pid == 0) {
-        setsid();
-        char *argv[] = {"/bin/os-shell", NULL};
-        execv(argv[0], argv);
-        _exit(127);
-    }
-    return pid;
-}
-
 /* ---- D-Bus: the system bus, and the desktop session's bus ---- */
 
 /* The person's session runs as an ordinary user (apps such as Chromium refuse
@@ -2342,6 +2333,8 @@ static pid_t spawn_console_shell(void) {
     }
     return pid;
 }
+
+#include "session.inc"
 
 int main(void) {
     printf("init: user space is alive (pid %d)\n", getpid());

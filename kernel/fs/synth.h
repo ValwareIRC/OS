@@ -36,11 +36,16 @@ struct sent {
     /* Optional: the directory's link count when it isn't 2 (a task
      * directory has one more per thread; Chromium counts threads so). */
     int (*links)(struct snode *n);
+    /* This entry and everything under it belong to the process id[0] (its
+     * effective user and group), as /proc/<pid> does on Linux; else root's. */
+    bool proc_owned;
 };
 
 struct snode {
     const struct sent *ent;
     int id[3];
+    bool owned;          /* by the process id[0] */
+    uint32_t uid, gid;
 };
 
 /* The root vnode of a tree (referenced). */

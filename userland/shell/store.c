@@ -1,9 +1,11 @@
 #define _GNU_SOURCE
 #include "store.h"
+#include "sys.h"
 
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,9 +21,11 @@
  * active, flushes, then rewrites the header (one sector) to point at it, so
  * a power cut in the middle of a save leaves the previous state intact.
  *
- * A slot is a simple archive: per entry "LMN1", u32 kind (1 dir, 2 file),
- * u32 mode, u32 path length, u32 size, the path, the data; then an end
- * marker. The header carries a checksum of the slot's bytes. */
+ * A slot is a simple archive: per entry "LMN2", u32 kind (1 dir, 2 file),
+ * u32 mode, u32 owner, u32 group, u32 path length, u32 size, the path, the
+ * data; then an end marker. The header carries a checksum of the slot's
+ * bytes. Disks written before owners were kept ("LMN1": no owner, no group)
+ * still come back: the person's files theirs, the system's state root's. */
 
 #define HDR_MAGIC "LUMENSTORE1"
 #define SLOT0 (1u << 20)       /* 1 MiB */
@@ -94,11 +98,14 @@ static void put(struct out *o, const void *d, size_t n) {
     o->len += n;
 }
 
-static void put_entry(struct out *o, uint32_t kind, uint32_t mode, const char *path, const void *data, uint32_t size) {
+static void put_entry(struct out *o, uint32_t kind, uint32_t mode, uint32_t uid, uint32_t gid, const char *path,
+                      const void *data, uint32_t size) {
     uint32_t pl = (uint32_t)strlen(path);
-    put(o, "LMN1", 4);
+    put(o, "LMN2", 4);
     put(o, &kind, 4);
     put(o, &mode, 4);
+    put(o, &uid, 4);
+    put(o, &gid, 4);
     put(o, &pl, 4);
     put(o, &size, 4);
     put(o, path, pl);
@@ -135,7 +142,7 @@ static void walk(struct out *o, const char *path) {
     if (!strcmp(path, MIND_PATH) && access(MIND_KEPT, F_OK) == 0)
         return;
     if (S_ISDIR(st.st_mode)) {
-        put_entry(o, 1, st.st_mode & 07777, path, NULL, 0);
+        put_entry(o, 1, st.st_mode & 07777, st.st_uid, st.st_gid, path, NULL, 0);
         DIR *d = opendir(path);
         if (!d)
             return;
@@ -156,7 +163,7 @@ static void walk(struct out *o, const char *path) {
         ssize_t n = read(fd, data, (size_t)st.st_size);
         close(fd);
         if (n == st.st_size)
-            put_entry(o, 2, st.st_mode & 07777, path, data, (uint32_t)n);
+            put_entry(o, 2, st.st_mode & 07777, st.st_uid, st.st_gid, path, data, (uint32_t)n);
         free(data);
     }
 }
@@ -243,10 +250,18 @@ int store_restore(void) {
     bool host_mind = access(MIND_PATH, F_OK) == 0;
     int files = 0;
     size_t p = 0;
-    while (p + 20 <= h.length && !memcmp(buf + p, "LMN1", 4)) {
-        uint32_t kind, mode, pl, size;
+    while (p + 20 <= h.length && (!memcmp(buf + p, "LMN1", 4) || !memcmp(buf + p, "LMN2", 4))) {
+        bool owned = buf[p + 3] == '2';
+        if (owned && p + 28 > h.length)
+            break;
+        uint32_t kind, mode, pl, size, uid = UINT32_MAX, gid = UINT32_MAX;
         memcpy(&kind, buf + p + 4, 4);
         memcpy(&mode, buf + p + 8, 4);
+        if (owned) {
+            memcpy(&uid, buf + p + 12, 4);
+            memcpy(&gid, buf + p + 16, 4);
+            p += 8;
+        }
         memcpy(&pl, buf + p + 12, 4);
         memcpy(&size, buf + p + 16, 4);
         p += 20;
@@ -289,6 +304,13 @@ int store_restore(void) {
                     close(out);
                 }
             }
+            /* whose it is: the person's home is theirs, the system's state is root's (whatever the disk says,
+             * no file comes back owned by anyone else) */
+            bool home = !strncmp(path, "/root", 5) && (path[5] == '/' || !path[5]);
+            uint32_t want = home ? SESSION_UID : 0;
+            (void)uid, (void)gid;
+            if (lchown(path, want, want) == 0 && kind == 1)
+                chmod(path, mode ? mode : 0755);
         }
         p += size;
     }

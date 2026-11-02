@@ -484,16 +484,22 @@ static void base_tests(void) {
         return;
     char big[4096];
     char *fp[] = {"/usr/bin/bash", "-c",
-                  "export HOME=/root; flatpak --version && flatpak list --columns=ref && "
+                  /* as the system installs apps for the person (init's helper): root, system-wide, with root's
+                   * own runtime folder (the person's is theirs, and root inside a sandbox is nobody to it) */
+                  "export HOME=/root XDG_RUNTIME_DIR=/run/user/0; mkdir -p -m 700 /run/user/0; "
+                  "flatpak --version && flatpak list --columns=ref && "
                   "echo apps: $(flatpak remote-ls flathub --app --columns=application | wc -l) && "
-                  "flatpak install -y --noninteractive flathub com.github.dimkr.gplaces 2>&1 | tail -3 && "
+                  "flatpak install --system -y --noninteractive flathub com.github.dimkr.gplaces 2>&1 | tail -3 && "
                   "flatpak run --command=sh com.github.dimkr.gplaces -c 'echo inside $FLATPAK_ID; ls /app/bin'", NULL};
     r = run(fp, big, sizeof big);
     printf("utest: flatpak said (status %d): %s\n", r, big);
     CHECK(strstr(big, "apps: ") && !strstr(big, "apps: 0"), "base: flatpak lists Flathub's apps");
     CHECK(strstr(big, "inside com.github.dimkr.gplaces") != NULL, "base: flatpak installs an app from Flathub and runs it in its sandbox");
     CHECK(strstr(big, "com.valware.prism/x86_64") != NULL, "base: Prism comes installed as a Flatpak");
-    /* as the person's session runs apps: an ordinary user, through the session bus */
+    /* as the person's session runs apps: an ordinary user, through the session bus, in a home that is theirs (as
+     * init makes it before the desktop starts) */
+    char *own[] = {"/bin/sh", "-c", "chown -R 1000:1000 /root && chmod 700 /root", NULL};
+    run(own, out, sizeof out);
     char *as_user[] = {"/usr/bin/flatpak", "run", "--command=sh", "com.github.dimkr.gplaces", "-c",
                        "echo as user $(id -u) in $FLATPAK_ID", NULL};
     r = run_as(1000, as_user, big, sizeof big);
