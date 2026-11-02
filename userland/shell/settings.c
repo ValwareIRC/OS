@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "settings.h"
+#include "lock.h"
 #include "appgate.h"
 #include "nerve.h"
 #include "app.h"
@@ -1443,6 +1444,91 @@ static int page_about(rect c, int y) {
     return y - y0 + 10;
 }
 
+/* Users: their account, its password (optional, init keeps it: lock.c), when it locks. */
+static struct textfield pw_old = {.secret = true}, pw_new = {.secret = true}, pw_again = {.secret = true};
+static int pw_focus;
+static char pw_msg[120];
+
+static int page_users(rect c, int y) {
+    int y0 = y;
+    font *f = BODY();
+    y = settings_section(c, y, "Account");
+    char line[200];
+    snprintf(line, sizeof line, "%s  \xc2\xb7  %s  \xc2\xb7  %s", D.user_name[0] ? D.user_name : account_name(), account_name(),
+             home_dir());
+    draw_text(A.frame, f, c.x, y, line, P.ink);
+    y += LH(f) + 4;
+    y += note_text(c, y, "The account is named after the name you gave; a new name takes effect at the next start.");
+    y += 18;
+
+    y = settings_section(c, y, "Password");
+    bool has = lock_has_password();
+    y += note_text(c, y, has ? "It asks for your password when it starts and to open the lock screen."
+                             : "No password: anyone at this computer can use it. With one, it asks for it when it starts "
+                               "and to open the lock screen.");
+    y += 10;
+    int fw = c.w < 360 ? c.w : 360, k = 0;
+    struct textfield *fields[3] = {&pw_old, &pw_new, &pw_again};
+    const char *hints[3] = {"Current password", has ? "New password (empty: none)" : "New password", "The new one again"};
+    for (int i = has ? 0 : 1; i < 3; i++, k++) {
+        rect r = {c.x, y, fw, 44};
+        if (A.in.clicked && pt_in(r, A.in.mx, A.in.my))
+            pw_focus = i;
+        if (pw_focus < (has ? 0 : 1))
+            pw_focus = has ? 0 : 1;
+        ui_textfield(r, fields[i], pw_focus == i, hints[i], f, color_alpha(P.ink, 0.06f), P.ink, P.muted, 10);
+        if (log_now)
+            LOGRECT(i == 0 ? "users-old" : i == 1 ? "users-new" : "users-again", r);
+        if (pw_focus == i)
+            ui_type(fields[i]);
+        y += 52;
+    }
+    char why[48];
+    int res = lock_password_result(why, sizeof why);
+    if (res == 1) {
+        snprintf(pw_msg, sizeof pw_msg, "%s", pw_new.buf[0] ? "Password set." : "Password taken away.");
+        memset(pw_old.buf, 0, sizeof pw_old.buf), memset(pw_new.buf, 0, sizeof pw_new.buf);
+        memset(pw_again.buf, 0, sizeof pw_again.buf);
+    } else if (res == -1) {
+        snprintf(pw_msg, sizeof pw_msg, "%s", !strncmp(why, "wrong", 5) ? "The current password isn't right."
+                                         : !strncmp(why, "wait", 4) ? "Too many tries: wait a little."
+                                                                       : "It couldn't be kept.");
+    }
+    const char *label = !has ? "Set password" : pw_new.buf[0] ? "Change password" : "Take the password away";
+    bool same = !strcmp(pw_new.buf, pw_again.buf);
+    bool ready = same && (has || pw_new.buf[0]) && (!has || pw_old.buf[0]);
+    rect setr = {c.x, y, text_width(f, label) + 40, 40};
+    if (log_now)
+        LOGRECT("users-set", setr);
+    if (ctl_button(setr, label, f, true, ready, &P)) {
+        lock_password_change(has ? pw_old.buf : "", pw_new.buf);
+        pw_msg[0] = 0;
+    }
+    if (!same && pw_again.buf[0])
+        draw_text(A.frame, f, c.x + text_width(f, label) + 60, y + 9, "The two new ones differ.", P.muted);
+    else if (pw_msg[0])
+        draw_text(A.frame, f, c.x + text_width(f, label) + 60, y + 9, pw_msg, P.muted);
+    y += 58;
+
+    y = settings_section(c, y, "Lock");
+    static const char *const after_l[] = {"Never", "5 min", "15 min", "30 min", "1 hour"};
+    static const int after_v[] = {0, 5, 15, 30, 60};
+    int cur = 0, now = settings_get_int("lock_after", 0);
+    for (int i = 0; i < 5; i++)
+        if (after_v[i] == now)
+            cur = i;
+    draw_text(A.frame, f, c.x, y + 9, "Lock after", P.muted);
+    int pick = ctl_segmented((rect){c.x + 120, y, 420 < c.w - 120 ? 420 : c.w - 120, 38}, after_l, 5, cur, f, &P);
+    if (pick != cur)
+        settings_set_int("lock_after", after_v[pick]);
+    y += 54;
+    if (ctl_button((rect){c.x, y, 160, 40}, "Lock now", f, false, true, &P))
+        lock_now();
+    y += 40 + 10;
+    y += note_text(c, y, "Super+L locks it at any time.");
+    return y - y0 + 10;
+}
+
 /* The About window: the same page, on its own. */
 void settings_about_draw(rect r) {
     P = pal_on(pal_sample(r), 1);
@@ -1486,7 +1572,8 @@ static int page_list(struct page *out) {
                                          {"Sound", SYM_SPEAKER, page_sound, NULL},
                                          {"Keyboard", SYM_KEYBOARD, page_keyboard, NULL},
                                          {"AI", SYM_MIND, page_mind, NULL}};
-    static const struct page after[] = {{"Security", SYM_SHIELD, page_security, NULL},
+    static const struct page after[] = {{"Users", SYM_SHIELD, page_users, NULL},
+                                        {"Security", SYM_SHIELD, page_security, NULL},
                                         {"Privacy", SYM_SHIELD, page_privacy, NULL},
                                         {"About", SYM_INFO, page_about, NULL}};
     int n = 0;
@@ -1515,7 +1602,7 @@ void settings_draw(rect r) {
     if (log_now)
         logged_at = A.now;
     int ox0 = A.frame->cx0, oy0 = A.frame->cy0, ox1 = A.frame->cx1, oy1 = A.frame->cy1;
-    struct page pages[5 + MAX_EXTRA + 3];
+    struct page pages[16 + MAX_EXTRA];
     /* Settings shown again after a while unseen (opened by them, an app, a design or the companion, or brought back):
      * never straight onto Security. It is drawn every frame while it shows, so a gap means it was away. */
     static uint64_t last_drawn;

@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Beck" user-name="Sam"
+<meta
       rationale="Your computer as a transit map: every app is a station, the lines are how things connect. Tap a station to go there."
       theme-about="subway map: a full-screen canvas of a clean transit diagram on off-white (Harry Beck style: thick coloured lines at 0/45/90 degrees, round white station markers with black rings, interchange pills where lines cross, a river in pale blue), each app a station with its name in bold sans type beside it, the station under the pointer fills with colour, clicking it opens the app; a line legend and a departures board with the time in the corner. Graphic, orderly, urban. (#map, #board)"/>
 <wallpaper kind="gradient" colors="#f4f1ea #f4f1ea #efece4 #e8e4da" seed="1" intensity="0.05"/>

@@ -2,6 +2,7 @@
 #include "wm.h"
 #include "launcher.h"
 #include "app.h"
+#include "lock.h"
 #include "fm/fm.h"
 #include "nerve.h"
 const char *desktop_window_title(int w);
@@ -1075,6 +1076,13 @@ void wm_keys(void) {
                 take = true;
                 if (down && focused() >= 0)
                     wm_close(focused());
+            }
+            break;
+        case 38: /* KEY_L: Super+L locks, as on every computer */
+            if (meta && down) {
+                take = true;
+                meta_used = true;
+                lock_now();
             }
             break;
         case 57: /* KEY_SPACE: Alt+Space is search, whatever the design gave Super */

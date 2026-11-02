@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Kepler" user-name="Sam"
+<meta
       rationale="Your apps are planets turning slowly round a warm sun; reach out and pick the one you want."
       theme-about="orrery: a full-screen animated canvas of a solar system seen from slightly above, each app a planet on its own tilted elliptical orbit (sizes and colours differ, some with rings or moons), the planet under the pointer glows and shows its name, click a planet to open it; a brass-and-ink almanac panel in the top-left with the date and time. Astronomical, slow, wondrous. (#sky, #almanac, #index)"/>
 <wallpaper kind="constellation" colors="#03040c #c9b27a #6f86d6 #01020a" seed="12" intensity="0.6"/>

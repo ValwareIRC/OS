@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="HAL" user-name="Sam"
+<meta
       rationale="The whole screen is one glowing green terminal: you type, it answers, nothing else to look at."
       theme-about="green phosphor CRT: a full-screen canvas of a curved old monitor (scanlines, glow, vignette, a faint flicker), a boot banner, the apps as a numbered text menu, a blinking prompt to type into; monospace green on black, windows framed in thin green lines. Retro computing, text only. (#tube, #menu, #prompt)"/>
 <wallpaper kind="gradient" colors="#000000 #021204 #031a06 #000000" seed="3" intensity="0.3"/>

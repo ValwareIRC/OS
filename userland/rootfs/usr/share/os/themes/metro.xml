@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Cortana" user-name="Sam"
+<meta
       rationale="Big flat coloured tiles of different sizes fill the screen; every app is a square you can't miss."
       theme-about="Windows 8 Metro start screen: a solid deep purple backdrop, a huge thin 'Start' heading and the person's name at the top, the apps as flat solid-coloured live tiles of mixed sizes (one wide clock tile, one big companion tile, small squares) laid out in a left-to-right grid, white glyph icons and labels at the tile's bottom-left, no shadows or rounding; borderless flat windows with a coloured top. Bold, flat, touch-first. (#start, #tiles)"/>
 <wallpaper kind="gradient" colors="#2d0a4a #34105a #2a0944 #1f0636" seed="1" intensity="0.1"/>

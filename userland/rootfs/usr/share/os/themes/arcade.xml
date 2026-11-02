@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="PIXEL" user-name="P1"
+<meta
       rationale="An 8-bit title screen: pixel mountains scroll by, the logo bounces, and your apps are the game menu."
       theme-about="8-bit arcade title screen: a full-screen canvas of chunky pixel art (a night sky with blocky stars, parallax pixel mountains and clouds scrolling sideways, a pixel moon), a big blocky logo, the apps as a centred game menu of uppercase entries with a blinking arrow cursor beside the hovered one, 'PRESS START' blinking, a HI-SCORE line with the time at the top; hard pixel edges, a four-colour NES-like palette, windows with thick pixel-step borders. Retro gaming, fun. (#game, #menu, #score)"/>
 <wallpaper kind="gradient" colors="#1a1038 #261656 #140c2c #0a0618" seed="1" intensity="0.1"/>

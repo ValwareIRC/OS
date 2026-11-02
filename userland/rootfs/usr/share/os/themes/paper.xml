@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Quill" user-name="Sam"
+<meta
       rationale="Set like a well-made newspaper: a masthead, a table of contents, quiet ink on warm paper."
       theme-about="paper and editorial: warm paper, a newspaper masthead with the date, a numbered contents column of apps in a serif, a lead story with their greeting, ink-ruled windows with square corners. Literary and unhurried. (#masthead, #contents, #lead, #index)"/>
 <wallpaper kind="paper" colors="#f3eee4 #ebe4d7 #ddd2bf #bcae96" seed="3" intensity="0.3"/>
@@ -65,7 +65,7 @@ slot { padding:12 20 20 20; }
 </style>
 <desktop>
   <row id="masthead" dock="top" width="full">
-    <column class="side"><text id="edition">The Sam Edition</text><clock id="mdate" format="%A, %d %B %Y"/></column>
+    <column class="side"><text id="edition">Today's Edition</text><clock id="mdate" format="%A, %d %B %Y"/></column>
     <text id="name" bind="ai.name"/>
     <column class="side right"><clock id="mtime" format="%H:%M"/></column>
   </row>

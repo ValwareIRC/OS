@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Nimbus" user-name="Sam"
+<meta
       rationale="The sky outside your window, at the real time of day: dawn, noon, dusk or stars. Your apps drift by as clouds."
       theme-about="living sky: a full-screen canvas whose sky follows the real clock (pink dawn, blue noon, orange dusk, deep night with stars and a moon), the sun or moon moving along a real arc, soft rolling hills at the bottom, the apps as fluffy clouds drifting slowly across with their names written on them in a rounded font; hover a cloud and it brightens, click it to open; a big thin clock floats in the sky. Peaceful, ambient, always changing. (#sky, #hour)"/>
 <wallpaper kind="gradient" colors="#6fb1ff #a8d4ff #4f8fe0 #2a5fae" seed="1" intensity="0.1"/>

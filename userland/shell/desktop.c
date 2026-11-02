@@ -2304,8 +2304,6 @@ void desktop_adopt(fm_doc *doc, const design *d, bool first) {
      * tags missed. */
     if (!A.prof.ai_name[0] && D.ai_name[0])
         snprintf(A.prof.ai_name, sizeof A.prof.ai_name, "%s", D.ai_name);
-    if (!A.prof.user_name[0] && D.user_name[0] && strcmp(D.user_name, "Sam")) /* "Sam": the starters' sample */
-        snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", D.user_name);
     A.have_design = true;
     A.redesigning = false;
     design_save(&A.d, STATE_DIR "/design.json");

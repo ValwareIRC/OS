@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Draughtsman" user-name="Sam"
+<meta
       rationale="Your desktop is a technical drawing: white lines on blueprint blue, every app a labelled part with its dimensions."
       theme-about="engineering blueprint: a full-screen canvas of cyanotype blue paper with a fine and a coarse grid, a title block in the bottom-right corner (drawing name, the person, the date, the time, a scale), the apps drawn as isometric white line-art boxes (parts) with callout bubbles, leader lines and dimension arrows giving each its name; hover a part and its lines thicken, click to open; white monospace annotations, windows like drafting sheets with a white border. Technical, precise, hand-drafted. (#sheet, #block)"/>
 <wallpaper kind="gradient" colors="#1b4f8a #1e5696 #174679 #123a66" seed="1" intensity="0.1"/>

@@ -249,13 +249,10 @@ bool design_from_json(design *d, const char *text, const profile *p, char *probl
         if (v_ && *v_)                                                                                   \
             copy(d->field, sizeof d->field, v_);                                                         \
     } while (0)
-    STR(ai_name, "ai_name");
-    STR(user_name, "user_name");
-    /* A model may fill the name with a placeholder; better none than that. */
-    if (!strcasecmp(d->user_name, "TheirName") || !strcasecmp(d->user_name, "User") ||
-        !strcasecmp(d->user_name, "(not given)") || !strcasecmp(d->user_name, "Them") ||
-        !strcasecmp(d->user_name, "Name") || !strcasecmp(d->user_name, "Unknown"))
-        d->user_name[0] = 0;
+    /* Their name is theirs (the profile, above): a design never sets it, so its user_name is ignored. The
+     * companion's name only while it has none yet (the onboarding designer heard it named). */
+    if (!p->ai_name[0])
+        STR(ai_name, "ai_name");
     STR(greeting, "greeting");
     STR(tagline, "tagline");
 

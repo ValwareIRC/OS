@@ -192,7 +192,7 @@ static void remember(char kind, const char *a, const char *b) {
 /* NAME, directly in the state folder, is the system's alone */
 bool agent_state_private(const char *name) {
     size_t l = strlen(name);
-    return !strcmp(name, "security.conf") || !strcmp(name, "app-grants") || !strcmp(name, "secrets.conf") ||
+    return !strcmp(name, "security.conf") || !strcmp(name, "app-grants") || !strcmp(name, "secrets.conf") || !strcmp(name, "password") ||
            !strncmp(name, "mind.", 5) || (l > 4 && !strcmp(name + l - 4, ".key")) || !strcmp(name, "keys");
 }
 

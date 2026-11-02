@@ -36,6 +36,17 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
 13. **Suggestions showed "Files" with no icon** (it was drawn at zero opacity). Checked in a VM.
 14a. **The Terminal opened on a note for developers** ("The usual tools are here; 'busybox' lists them") and a
     bare `~ $`: it opens on a prompt that says who and where (`valerie@computer:~$`).
+14. **No lock screen, no password**: an optional password (Settings > Users; kept by init as SHA-512 crypt, root
+    only, waits after wrong guesses), a lock screen (Super+L, or after a while away: Settings > Users > Lock after)
+    with the time, the date, who it is, and Restart / Shut down; with a password it asks for it at start.
+    tests/lock_vm_win.py 8/8. (Locking on waking comes with sleep, which the system doesn't have yet.)
+16. **The home folder was /root, the user "user"**: the account is named after them (valerie), its home
+    /home/valerie, in /etc/passwd and /etc/group, the computer `<name>-pc`; a disk from before moves over.
+    tests/account_vm_win.py 6/6.
+14e. **A design could rename them**: starter designs carried a sample name ("Sam") and their own companion
+    names, and applying one could make the desktop call them Sam. A design never sets their name now (the one
+    they gave is the only one), the companion's only while it has none; the samples are gone from every design.
+    tests/names_vm_win.py.
 
 ## To fix (in this order)
 
@@ -47,11 +58,7 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
 14d. **Notes is one note**: a list of notes, search in them, and finding text (Ctrl+F) in a note.
 
 ### What every operating system has, and this one doesn't
-14. **No lock screen, no password.** An account with their name, an optional password, a lock screen (on Super+L,
-    after a while away, on waking), and a sign-in at start when a password is set.
 15. **No date and time settings**: time zone, 12/24-hour clock, set automatically from the network.
-16. **The home folder is /root, the user is called "user"**: their home is /home/<their name>, the account their
-    name.
 17. **Settings is missing pages**: Date & time, Users (account, password, lock), Mouse (speed, scrolling, hand),
     Power (screen off after, lock after), Storage (what uses the disk, emptying the trash, caches), Apps
     (installed apps, removing them, default apps for files and links), Notifications (which apps may, Do not

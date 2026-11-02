@@ -3,6 +3,7 @@
  * the desktop itself, drawn straight to /dev/fb0 from the AI's design. */
 #include "presence.h"
 #include "app.h"
+#include "lock.h"
 #include "priv.h"
 #include "nerve.h"
 #include "emblem.h"
@@ -231,6 +232,8 @@ void main_frame(void) {
     input_state real = A.in;
     if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
+    if (lock_frame()) /* locked: the lock screen is everything (lock.c) */
+        goto drawn;
     switch (A.screen) {
     case SCR_SPLASH: splash_draw(); break;
     case SCR_CHOOSE: choose_draw(); break;
@@ -244,6 +247,7 @@ void main_frame(void) {
         A.in = real;
         modal();
     }
+drawn:
     ui_text_menu_draw();
     capture_frame(false); /* a recording without the pointer takes this */
     ui_cursor(A.frame, A.in.mx, A.in.my);
@@ -442,6 +446,7 @@ int main(void) {
     appapi_init();   /* where apps reach the companion */
     presence_init(); /* the light, or its face (os-figure) */
     set_screen(SCR_SPLASH);
+    lock_boot(); /* with a password: signed in first */
 
     input_fds(frame_fds);
     for (;;)

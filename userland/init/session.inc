@@ -17,6 +17,7 @@
 #include "../shell/store.h"
 
 static pid_t priv_helper = -1;
+#define PASSWORD_FILE "/etc/os/password" /* their password's hash, the system's (see below) */
 
 /* home.c (linked in) */
 const char *home_dir(void);
@@ -160,6 +161,8 @@ static void prepare_session(void) {
     mkdir("/etc/os", 0700);
     give_tree("/etc/os", 0);
     chmod("/etc/os", 0700);
+    if (lchown(PASSWORD_FILE, 0, 0) == 0) /* (theirs to have, never to read or change) */
+        chmod(PASSWORD_FILE, 0600);
     give_tree(home_dir(), 0);
     chmod(home_dir(), 0700);
     /* their models and recordings (on the disk when there is one): the folders always theirs, what was in them
@@ -176,6 +179,120 @@ static void prepare_session(void) {
         if (fd >= 0)
             close(fd);
     }
+}
+
+/* ---- their password ----
+ *
+ * Optional. Kept only as a slow one-way hash (SHA-512 crypt, 200000 rounds, a random salt) in a file of the
+ * system's (/etc/os/password, root's, 0600: kept on the disk with their state, never theirs to read or change),
+ * so neither the desktop nor anything running as them can learn it or set it: they ask init, which checks.
+ * Wrong guesses wait longer each time after the third. Passwords travel hex-encoded (any character, no spaces
+ * in the message). */
+
+
+static void priv_reply(int fd, const char *id, const char *status, const char *text);
+static int password_fails;
+static time_t password_wait_until;
+
+static bool unhex(const char *h, char *out, size_t n) {
+    size_t k = 0;
+    for (; h[0] && h[1] && k + 1 < n; h += 2) {
+        int a = h[0] <= '9' ? h[0] - '0' : (h[0] | 32) - 'a' + 10, b = h[1] <= '9' ? h[1] - '0' : (h[1] | 32) - 'a' + 10;
+        if (a < 0 || a > 15 || b < 0 || b > 15)
+            return false;
+        out[k++] = (char)(a << 4 | b);
+    }
+    out[k] = 0;
+    return !*h;
+}
+
+static bool password_hash(char *out, size_t n) {
+    FILE *f = fopen(PASSWORD_FILE, "r");
+    bool ok = f && fgets(out, (int)n, f) && !strncmp(out, "$6$", 3);
+    if (f)
+        fclose(f);
+    if (ok)
+        out[strcspn(out, "\r\n")] = 0;
+    return ok;
+}
+
+static bool password_matches(const char *pw) {
+    char h[256];
+    if (!password_hash(h, sizeof h))
+        return true; /* none set: anything opens it */
+    const char *c = crypt(pw, h);
+    return c && !strcmp(c, h);
+}
+
+static bool password_write(const char *pw) {
+    if (!pw[0]) { /* none: the file goes */
+        return unlink(PASSWORD_FILE) == 0 || errno == ENOENT;
+    }
+    static const char abc[] = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    unsigned char r[16];
+    int fd = open("/dev/urandom", O_RDONLY);
+    bool got = fd >= 0 && read(fd, r, sizeof r) == (ssize_t)sizeof r;
+    if (fd >= 0)
+        close(fd);
+    if (!got)
+        return false;
+    char salt[48] = "$6$rounds=200000$";
+    size_t l = strlen(salt);
+    for (int i = 0; i < 16; i++)
+        salt[l++] = abc[r[i] % 64];
+    salt[l++] = '$', salt[l] = 0;
+    const char *h = crypt(pw, salt);
+    if (!h || strncmp(h, "$6$", 3))
+        return false;
+    int out = open(PASSWORD_FILE ".new", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    bool ok = out >= 0 && write(out, h, strlen(h)) == (ssize_t)strlen(h) && write(out, "\n", 1) == 1;
+    if (out >= 0)
+        close(out);
+    return ok && chown(PASSWORD_FILE ".new", 0, 0) == 0 && rename(PASSWORD_FILE ".new", PASSWORD_FILE) == 0;
+}
+
+/* A guess, counted: true if it is theirs. Past three wrong ones, a wait before the next (5 s, 15, 30, 60). */
+static bool password_try(const char *pw, char *why, size_t n) {
+    time_t now = time(NULL);
+    if (now < password_wait_until) {
+        snprintf(why, n, "wait %ld", (long)(password_wait_until - now));
+        return false;
+    }
+    if (password_matches(pw)) {
+        password_fails = 0;
+        return true;
+    }
+    password_fails++;
+    static const int waits[] = {0, 0, 0, 5, 15, 30, 60};
+    int w = waits[password_fails < 7 ? password_fails : 6];
+    password_wait_until = now + w;
+    snprintf(why, n, w ? "wrong, wait %d" : "wrong", w);
+    return false;
+}
+
+/* The password errands, answered here, in order (not in a process of their own: the count of guesses is kept). */
+static bool password_errand(int fd, const char *id, const char *cmd, const char *arg) {
+    char why[48] = "", a[160] = "", b[160] = "";
+    if (!strcmp(cmd, "password-state")) {
+        char h[256];
+        priv_reply(fd, id, "ok", password_hash(h, sizeof h) ? "set" : "none");
+    } else if (!strcmp(cmd, "password-check")) {
+        bool ok = unhex(arg, a, sizeof a) && password_try(a, why, sizeof why);
+        priv_reply(fd, id, ok ? "ok" : "failed", ok ? "" : why[0] ? why : "not understood");
+    } else if (!strcmp(cmd, "password-set")) { /* "OLDHEX:NEWHEX": the old one first, if there is one */
+        const char *colon = strchr(arg, ':');
+        char oldhex[300] = "";
+        snprintf(oldhex, sizeof oldhex, "%.*s", colon ? (int)(colon - arg) : 0, arg);
+        bool parsed = colon && unhex(oldhex, a, sizeof a) && unhex(colon + 1, b, sizeof b);
+        bool ok = parsed && password_try(a, why, sizeof why) && password_write(b);
+        priv_reply(fd, id, ok ? "ok" : "failed", ok ? "" : why[0] ? why : "couldn't be kept");
+        if (ok)
+            printf("init: their password %s\n", b[0] ? "was set" : "was taken away");
+    } else {
+        return false;
+    }
+    memset(a, 0, sizeof a), memset(b, 0, sizeof b);
+    return true;
 }
 
 /* ---- the helper ---- */
@@ -236,7 +353,9 @@ static void priv_serve(int fd) {
             priv_reply(fd, id[0] ? id : "0", "failed", "not understood");
             continue;
         }
-        printf("init: the desktop asks: %s %s\n", cmd, arg);
+        printf("init: the desktop asks: %s %s\n", cmd, !strncmp(cmd, "password", 8) ? "(not shown)" : arg);
+        if (password_errand(fd, id, cmd, arg))
+            continue;
         if (!strcmp(cmd, "restart") || !strcmp(cmd, "power-off")) {
             priv_reply(fd, id, "ok", "");
             sync();

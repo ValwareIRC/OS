@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="i3" user-name="sam"
+<meta
       rationale="A thin status line, numbered workspaces and nothing decorative: the screen belongs to your windows."
       theme-about="tiling window manager: a single thin dark status line across the TOP in small monospace (numbered workspace boxes 1-5 at the left, the app names as plain lowercase words, then cpu/mem style readouts and the date and time at the right), a flat near-black desktop with a faint grid, windows with a 2px coloured border and a tiny title strip, no icons anywhere. Minimal, technical, hacker. (#status, #ws, #run)"/>
 <wallpaper kind="gradient" colors="#0d0f12 #111418 #0b0d10 #08090b" seed="1" intensity="0.1"/>

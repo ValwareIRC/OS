@@ -1,5 +1,5 @@
 <facet>
-<meta ai-name="Sonar" user-name="Sam"
+<meta
       rationale="A radar scope sweeps round and round; your apps are the contacts it picks up. Click a blip to bring it in."
       theme-about="radar scope: a full-screen canvas of a round green radar display filling the middle of a dark instrument panel (range rings, bearing ticks and numbers, a rotating sweep with a fading afterglow trail), each app a blip at its own bearing and range that flares when the sweep passes, labelled in small caps, the blip under the pointer gets a lock box; a riveted metal side panel on the right with the time, a bearing readout and big toggle buttons. Military, submarine, analogue. (#scope, #panel)"/>
 <wallpaper kind="gradient" colors="#0d110e #141a15 #0a0d0b #050605" seed="1" intensity="0.2"/>

@@ -87,8 +87,10 @@ bool design_from_facet(design *d, fm_doc *doc, const profile *p, char *problems,
             continue;
         if (!strcasecmp(n->tag, "meta")) {
             const char *v;
-            if ((v = fm_attr_get(n, "ai-name")) && *v) copy(d->ai_name, sizeof d->ai_name, v);
-            if ((v = fm_attr_get(n, "user-name")) && *v) copy(d->user_name, sizeof d->user_name, v);
+            /* Their name and the companion's are theirs (the profile, above): a design never sets them. Its
+             * user-name is ignored (a starter design carried "Sam": applied, it renamed them); its ai-name only
+             * counts while the companion has no name yet (the onboarding designer heard it named). */
+            if ((v = fm_attr_get(n, "ai-name")) && *v && !p->ai_name[0]) copy(d->ai_name, sizeof d->ai_name, v);
             if ((v = fm_attr_get(n, "greeting"))) copy(d->greeting, sizeof d->greeting, v);
             if ((v = fm_attr_get(n, "tagline"))) copy(d->tagline, sizeof d->tagline, v);
             if ((v = fm_attr_get(n, "rationale"))) copy(d->rationale, sizeof d->rationale, v);
