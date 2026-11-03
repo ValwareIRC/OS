@@ -445,7 +445,13 @@ static void on_call(GDBusConnection *c, const gchar *sender, const gchar *path, 
         g_variant_builder_init(&r, G_VARIANT_TYPE("a{sv}"));
         guint response = 1;
         if (choices && choices[0]) {
-            g_variant_builder_add(&r, "{sv}", "choice", g_variant_new_string(choices[0]));
+            /* the one they chose in Settings > Apps (the portal passes it as the last choice), else the first */
+            const gchar *pick = choices[0], *last = NULL;
+            if (g_variant_lookup(opts, "last_choice", "&s", &last) && last)
+                for (int i = 0; choices[i]; i++)
+                    if (!strcmp(choices[i], last))
+                        pick = choices[i];
+            g_variant_builder_add(&r, "{sv}", "choice", g_variant_new_string(pick));
             response = 0;
         } else {
             /* nothing installed opens it: the shell says so and offers what could */

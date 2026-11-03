@@ -29,6 +29,7 @@ static struct {
     char msg[96];
     uint64_t msg_at, shake_at, last_input, locked_at;
     char confirm; /* 'r' restart or 's' shut down, asked */
+    bool dark;    /* the screen off (Settings > Power) */
 } L = {.pw = {.secret = true}};
 
 static void hex(const char *s, char *out, size_t n) {
@@ -132,10 +133,36 @@ int lock_password_result(char *why, int n) {
     return r;
 }
 
+static bool touched(void) {
+    return A.in.clicked || A.in.pressed || A.in.nkeys || A.in.nraw || A.in.wheel || A.in.moved || A.in.down;
+}
+
+/* The screen off after a while away (Settings > Power: "screen_off", minutes; 0 never), never while something
+ * plays full screen; any key or move brings it back, and that key or click does nothing else. */
+static bool screen_dark(void) {
+    if (L.dark) {
+        if (touched()) {
+            L.dark = false;
+            L.last_input = A.now;
+            LOG("power: the screen is back\n");
+        } else
+            fill_rect(A.frame, (rect){0, 0, A.frame->w, A.frame->h}, RGBA(0, 0, 0, 255));
+        input_clear(&A.in);
+        return true; /* the frame that wakes it is black too: nothing under it was touched */
+    }
+    int off = settings_get_int("screen_off", 10);
+    if (off > 0 && L.last_input && A.now - L.last_input > (uint64_t)off * 60000 && !senses_fullscreen()) {
+        L.dark = true;
+        LOG("power: the screen is off after %d minutes away\n", off);
+        fill_rect(A.frame, (rect){0, 0, A.frame->w, A.frame->h}, RGBA(0, 0, 0, 255));
+        input_clear(&A.in);
+        return true;
+    }
+    return false;
+}
+
 /* the time away after which it locks (Settings > Users), in minutes; 0: never */
 static void idle_lock(void) {
-    if (A.in.clicked || A.in.pressed || A.in.nkeys || A.in.nraw || A.in.wheel || A.in.moved || !L.last_input)
-        L.last_input = A.now;
     int after = settings_get_int("lock_after", 0);
     if (after > 0 && A.screen == SCR_DESKTOP && A.now - L.last_input > (uint64_t)after * 60000) {
         LOG("lock: away for %d minutes\n", after);
@@ -145,6 +172,10 @@ static void idle_lock(void) {
 
 bool lock_frame(void) {
     take_answers();
+    if (touched() || !L.last_input)
+        L.last_input = A.now;
+    if (screen_dark())
+        return true;
     if (!L.locked) {
         idle_lock();
         return false;

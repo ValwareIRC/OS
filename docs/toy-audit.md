@@ -57,6 +57,26 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
     where the computer is on the internet, or chosen in Settings > Date & time (searched by city, country or
     zone, with each zone's time); the tz database is in the system; a 12- or 24-hour clock that every clock
     follows (the desktop's, the lock screen, Files, Notes, the tray). tests/time_vm_win.py 6/6.
+17. **Settings was missing pages**: Mouse (speed, acceleration, natural scrolling, left-handed), Power (the
+    screen off after a while away, lock after, shut down and restart), Storage (what uses the disk: their files,
+    apps, AI models, Trash, caches; Empty Trash, clear caches), Apps (what they installed, removed with a second
+    press; which app opens web links, email, pictures, music, videos, PDFs, text: mimeapps.list, which the portal
+    now follows), Notifications (Do not disturb by hand or at set hours, a switch for each app that has sent one).
+    tests/settings_pages_vm_win.py 7/7 (the screen really goes off after five minutes and comes back on a key).
+14f. **The companion talked like a bad novel and made up memories** ("I still remember the way you left the
+    screen on overnight... The city hums on"): its character had been written by "a novelist", with habits of
+    theirs it had invented, and the welcome back asked it to recall something. Now it talks plainly, mentions
+    the past only when it is written down, never quotes their portrait back, and a character never holds what
+    they didn't say; characters written the old way are rewritten once. tests/plain_talk_vm_win.py (a copy of
+    their disk, the built-in model: "You're back, and it's nearly one."). An 8B model still slips now and then.
+14g. **A picture the companion opened went to Notes** ("no app here for mita-pc.png"), and it never knew: it
+    tried again and again while only the person saw the error. Pictures open in the viewer; [[see: FILE]] lets
+    it look at a picture itself (and a model that can't see is told so); a picture now goes with the very request
+    that asks about it (each one used to arrive a step late, the screen's too); what the screen says while its
+    tags run is told to it, and an error gets one answer at once. tests/see_picture_vm_win.py 6/6.
+14h. **`mkdir -p` failed in a folder they can't write** (their home, under /home): the kernel said "permission
+    denied" for a folder that was already there, where Linux says "already there". Fixed for mkdir, symlink and
+    link, with a self-test.
 
 ## To fix (in this order)
 
@@ -67,12 +87,10 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
     61 closes passed (24 of them Notes). Still open until it is caught or it holds over many more runs.
 
 ### What every operating system has, and this one doesn't
-17. **Settings is missing pages**: Mouse (speed, scrolling, hand),
-    Power (screen off after, lock after), Storage (what uses the disk, emptying the trash, caches), Apps
-    (installed apps, removing them, default apps for files and links), Notifications (which apps may, Do not
-    disturb).
 18. **No way to update the system.** A release is a new image; the system should check for one, show what is
-    new and apply it, keeping their things.
+    new and apply it, keeping their things. It needs an installed system first: today it runs from the image
+    (a USB stick or a virtual machine's disc), with nothing on the disk to replace. Installing to the disk comes
+    with real hardware (docs/gpu.md); updates are built on that, with a way back to the version before.
 
 ### Apps (Wayland) that don't fully work
 19. **Subsurfaces are accepted but not drawn**: parts of some apps (video, embedded views, some menus) are missing.

@@ -289,13 +289,70 @@ static const struct note *note_by_seq(int seq) {
     return NULL;
 }
 
+/* Do not disturb by hand, or by the hours they chose (Settings > Notifications: from dnd_from to dnd_to, whole
+ * hours, through midnight if it ends earlier than it starts; -1: no hours). */
+bool notify_dnd_hours(void) {
+    int from = settings_get_int("dnd_from", -1), to = settings_get_int("dnd_to", -1);
+    if (from < 0 || to < 0 || from == to)
+        return false;
+    time_t t = time(NULL);
+    struct tm tm;
+    localtime_r(&t, &tm);
+    return from < to ? tm.tm_hour >= from && tm.tm_hour < to : tm.tm_hour >= from || tm.tm_hour < to;
+}
+
 bool notify_dnd(void) {
     if (!dnd_loaded) {
         dnd_loaded = true;
         dnd = settings_get_int("dnd", 0) != 0;
     }
+    return dnd || notify_dnd_hours();
+}
+
+bool notify_dnd_by_hand(void) {
+    notify_dnd();
     return dnd;
 }
+
+/* Which apps may: each app that ever sent one is remembered (notify_apps, comma-separated), each may be turned off
+ * (notify_off.<app>). The system's own and the companion's always come through. */
+static void app_key(const char *app, char *out, size_t n) {
+    snprintf(out, n, "notify_off.%s", app);
+    for (char *p = out; *p; p++)
+        if (*p == ' ' || *p == '=' || *p == '\n')
+            *p = '_';
+}
+
+bool notify_app_allowed(const char *app) {
+    if (!app || !*app || !strcmp(app, "companion") || !strcmp(app, "system"))
+        return true;
+    char k[96];
+    app_key(app, k, sizeof k);
+    return settings_get_int(k, 0) == 0;
+}
+
+void notify_app_allow(const char *app, bool on) {
+    char k[96];
+    app_key(app, k, sizeof k);
+    settings_set_int(k, on ? 0 : 1);
+    LOG("notify: %s %s\n", app, on ? "may notify" : "may not notify");
+}
+
+static void remember_app(const char *app) {
+    if (!app || !*app || !strcmp(app, "companion") || !strcmp(app, "system") || strchr(app, ','))
+        return;
+    const char *had = settings_get("notify_apps", "");
+    char all[1024];
+    snprintf(all, sizeof all, ",%s,", had);
+    char me[80];
+    snprintf(me, sizeof me, ",%s,", app);
+    if (strstr(all, me) || strlen(had) + strlen(app) + 2 >= sizeof all)
+        return;
+    snprintf(all, sizeof all, "%s%s%s", had, had[0] ? "," : "", app);
+    settings_set("notify_apps", all);
+}
+
+const char *notify_apps(void) { return settings_get("notify_apps", ""); }
 
 void notify_set_dnd(bool on) {
     dnd_loaded = true;
@@ -314,6 +371,11 @@ static uint64_t toast_life(const struct note *n) { return 5200 + 38 * (uint64_t)
 void notify(const char *title, const char *body, const char *app) {
     if (!title || !*title)
         title = "Notification";
+    remember_app(app);
+    if (!notify_app_allowed(app)) { /* turned off for this app: not shown, not kept */
+        LOG("notify: from %s, turned off: \"%s\"\n", app, title);
+        return;
+    }
     memmove(&hist[1], &hist[0], sizeof hist[0] * (NHIST - 1));
     if (nhist < NHIST)
         nhist++;
@@ -727,7 +789,7 @@ static void notes_draw(rect r, const palette *p) {
     ctl_symbol(A.frame, (rect){x + 10, y + 8, 20, 20}, notify_dnd() ? SYM_BELL_OFF : SYM_BELL, 1, color_alpha(p->ink, p->op));
     draw_text(A.frame, f, x + 40, y + (36 - lh(f)) / 2, "Do not disturb", color_alpha(p->ink, p->op));
     if (ctl_switch((rect){x + w - 54, y + 6, 44, 24}, notify_dnd(), p) || (ui_hover(row) && A.in.clicked && !ui_hover((rect){x + w - 54, y + 6, 44, 24})))
-        notify_set_dnd(!notify_dnd());
+        notify_set_dnd(!notify_dnd_by_hand());
     y += 50;
     if (!nhist) {
         rect em = {x, y + 6, w, 110};

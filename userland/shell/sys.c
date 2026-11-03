@@ -293,6 +293,32 @@ static struct {
 } rep = {0, {0, 0}, 0, 0, 500, 33};
 static bool altgr, caps;
 
+static struct {
+    float speed, fx, fy; /* fx, fy: what's left of a pixel from the last move */
+    bool accel, natural, left, saw_abs;
+} mouse = {1.0f, 0, 0, true, false, false, false};
+
+void input_set_mouse(float speed, bool accel, bool natural, bool left_handed) {
+    mouse.speed = speed < 0.2f ? 0.2f : speed > 3.0f ? 3.0f : speed;
+    mouse.accel = accel, mouse.natural = natural, mouse.left = left_handed;
+}
+
+bool input_pointer_absolute(void) { return mouse.saw_abs; }
+
+/* A relative move, as their settings want it: faster moves go further when acceleration is on (as on every
+ * desktop: slow is precise, a flick crosses the screen). */
+static int mouse_move(int v, float *frac) {
+    float g = mouse.speed;
+    if (mouse.accel) {
+        float a = (float)(v < 0 ? -v : v);
+        g *= a <= 2 ? 0.8f : a >= 20 ? 2.0f : 0.8f + (a - 2) * (1.2f / 18);
+    }
+    float f = (float)v * g + *frac;
+    int whole = (int)f;
+    *frac = f - (float)whole;
+    return whole;
+}
+
 void input_set_repeat(int delay_ms, int rate_hz) {
     rep.delay = delay_ms < 150 ? 150 : delay_ms > 2000 ? 2000 : delay_ms;
     rep.period = 1000 / (rate_hz < 2 ? 2 : rate_hz > 60 ? 60 : rate_hz);
@@ -453,20 +479,24 @@ void input_poll(input_state *in) {
     while (inp.mfd >= 0 && (n = read(inp.mfd, ev, sizeof ev)) > 0) {
         for (int i = 0; i < (int)(n / (ssize_t)sizeof ev[0]); i++) {
             struct input_event *e = &ev[i];
+            /* the buttons, for the left hand: swapped here, so everything after (Wayland apps too) sees them so */
+            if (e->type == EV_KEY && mouse.left && (e->code == BTN_LEFT || e->code == BTN_RIGHT))
+                e->code = e->code == BTN_LEFT ? BTN_RIGHT : BTN_LEFT;
             if (e->type == EV_ABS && e->code == ABS_X) {
                 in->mx = (int)((int64_t)e->value * inp.sw / 65536);
                 in->moved = true;
+                mouse.saw_abs = true;
             } else if (e->type == EV_ABS && e->code == ABS_Y) {
                 in->my = (int)((int64_t)e->value * inp.sh / 65536);
                 in->moved = true;
             } else if (e->type == EV_REL && e->code == REL_X) {
-                in->mx += e->value;
+                in->mx += mouse_move(e->value, &mouse.fx);
                 in->moved = true;
             } else if (e->type == EV_REL && e->code == REL_Y) {
-                in->my += e->value;
+                in->my += mouse_move(e->value, &mouse.fy);
                 in->moved = true;
             } else if (e->type == EV_REL && e->code == REL_WHEEL) {
-                in->wheel += e->value;
+                in->wheel += mouse.natural ? -e->value : e->value;
             } else if (e->type == EV_KEY && e->code == BTN_LEFT) {
                 if (e->value && !inp.down_prev)
                     in->pressed = true;

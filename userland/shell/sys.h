@@ -56,6 +56,11 @@ bool input_open(int screen_w, int screen_h);
 void input_set_screen(int screen_w, int screen_h); /* after a resolution change */
 /* A held key types again after delay_ms, then rate_hz times a second. */
 void input_set_repeat(int delay_ms, int rate_hz);
+/* The mouse (Settings > Mouse): speed 0.2 to 3 (1: as the mouse says), acceleration on or off, scrolling that moves
+ * the content with the fingers ("natural"), and the buttons swapped for the left hand. */
+void input_set_mouse(float speed, bool accel, bool natural, bool left_handed);
+/* whether the pointer is a tablet or a virtual machine's (absolute: speed means nothing to it) */
+bool input_pointer_absolute(void);
 int input_fds(int fds[2]);
 /* Drains pending events into `in` (per-frame fields are reset first). */
 void input_poll(input_state *in);

@@ -361,6 +361,8 @@ static bool trash_restore(const char *name, char *restored, size_t rn) {
     return true;
 }
 
+void files_erase_tree(const char *path) { rm_rf(path); }
+
 void files_empty_trash(void) {
     int n = 0;
     for (int pass = 0; pass < 2; pass++) {

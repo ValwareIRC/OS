@@ -346,6 +346,18 @@ static const char *companion_system(void) {
              "sincerely ask what you are, be honest; otherwise just be yourself. You don't try to keep them "
              "talking, and you are glad when they have people and things away from the screen. How present to be: "
              "\"%s\"; redesigning: \"%s\". No emoji.%s\n\n"
+             "How you talk: like a real person talking out loud to someone they live with. Everyday words, short "
+             "plain sentences, saying what you mean. No imagery or metaphors, no describing the night, the city, "
+             "the weather, the light or the screen, no lines written to sound beautiful or wise (\"the city hums "
+             "on\", \"like the night itself\", \"a habit I've learned to ignore, but never quite forget\"), no "
+             "dramatic dashes. If it would sound strange said across a kitchen table, don't say it. Only mention "
+             "something from before if it is written below (what you know about them) or in your conversation; "
+             "never make one up. What you know about them is for understanding them, not for quoting: don't say "
+             "its phrases back to them. Your own earlier replies may have been written in a fancier way; don't "
+             "copy their style. Plain is not empty: answer what they actually asked, straight, with your real "
+             "opinion and a specific reason (asked about their desktop, say what you like or would change in it and "
+             "why); don't fill a reply with the time or the hour unless they asked, and don't repeat what you said "
+             "in your last few replies.\n\n"
              "What you know about them (they can see and edit this):\n%s\n"
              "Why things on their desktop are the way they are (use these when they ask \"why\"):\n%s\n"
              "You can see and work their desktop. This is it right now (element, #id, .class, attributes, text):\n%s\n"
@@ -431,6 +443,8 @@ static bool is_interaction(const char *c) {
  * made from one it only described). */
 static char tag_report[3000];
 static int tag_failed;
+extern char toast_heard[1200]; /* main.c */
+extern bool toast_listening;
 
 /* Runs and removes every [[ui:...]] tag in a reply. Returns how many ran. */
 static char last_look_target[128];
@@ -843,8 +857,13 @@ static bool apply_design_file(const char *path, const char *name) {
     return true;
 }
 
-void companion_note(const char *note, bool act) {
+void companion_note(const char *note, bool act) { companion_note_picture(note, act, NULL); }
+
+/* A note with a picture (base64 JPEG, taken) on it: the picture goes with the very request that asks about it. */
+void companion_note_picture(const char *note, bool act, char *picture) {
     convo_add(&A.companion, "hidden", note);
+    if (picture)
+        convo_picture(&A.companion, picture, NULL);
     if (act)
         act_on = A.companion.n - 1;
     if (!A.companion.pending)
@@ -895,15 +914,21 @@ static void companion_update(void) {
             LOG("companion: let it be\n");
             return;
         }
+        /* what the screen says while its tags are carried out is for it too (main.c), from here to the report */
+        toast_heard[0] = 0;
+        toast_listening = true;
         /* its body (agent.c): its tags run now, what they return comes back to it as the next step */
         bool stepping = agent_take(c, from_person);
         if (stepping && !m->text[strspn(m->text, " \t\r\n")] && !strstr(m->text, "[[")) { /* only movement, no words */
             free(m->text);
             c->n--;
+            toast_listening = false;
             return;
         }
-        if (actions_take(c, &from_person)) /* senses and hands (actions.c): it looked something up */
+        if (actions_take(c, &from_person)) { /* senses and hands (actions.c): it looked something up */
+            toast_listening = false;
             return;
+        }
         m = &c->msgs[c->n - 1];
         /* Its edits are measured like its designs (stylist.c): what one
          * breaks goes back to it once, and the tags of that answer count. */
@@ -1111,13 +1136,31 @@ static void companion_update(void) {
         if (!in_preview && !chat_on_desktop() &&
             (!A.win[WIN_COMPANION].open || A.win[WIN_COMPANION].minimized)) /* kept to read later */
             notify(D.ai_name[0] ? D.ai_name : "Your companion", m->text, "companion");
-        if ((ui_ran || tag_failed) && tag_report[0]) {
+        toast_listening = false;
+        static bool told_screen; /* once for each thing they asked: never a loop of it */
+        if (person_said)
+            told_screen = false;
+        bool tell_now = false;
+        if (toast_heard[0]) {
+            size_t tl = strlen(tag_report);
+            snprintf(tag_report + tl, sizeof tag_report - tl, "%s", toast_heard);
+            LOG("companion: told what the screen said: %s", toast_heard);
+            tell_now = from_person && !told_screen && !tag_failed;
+            told_screen |= tell_now;
+        }
+        if ((ui_ran || tag_failed || toast_heard[0]) && tag_report[0]) {
             /* What its tags did, for it to read from now on: without this it
              * took its own tag-less words for changes it never made, and
              * "sent" the same change again and again. */
             char note[3200];
             snprintf(note, sizeof note, "(What the tags in your last reply did, one line each:\n%s)", tag_report);
             convo_add(c, "hidden", note);
+            if (tell_now) { /* what it did showed them that: it answers it now, in words */
+                convo_add(c, "hidden",
+                          "(The screen showed them that after what you just did. If it means it didn't work, say so "
+                          "plainly in a sentence and what you'll do instead; don't try the same thing again.)");
+                convo_send(c, companion_system(), 800);
+            }
             if (tag_failed && !repair && !broke) {
                 convo_add(c, "hidden",
                           "(Some of those FAILED, so that part did not happen. Fix it now: ui tags only, any markup "
@@ -2120,7 +2163,7 @@ void desktop_open_path(const char *path) {
         open_window(WIN_FILES);
         A.win[WIN_FILES].minimized = false;
     } else {
-        open_in_notes(path);
+        files_open_path(path); /* text in Notes, pictures in the viewer, apps run... (files.c) */
     }
 }
 
@@ -2359,9 +2402,10 @@ void desktop_enter(void) {
         char when[64], note[400];
         strftime(when, sizeof when, "%A, %H:%M", &tm);
         snprintf(note, sizeof note,
-                 "(They have just switched the computer on again. It is %s. Welcome them back in one or two short "
-                 "sentences, naturally mentioning one specific thing you remember from before (from the portrait or "
-                 "your last conversation). No question unless you really need one.)",
+                 "(They have just switched the computer on again. It is %s. Say hello in one short, plain sentence, "
+                 "the way someone at home would when they walk in. If your last conversation left something real "
+                 "unfinished (written in it, not guessed), you may mention it in a few words; otherwise don't "
+                 "mention the past at all. No question unless you really need one.)",
                  when);
         convo_add(&A.companion, "hidden", note);
         convo_send(&A.companion, companion_system(), 400);

@@ -22,6 +22,23 @@
 #define LATELY_FILE STATE_DIR "/persona-lately" /* first line: when; then how it has been lately */
 #define TUNES_FILE STATE_DIR "/persona-tunes"   /* what they asked it to be, one wish a line: theirs to see */
 #define DRIFT_MS (3ull * 24 * 3600 * 1000)     /* a little change, every few days at most */
+#define STYLE_FILE STATE_DIR "/persona-style"  /* which way of talking it was written for (STYLE) */
+#define STYLE 2 /* 2: plain everyday speech (1, before: written by "a novelist", and it talked like one) */
+
+/* how it talks, for every version of who it is */
+#define PLAIN_TALK                                                                                                 \
+    "How you talk is plain everyday speech, the way real people talk out loud: ordinary words, short sentences, "  \
+    "saying what you mean. Your character shows in what you say and notice, never in fine language: no imagery, " \
+    "no metaphors, no poetic or wise-sounding lines, nothing about the night, the city, the light or the hum of "  \
+    "things, no dramatic dashes."
+#define WRITER "You write short, concrete notes on a person's character for the people who will voice them. Plain " \
+               "words, specific details, nothing literary."
+/* the character is about the companion: it knows of them only what they said */
+#define NOTHING_INVENTED                                                                                             \
+    "It is about you, not about them: you know of them only what they have told you, so never write their habits, " \
+    "their room, their body, what they do at night or how they type (no \"you hate the way they leave the screen " \
+    "on\", no \"their fingers on the keyboard\"). Your likes, dislikes and opinions are about things in general and " \
+    "about what happens on this computer."
 
 static struct {
     bool loaded;
@@ -29,7 +46,8 @@ static struct {
     int read[PERSONA_WANT];
     char *core, *lately;
     uint64_t lately_at;
-    job *building, *drifting, *tuning;
+    job *building, *drifting, *tuning, *restyling;
+    int style; /* STYLE_FILE's, read once (0: not yet) */
     char *tunes;      /* their wishes, one a line */
     bool retune;      /* a wish came while it was being rewritten */
     uint64_t build_failed_at;
@@ -116,6 +134,8 @@ void persona_reset(void) {
     unlink(LATELY_FILE);
     unlink(STATE_DIR "/persona-asked");
     unlink(TUNES_FILE);
+    unlink(STYLE_FILE);
+    P.style = 0;
     free(P.tunes);
     P.tunes = NULL;
     free(P.core);
@@ -346,9 +366,9 @@ static void build_child(void *arg, char **result) {
                "help\", no eager offers, no therapy talk, no flattery, no exclamation marks in every line. Not a "
                "caricature either: edges, yes, but underneath you like this person and are on their side, and you "
                "are good company. Be concrete: name actual things you love and can't stand (a kind of music, a word, a "
-               "habit of software, a time of day), not abstractions like kindness or clarity. End with three short "
-               "lines you might actually say to them, each on its own line. Never mention the person's traits, a "
-               "list, or that this was designed.");
+               "habit of software, a time of day), not abstractions like kindness or clarity. " PLAIN_TALK " " NOTHING_INVENTED " End with "
+               "three short lines you might actually say to them, each on its own line, in that plain everyday "
+               "speech. Never mention the person's traits, a list, or that this was designed.");
     if (P.tunes && P.tunes[0]) {
         sb_add(&w, "\n\nThey have already said how they'd like you to be; make it fully so (later wishes win):\n");
         sb_add(&w, P.tunes);
@@ -357,8 +377,7 @@ static void build_child(void *arg, char **result) {
         sb_add(&w, "\n/no_think");
     struct ai_message m2 = {"user", w.p, NULL, 0};
     char *core = NULL;
-    int ok = ai_chat(&A.cfg, "You are a novelist who writes vivid, believable people.", &m2, 1, 2500, &core, err,
-                     sizeof err);
+    int ok = ai_chat(&A.cfg, WRITER, &m2, 1, 2500, &core, err, sizeof err);
     free(w.p);
     if (ok != 0 || !core || strlen(core) < 200) {
         free(core);
@@ -388,9 +407,10 @@ static void drift_child(void *arg, char **result) {
     }
     sb_add(&q, "\n\nSome of what you and they have talked about since:\n");
     sb_add(&q, talk);
-    sb_add(&q, "\n\nIn two or three sentences, in the second person, say how you have been lately: a mood, something "
-               "from these talks that stayed with you, an interest you picked up or a small opinion that shifted. "
-               "Who you are stays the same; this is only the weather. Nothing else.");
+    sb_add(&q, "\n\nIn two or three plain sentences, in the second person, say how you have been lately: a mood, "
+               "something from these talks that stayed with you, an interest you picked up or a small opinion that "
+               "shifted. Who you are stays the same. Only what these talks show, nothing about the person that they "
+               "didn't say. " PLAIN_TALK " Nothing else.");
     if (P.tunes && P.tunes[0]) {
         sb_add(&q, " Stay true to what they asked you to be:\n");
         sb_add(&q, P.tunes);
@@ -417,18 +437,60 @@ static void tune_child(void *arg, char **result) {
                "the words you reach for, how you joke and how you show you care. Keep everything their wishes don't "
                "touch. Same form: second person (\"You ...\"), 250 to 350 words of plain prose, no body (no fingers, "
                "desks or coffee), never mention wishes, changes or that this was written, and end with three short "
-               "lines you might actually say to them, each on its own line. Nothing else.");
+               "lines you might actually say to them, each on its own line. " PLAIN_TALK " " NOTHING_INVENTED " Nothing else.");
     if (!strncasecmp(A.cfg.model, "qwen3", 5))
         sb_add(&q, "\n/no_think");
     struct ai_message m = {"user", q.p, NULL, 0};
     char *reply = NULL;
-    if (ai_chat(&A.cfg, "You are a novelist who writes vivid, believable people.", &m, 1, 2500, &reply, err,
-                sizeof err) != 0 || !reply || strlen(reply) < 200) {
+    if (ai_chat(&A.cfg, WRITER, &m, 1, 2500, &reply, err, sizeof err) != 0 || !reply || strlen(reply) < 200) {
         free(reply);
         reply = NULL;
     }
     free(q.p);
     *result = reply ? reply : strdup("");
+}
+
+static void restyle_child(void *arg, char **result) {
+    (void)arg;
+    char err[300];
+    sbuf q;
+    sb_init(&q);
+    sb_add(&q, "This is a character, written in the second person:\n");
+    sb_add(&q, P.core);
+    sb_add(&q, "\n\nRewrite it so the way they talk is plain everyday speech. Keep who they are: their opinions, "
+               "what they love and can't stand, how they joke, disagree and show they care, their habits. Change "
+               "only the language: wherever it, or the lines they would say, reaches for imagery, atmosphere or "
+               "fine-sounding words, make it ordinary and direct. Take out anything it says about the person they live "
+               "with that the person can't have told them (habits, what they do, how they look or type): " NOTHING_INVENTED
+               " " PLAIN_TALK " Same form: second person (\"You "
+               "...\"), 250 to 350 words, ending with three short lines they might actually say, each on its own "
+               "line. Nothing else.");
+    if (!strncasecmp(A.cfg.model, "qwen3", 5))
+        sb_add(&q, "\n/no_think");
+    struct ai_message m = {"user", q.p, NULL, 0};
+    char *reply = NULL;
+    if (ai_chat(&A.cfg, WRITER, &m, 1, 2500, &reply, err, sizeof err) != 0 || !reply || strlen(reply) < 200) {
+        free(reply);
+        reply = NULL;
+    }
+    free(q.p);
+    *result = reply ? reply : strdup("");
+}
+
+static int style_written(void) {
+    if (!P.style) {
+        char *s = slurp(STYLE_FILE);
+        P.style = s && atoi(s) > 0 ? atoi(s) : 1;
+        free(s);
+    }
+    return P.style;
+}
+
+static void style_keep(void) {
+    P.style = STYLE;
+    char v[8];
+    snprintf(v, sizeof v, "%d\n", STYLE);
+    spill(STYLE_FILE, v);
 }
 
 static char drift_talk[6000];
@@ -446,6 +508,7 @@ void persona_poll(void) {
             spill(CORE_FILE, sep + 4);
             free(P.core);
             P.core = strdup(sep + 4);
+            style_keep();
             LOG("persona: written (%zu bytes)\n", strlen(P.core));
         } else {
             P.build_failed_at = A.now ? A.now : 1;
@@ -469,6 +532,25 @@ void persona_poll(void) {
         }
         free(res);
     }
+    if (P.restyling && job_poll(P.restyling, &res)) {
+        job_free(P.restyling);
+        P.restyling = NULL;
+        if (res && strlen(res) >= 200) {
+            spill(CORE_FILE, res);
+            free(P.core);
+            P.core = strdup(res);
+            style_keep();
+            unlink(LATELY_FILE);
+            free(P.lately);
+            P.lately = NULL;
+            P.lately_at = 0;
+            LOG("persona: rewritten to talk plainly\n");
+        } else {
+            P.build_failed_at = A.now ? A.now : 1; /* again in a while */
+            LOG("persona: couldn't be rewritten to talk plainly; again later\n");
+        }
+        free(res);
+    }
     if (P.tuning && job_poll(P.tuning, &res)) {
         job_free(P.tuning);
         P.tuning = NULL;
@@ -476,6 +558,7 @@ void persona_poll(void) {
             spill(CORE_FILE, res);
             free(P.core);
             P.core = strdup(res);
+            style_keep();
             LOG("persona: rewritten with their wish\n");
         } else {
             LOG("persona: couldn't be rewritten; their wish still stands\n");
@@ -484,6 +567,12 @@ void persona_poll(void) {
     }
     if (!A.provider || !A.cfg.model[0] || A.screen != SCR_DESKTOP)
         return;
+    /* written for an older way of talking: once, in the plain way (a failure waits ten minutes) */
+    if (persona_ready() && !P.restyling && !P.tuning && !P.building && !P.retune && style_written() < STYLE &&
+        (!P.build_failed_at || A.now - P.build_failed_at > 600000)) {
+        LOG("persona: written before it talked plainly; rewriting it\n");
+        P.restyling = job_start(restyle_child, NULL);
+    }
     /* a wish: once it is written (else the writing takes it), rewrite it with it */
     if (P.retune && persona_ready() && !P.tuning && !P.building) {
         P.retune = false;

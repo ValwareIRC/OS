@@ -22,6 +22,8 @@ void files_open_path(const char *path);
 /* Opens Files at the file's folder with it selected. */
 void files_reveal(const char *path);
 void files_empty_trash(void);
+/* Erases a folder and everything in it, for good (caches; never their things). */
+void files_erase_tree(const char *path);
 /* Moves a file to Trash (it can be put back from there). */
 bool files_trash(const char *path);
 /* Creates the home folders and Trash on first run. */

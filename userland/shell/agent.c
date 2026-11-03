@@ -7,6 +7,7 @@
 #include "alive.h"
 #include "web.h"
 #include "picture.h"
+#include "image.h"
 #include "wm.h"
 #include "emblem.h"
 #include "fm/fm.h"
@@ -131,6 +132,8 @@ const char *body_prompt(void) {
            "  [[search: words]] the web; [[read: url]] a page; [[fetch: url -> ~/Pictures/name.jpg]] downloads a "
            "file (anything up to 100 MB).\n"
            "  [[see: screen]] a picture of the whole screen as it is, for you to look at next step.\n"
+           "  [[see: ~/Pictures/photo.png]] a picture file itself (PNG, JPEG, GIF, BMP, WebP...), for you to look at "
+           "next step: use this to see a picture, not [[open:]] and the screen.\n"
            "  [[windows]] what is open; [[window: focus|close|minimize|maximize 2]] or [[window: move 2 100 80]] "
            "[[window: size 2 900 600]] (by its number above, or its title).\n"
            "  [[ps]] what is running, by CPU; [[sys]] hardware, temperatures, network; [[kill: pid]].\n"
@@ -740,7 +743,18 @@ static void child_tools(void *unused, char **result) {
 
 static char *picture_next; /* the screen, for its next step */
 
+/* A model that takes no pictures is told so, instead of a picture it would never get. */
+static bool can_see(sbuf *out) {
+    if (ai_sees_images(&A.cfg))
+        return true;
+    sb_printf(out, "FAILED: the model you run on now (%s) can't look at pictures, so there is nothing to see; say so "
+                   "if they asked you to look\n", A.cfg.model[0] ? A.cfg.model : "this one");
+    return false;
+}
+
 static void see_screen(sbuf *out) {
+    if (!can_see(out))
+        return;
     if (!A.frame) {
         sb_add(out, "nothing to see\n");
         return;
@@ -759,6 +773,34 @@ static void see_screen(sbuf *out) {
         free(jpg);
         sb_add(out, "the screen as it is now comes with this, as a picture\n");
     }
+}
+
+/* A picture file, as it is, for its next step (shrunk to at most 1280 on its longer side). */
+static void see_file(const char *path, sbuf *out) {
+    if (!can_see(out))
+        return;
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        sb_printf(out, "FAILED: %s isn't there (%s)\n", path, strerror(errno));
+        return;
+    }
+    image *im = image_load(path, 1280);
+    if (!im) {
+        sb_printf(out, "FAILED: %s isn't a picture this can read (PNG, JPEG, GIF, BMP, TGA, PNM)\n", path);
+        return;
+    }
+    size_t len = 0;
+    unsigned char *jpg = jpeg_encode(im->px, im->w, im->h, im->w, 88, &len);
+    int sw = im->src_w, sh = im->src_h;
+    image_free(im);
+    if (!jpg) {
+        sb_printf(out, "FAILED: %s couldn't be prepared to look at\n", path);
+        return;
+    }
+    free(picture_next);
+    picture_next = base64_encode(jpg, len);
+    free(jpg);
+    sb_printf(out, "%s (%d x %d) comes with this, as a picture\n", path, sw, sh);
 }
 
 static int window_by(const char *what) {
@@ -1216,7 +1258,13 @@ static bool agent_take_now(struct conversation *c, bool from_person) {
                 remember('d', "", x), body_feel('s', "made the folder %.120s", x);
             sb_add(&now_out, ok ? "done\n" : "couldn't\n");
         } else if (!strcmp(name, "see")) {
-            see_screen(&now_out);
+            const char *w = a + strspn(a, " ");
+            if (!*w || !strncasecmp(w, "screen", 6))
+                see_screen(&now_out);
+            else {
+                expand(a, x, sizeof x);
+                see_file(x, &now_out);
+            }
         } else if (!strcmp(name, "windows")) {
             int nw = 0, foc = desktop_focused_window();
             for (int i = 0; i < 24; i++) {
@@ -1335,11 +1383,11 @@ void agent_tick(void) {
                        : "Go on: the next step, with tags; or, if it is done, tell them what came of it in a sentence or "
                          "two (no tags then). Don't stop halfway to ask.");
         sb_free(&now_out);
-        companion_note(note.p, true);
-        if (picture_next) { /* what it saw of the screen, with this step */
-            convo_picture(&A.companion, picture_next, NULL);
-            picture_next = NULL;
-        }
+        /* what it saw (the screen, a picture file) goes with this step's note, in the same request: it was added
+         * after the note had been sent, so each picture reached it a step late */
+        char *pic = picture_next;
+        picture_next = NULL;
+        companion_note_picture(note.p, true, pic);
         free(note.p);
     }
     /* its plans, when they're due */

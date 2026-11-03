@@ -2,6 +2,9 @@
 #include "settings.h"
 #include "lock.h"
 #include "clock.h"
+#include "launcher.h"
+#include "iconart.h"
+#include "files.h"
 #include "priv.h"
 #include "appgate.h"
 #include "nerve.h"
@@ -21,6 +24,8 @@
 
 #include <math.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <ftw.h>
 #include <sys/statvfs.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,6 +142,12 @@ void settings_set_int(const char *key, int value) {
     char b[24];
     snprintf(b, sizeof b, "%d", value);
     settings_set(key, b);
+}
+
+/* the mouse as they set it (sys.c does it) */
+static void mouse_apply(void) {
+    input_set_mouse(settings_get_int("mouse_speed", 100) / 100.0f, settings_get_int("mouse_accel", 1) != 0,
+                    settings_get_int("mouse_natural", 0) != 0, settings_get_int("mouse_left", 0) != 0);
 }
 
 /* ======================================================================
@@ -298,6 +309,7 @@ void settings_boot(void) {
     if (kb && keymap_set(kb))
         LOG("settings: keyboard %s\n", keymap_current());
     input_set_repeat(settings_get_int("repeat_delay", 500), settings_get_int("repeat_rate", 30));
+    mouse_apply();
     if (settings_get("volume", NULL))
         sound_restore();
 }
@@ -851,6 +863,601 @@ static int page_keyboard(rect c, int y) {
     }
     y += 50;
     return y - y0;
+}
+
+/* ---- Notifications ---- */
+
+static int page_notify(rect c, int y) {
+    int y0 = y;
+    font *f = BODY();
+    y = settings_section(c, y, "Do not disturb");
+    row_label(c, y, 48, "Do not disturb", "Notifications are kept, but none pops up");
+    rect sw = {c.x + c.w - 52, y + 12, 48, 26};
+    if (log_now)
+        LOGRECT("notify-dnd", sw);
+    if (ctl_switch(sw, notify_dnd_by_hand(), &P))
+        notify_set_dnd(!notify_dnd_by_hand());
+    y += 60;
+    /* by the hours */
+    int from = settings_get_int("dnd_from", -1), to = settings_get_int("dnd_to", -1);
+    bool hours = from >= 0 && to >= 0;
+    row_label(c, y, 48, "Every day, at set hours", hours ? (notify_dnd_hours() ? "On now" : "Not now") : "Off");
+    rect hs = {c.x + c.w - 52, y + 12, 48, 26};
+    if (log_now)
+        LOGRECT("notify-hours", hs);
+    if (ctl_switch(hs, hours, &P)) {
+        settings_set_int("dnd_from", hours ? -1 : 22);
+        settings_set_int("dnd_to", hours ? -1 : 7);
+        hours = !hours, from = hours ? 22 : -1, to = hours ? 7 : -1;
+    }
+    y += 58;
+    if (hours) {
+        struct {
+            const char *label, *key;
+            int *v;
+        } ends[] = {{"From", "dnd_from", &from}, {"Until", "dnd_to", &to}};
+        for (int e = 0; e < 2; e++) {
+            draw_text(A.frame, f, c.x, y + (36 - LH(f)) / 2, ends[e].label, P.muted);
+            struct tm tm = {.tm_hour = *ends[e].v};
+            char hh[24];
+            fm_strftime(hh, sizeof hh, "%H:00", &tm);
+            rect minus = {c.x + 90, y, 36, 36}, plus = {c.x + 90 + 36 + 110, y, 36, 36};
+            if (ctl_button(minus, "-", f, false, true, &P))
+                settings_set_int(ends[e].key, (*ends[e].v + 23) % 24);
+            draw_text(A.frame, f, c.x + 90 + 36 + (110 - text_width(f, hh)) / 2, y + (36 - LH(f)) / 2, hh, P.ink);
+            if (ctl_button(plus, "+", f, false, true, &P))
+                settings_set_int(ends[e].key, (*ends[e].v + 1) % 24);
+            y += 44;
+        }
+        y += 8;
+    }
+    y += 10;
+    y = settings_section(c, y, "Apps that may notify you");
+    char all[1024];
+    snprintf(all, sizeof all, "%s", notify_apps());
+    int shown = 0;
+    for (char *save, *app = strtok_r(all, ",", &save); app; app = strtok_r(NULL, ",", &save)) {
+        row_label(c, y, 44, app, NULL);
+        bool on = notify_app_allowed(app);
+        rect as = {c.x + c.w - 52, y + 9, 48, 26};
+        if (ctl_switch(as, on, &P))
+            notify_app_allow(app, !on);
+        y += 48;
+        shown++;
+    }
+    if (!shown)
+        y += note_text(c, y, "No app has sent a notification yet. Each one that does appears here, with a switch.");
+    y += 8;
+    y += note_text(c, y, "The system's own notifications and your companion's always come through.");
+    return y - y0 + 10;
+}
+
+/* ---- Apps ---- */
+
+/* The apps they installed (Flatpak, from Flathub), each removable; which app opens web links and each kind of
+ * file (~/.config/mimeapps.list, the freedesktop way: the portal and every app read it). */
+#define MAX_APPS 96
+struct inst_app {
+    char id[128], name[96], mime[1024];
+};
+static struct {
+    struct inst_app *a;
+    int n, removing_req;
+    char removing[128], msg[160];
+    uint64_t at;
+} AP;
+
+static void apps_read(void) {
+    if (AP.a && A.now - AP.at < 3000)
+        return;
+    AP.at = A.now;
+    if (!AP.a)
+        AP.a = calloc(MAX_APPS, sizeof *AP.a);
+    AP.n = 0;
+    const char *dirs[] = {FLATPAK_DISK_EXPORTS "/applications", FLATPAK_SYSTEM_EXPORTS "/applications"};
+    for (int k = 0; k < 2; k++) {
+        DIR *d = opendir(dirs[k]);
+        struct dirent *e;
+        while (d && (e = readdir(d)) && AP.n < MAX_APPS) {
+            size_t l = strlen(e->d_name);
+            if (l < 9 || strcmp(e->d_name + l - 8, ".desktop"))
+                continue;
+            struct inst_app *x = &AP.a[AP.n];
+            snprintf(x->id, sizeof x->id, "%.*s", (int)(l - 8), e->d_name);
+            bool dup = false;
+            for (int i = 0; i < AP.n; i++)
+                dup |= !strcmp(AP.a[i].id, x->id);
+            if (dup)
+                continue;
+            char p[400], line[1200];
+            snprintf(p, sizeof p, "%s/%s", dirs[k], e->d_name);
+            FILE *f = fopen(p, "r");
+            x->name[0] = x->mime[0] = 0;
+            bool in_entry = false;
+            while (f && fgets(line, sizeof line, f)) {
+                line[strcspn(line, "\r\n")] = 0;
+                if (line[0] == '[')
+                    in_entry = !strcmp(line, "[Desktop Entry]");
+                else if (in_entry && !strncmp(line, "Name=", 5) && !x->name[0])
+                    snprintf(x->name, sizeof x->name, "%s", line + 5);
+                else if (in_entry && !strncmp(line, "MimeType=", 9))
+                    snprintf(x->mime, sizeof x->mime, "%s", line + 9);
+            }
+            if (f)
+                fclose(f);
+            if (!x->name[0])
+                snprintf(x->name, sizeof x->name, "%s", x->id);
+            AP.n++;
+        }
+        if (d)
+            closedir(d);
+    }
+}
+
+/* the kinds of thing an app can be the default for, and the types each covers */
+static const struct {
+    const char *label, *types;
+} kinds[] = {
+    {"Web links", "x-scheme-handler/http x-scheme-handler/https text/html"},
+    {"Email links", "x-scheme-handler/mailto"},
+    {"Pictures", "image/png image/jpeg image/gif image/webp image/svg+xml image/bmp"},
+    {"Music", "audio/mpeg audio/ogg audio/flac audio/x-wav audio/mp4"},
+    {"Videos", "video/mp4 video/webm video/x-matroska video/quicktime"},
+    {"PDF documents", "application/pdf"},
+    {"Text", "text/plain"},
+};
+#define NKINDS ((int)(sizeof kinds / sizeof kinds[0]))
+
+static bool app_handles(const struct inst_app *x, const char *types) {
+    char t[200];
+    snprintf(t, sizeof t, "%s", types);
+    for (char *save, *m = strtok_r(t, " ", &save); m; m = strtok_r(NULL, " ", &save)) {
+        char all[1100], want[90];
+        snprintf(all, sizeof all, ";%s;", x->mime); /* "a;b;" as ";a;b;;": each type between semicolons */
+        snprintf(want, sizeof want, ";%s;", m);
+        if (strstr(all, want))
+            return true;
+    }
+    return false;
+}
+
+#define MIMEAPPS home_path("/.config/mimeapps.list")
+
+/* the default for a type, from mimeapps.list ("" none) */
+static void default_for(const char *type, char *out, size_t n) {
+    out[0] = 0;
+    FILE *f = fopen(MIMEAPPS, "r");
+    char line[600];
+    bool in = false;
+    size_t tl = strlen(type);
+    while (f && fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (line[0] == '[')
+            in = !strcmp(line, "[Default Applications]");
+        else if (in && !strncmp(line, type, tl) && line[tl] == '=') {
+            snprintf(out, n, "%s", line + tl + 1);
+            char *semi = strchr(out, ';');
+            if (semi)
+                *semi = 0;
+            size_t l = strlen(out);
+            if (l > 8 && !strcmp(out + l - 8, ".desktop"))
+                out[l - 8] = 0;
+        }
+    }
+    if (f)
+        fclose(f);
+}
+
+/* app id the default for every type of kind k (NULL: none chosen); the rest of the file kept as it was */
+static void set_default(int k, const char *id) {
+    char *old = NULL;
+    FILE *f = fopen(MIMEAPPS, "r");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        old = calloc(1, (size_t)(sz > 0 ? sz : 0) + 1);
+        if (old && sz > 0 && fread(old, 1, (size_t)sz, f) != (size_t)sz)
+            old[0] = 0;
+        fclose(f);
+    }
+    mkdir(home_path("/.config"), 0700);
+    char tmp[600];
+    snprintf(tmp, sizeof tmp, "%s.new", MIMEAPPS);
+    FILE *o = fopen(tmp, "w");
+    if (!o) {
+        free(old);
+        return;
+    }
+    fprintf(o, "[Default Applications]\n");
+    char t[200];
+    snprintf(t, sizeof t, "%s", kinds[k].types);
+    if (id)
+        for (char *save, *m = strtok_r(t, " ", &save); m; m = strtok_r(NULL, " ", &save))
+            fprintf(o, "%s=%s.desktop\n", m, id);
+    /* the rest: other types' defaults, and every other section, as they were */
+    bool in = false;
+    for (char *save, *line = old ? strtok_r(old, "\n", &save) : NULL; line; line = strtok_r(NULL, "\n", &save)) {
+        if (line[0] == '[') {
+            in = !strcmp(line, "[Default Applications]");
+            if (!in)
+                fprintf(o, "%s\n", line);
+            continue;
+        }
+        if (in) {
+            char *eq = strchr(line, '=');
+            bool ours = false;
+            if (eq) {
+                char ty[120];
+                snprintf(ty, sizeof ty, " %.*s ", (int)(eq - line), line);
+                char all[220];
+                snprintf(all, sizeof all, " %s ", kinds[k].types);
+                ours = strstr(all, ty) != NULL;
+            }
+            if (!ours)
+                fprintf(o, "%s\n", line);
+        } else
+            fprintf(o, "%s\n", line);
+    }
+    free(old);
+    if (fclose(o) == 0)
+        rename(tmp, MIMEAPPS);
+    LOG("settings: %s open with %s\n", kinds[k].label, id ? id : "(not chosen)");
+}
+
+static int def_open = -1; /* the kind whose choices are showing */
+
+static int page_apps(rect c, int y) {
+    int y0 = y;
+    font *f = BODY();
+    apps_read();
+    /* a removal's answer */
+    if (AP.removing_req > 0) {
+        bool ok;
+        char *text = NULL;
+        if (priv_take(AP.removing_req, &ok, &text)) {
+            AP.removing_req = 0;
+            snprintf(AP.msg, sizeof AP.msg, ok ? "Removed." : "It couldn't be removed: %s", text ? text : "");
+            LOG("settings: removing %s: %s\n", AP.removing, ok ? "done" : "failed");
+            free(text);
+            AP.removing[0] = 0;
+            AP.at = 0;
+            launcher_apps_changed();
+        }
+    }
+    y = settings_section(c, y, "Installed");
+    if (!AP.n)
+        y += note_text(c, y, "No apps installed yet. The launcher finds them on Flathub: search for what you want "
+                             "and choose Install.");
+    static char confirm[128];
+    for (int i = 0; i < AP.n; i++) {
+        struct inst_app *x = &AP.a[i];
+        rect row = {c.x, y, c.w, 52};
+        if (pt_in(row, A.in.mx, A.in.my))
+            fill_round(A.frame, row, 8, color_alpha(P.ink, 0.04f));
+        rect ir = {row.x + 8, row.y + 10, 32, 32};
+        if (!app_icon_draw(A.frame, ir, x->id, NULL, 2, LOOK_COLOR, P.ink, 1, false))
+            fill_round(A.frame, ir, 8, color_alpha(P.ink, 0.10f));
+        draw_text(A.frame, f, row.x + 52, row.y + 8, x->name, P.ink);
+        draw_text(A.frame, SMALL(), row.x + 52, row.y + 10 + LH(f), x->id, P.muted);
+        bool busy = !strcmp(AP.removing, x->id);
+        bool asking = !strcmp(confirm, x->id);
+        const char *lab = busy ? "Removing..." : asking ? "Remove it" : "Remove";
+        int bw = text_width(f, lab) + 32;
+        rect br = {row.x + row.w - bw - 8, row.y + 8, bw, 36};
+        if (log_now && i < 6) {
+            char nm[32];
+            snprintf(nm, sizeof nm, "apps-remove-%d", i);
+            LOGRECT(nm, br);
+        }
+        if (ctl_button(br, lab, f, asking, !busy && priv_available() && !AP.removing[0], &P)) {
+            if (!asking)
+                snprintf(confirm, sizeof confirm, "%s", x->id); /* a second press removes it */
+            else {
+                char m[200];
+                snprintf(m, sizeof m, "uninstall %s", x->id);
+                AP.removing_req = priv_send(m);
+                snprintf(AP.removing, sizeof AP.removing, "%s", x->id);
+                confirm[0] = 0;
+                AP.msg[0] = 0;
+            }
+        }
+        if (asking)
+            draw_text(A.frame, SMALL(), br.x - 16 - text_width(SMALL(), "Its settings go with it."),
+                      br.y + (36 - LH(SMALL())) / 2, "Its settings go with it.", P.muted);
+        y += 56;
+    }
+    if (AP.msg[0]) {
+        draw_text(A.frame, SMALL(), c.x, y, AP.msg, P.muted);
+        y += LH(SMALL()) + 6;
+    }
+    y += 16;
+    y = settings_section(c, y, "Opens with");
+    for (int k = 0; k < NKINDS; k++) {
+        char first[200], cur[128];
+        snprintf(first, sizeof first, "%s", kinds[k].types);
+        first[strcspn(first, " ")] = 0;
+        default_for(first, cur, sizeof cur);
+        const char *cur_name = NULL;
+        int nh = 0;
+        for (int i = 0; i < AP.n; i++)
+            if (app_handles(&AP.a[i], kinds[k].types)) {
+                nh++;
+                if (!strcmp(AP.a[i].id, cur))
+                    cur_name = AP.a[i].name;
+            }
+        row_label(c, y, 44, kinds[k].label, NULL);
+        const char *shown = cur_name ? cur_name : nh ? "The first that can" : k == 6 ? "Notes" : "Nothing installed opens these";
+        rect pick = {c.x + 200, y + 4, c.w - 200, 36};
+        if (log_now) {
+            char nm[32];
+            snprintf(nm, sizeof nm, "apps-default-%d", k);
+            LOGRECT(nm, pick);
+        }
+        if (nh && ctl_button(pick, shown, f, false, true, &P))
+            def_open = def_open == k ? -1 : k;
+        else if (!nh)
+            draw_text(A.frame, f, pick.x + 12, pick.y + (36 - LH(f)) / 2, shown, P.muted);
+        y += 48;
+        if (def_open == k) { /* its choices, under it */
+            for (int i = 0; i < AP.n; i++) {
+                if (!app_handles(&AP.a[i], kinds[k].types))
+                    continue;
+                rect r = {pick.x, y, pick.w, 36};
+                bool hover = pt_in(r, A.in.mx, A.in.my), sel = !strcmp(AP.a[i].id, cur);
+                if (hover || sel)
+                    fill_round(A.frame, r, 8, color_alpha(sel ? P.accent : P.ink, sel ? 0.16f : 0.05f));
+                draw_text(A.frame, f, r.x + 12, r.y + (36 - LH(f)) / 2, AP.a[i].name, P.ink);
+                if (hover && A.in.clicked) {
+                    set_default(k, AP.a[i].id);
+                    def_open = -1;
+                }
+                y += 40;
+            }
+            y += 6;
+        }
+    }
+    y += note_text(c, y, "Used when an app opens a link or a file. Files you open from Files open in this "
+                         "system's own apps where it has one (Notes for text, the viewer for pictures).");
+    return y - y0 + 10;
+}
+
+/* ---- Storage ---- */
+
+/* What uses the disk, measured in a process of its own (a walk through every app's files takes a while). */
+static long long walked;
+static int walk_add(const char *p, const struct stat *st, int flag, struct FTW *f) {
+    (void)p, (void)flag, (void)f;
+    walked += (long long)st->st_blocks * 512;
+    return 0;
+}
+
+static long long tree_size(const char *path) {
+    walked = 0;
+    nftw(path, walk_add, 32, FTW_PHYS | FTW_MOUNT);
+    return walked;
+}
+
+#define STORE_KINDS 5
+static const char *const store_label[STORE_KINDS] = {"Your files", "Apps", "AI models", "Trash", "Caches"};
+
+static void measure_child(void *arg, char **result) {
+    (void)arg;
+    long long v[STORE_KINDS];
+    long long home = tree_size(home_dir()), trash = tree_size(TRASH_DIR), cache = tree_size(home_path("/.cache"));
+    long long their_apps = tree_size(home_path("/.local/share/flatpak")) + tree_size(home_path("/.var"));
+    v[0] = home - trash - cache - their_apps;
+    v[1] = tree_size("/var/lib/os-data/flatpak") + their_apps;
+    v[2] = tree_size("/var/lib/os-data/models");
+    v[3] = trash;
+    v[4] = cache + tree_size("/var/lib/os-data/figure-cache");
+    char *out = NULL;
+    if (asprintf(&out, "%lld %lld %lld %lld %lld", v[0] < 0 ? 0 : v[0], v[1], v[2], v[3], v[4]) < 0)
+        out = NULL;
+    *result = out ? out : strdup("");
+}
+
+static struct {
+    job *measuring;
+    long long v[STORE_KINDS];
+    bool known;
+    uint64_t at;
+} ST;
+
+static void bytes_text(long long b, char *out, size_t n) {
+    if (b >= 1000LL * 1000 * 1000)
+        snprintf(out, n, "%.1f GB", b / 1e9);
+    else if (b >= 1000LL * 1000)
+        snprintf(out, n, "%.0f MB", b / 1e6);
+    else if (b >= 1000)
+        snprintf(out, n, "%.0f KB", b / 1e3);
+    else
+        snprintf(out, n, "%lld bytes", b);
+}
+
+static int page_storage(rect c, int y) {
+    int y0 = y;
+    font *f = BODY();
+    char *res;
+    if (ST.measuring && job_poll(ST.measuring, &res)) {
+        job_free(ST.measuring);
+        ST.measuring = NULL;
+        ST.known = res && sscanf(res, "%lld %lld %lld %lld %lld", &ST.v[0], &ST.v[1], &ST.v[2], &ST.v[3], &ST.v[4]) == 5;
+        free(res);
+        if (ST.known)
+            LOG("settings: storage measured: files %lld, apps %lld, models %lld, trash %lld, caches %lld\n", ST.v[0],
+                ST.v[1], ST.v[2], ST.v[3], ST.v[4]);
+    }
+    /* measured on opening the page, and again after a minute shown */
+    if (!ST.measuring && (!ST.at || A.now - ST.at > 60000)) {
+        ST.at = A.now;
+        ST.measuring = job_start(measure_child, NULL);
+    }
+    struct statvfs sv;
+    bool disk = statvfs("/var/lib/os-data", &sv) == 0 && sv.f_blocks && access("/var/lib/os-data/.theirs", F_OK) == 0;
+    y = settings_section(c, y, "This computer's disk");
+    if (!disk) {
+        y += note_text(c, y, "There is no disk for the system here: what you do is kept only until it shuts down.");
+        return y - y0 + 10;
+    }
+    double total = (double)sv.f_blocks * sv.f_frsize, freeb = (double)sv.f_bavail * sv.f_frsize;
+    char a[32], b[32], line[120];
+    bytes_text((long long)(total - freeb), a, sizeof a);
+    bytes_text((long long)total, b, sizeof b);
+    snprintf(line, sizeof line, "%s used of %s", a, b);
+    draw_text(A.frame, f, c.x, y, line, P.ink);
+    bytes_text((long long)freeb, a, sizeof a);
+    snprintf(line, sizeof line, "%s free", a);
+    draw_text(A.frame, f, c.x + c.w - text_width(f, line), y, line, P.muted);
+    y += LH(f) + 10;
+    /* the bar: each kind its share, the rest the system's */
+    rect bar = {c.x, y, c.w, 14};
+    fill_round(A.frame, bar, 7, color_alpha(P.ink, 0.08f));
+    static const float shade[STORE_KINDS] = {1.0f, 0.75f, 0.55f, 0.38f, 0.25f};
+    int x = bar.x;
+    for (int i = 0; ST.known && i < STORE_KINDS; i++) {
+        int w = (int)(ST.v[i] / total * bar.w);
+        if (w > 0) {
+            fill_rect(A.frame, (rect){x, bar.y, w, bar.h}, color_alpha(P.accent, shade[i]));
+            x += w;
+        }
+    }
+    y += 14 + 20;
+    for (int i = 0; i < STORE_KINDS; i++) {
+        fill_round(A.frame, (rect){c.x, y + 15, 12, 12}, 3, color_alpha(P.accent, shade[i]));
+        draw_text(A.frame, f, c.x + 22, y + (42 - LH(f)) / 2, store_label[i], P.ink);
+        if (ST.known && (i == 3 || i == 4) && ST.v[i] <= 4096) /* (the folders themselves) */
+            snprintf(a, sizeof a, "Empty");
+        else if (ST.known)
+            bytes_text(ST.v[i], a, sizeof a);
+        else
+            snprintf(a, sizeof a, "Measuring...");
+        int bw = 0;
+        if (i == 3 || i == 4) { /* the two that can go */
+            const char *lab = i == 3 ? "Empty Trash" : "Clear";
+            bw = text_width(f, lab) + 32;
+            rect br = {c.x + c.w - bw, y + 2, bw, 36};
+            if (log_now)
+                LOGRECT(i == 3 ? "storage-trash" : "storage-caches", br);
+            if (ctl_button(br, lab, f, false, ST.known && ST.v[i] > 4096, &P)) {
+                if (i == 3)
+                    files_empty_trash();
+                else {
+                    files_erase_tree(home_path("/.cache"));
+                    mkdir(home_path("/.cache"), 0700);
+                    LOG("settings: caches cleared\n");
+                }
+                ST.at = 0; /* measured again */
+            }
+            bw += 16;
+        }
+        draw_text(A.frame, f, c.x + c.w - bw - text_width(f, a), y + (42 - LH(f)) / 2, a, P.muted);
+        y += 46;
+    }
+    y += 8;
+    y += note_text(c, y, "Apps are removed in Settings > Apps. Caches are only copies apps keep to be faster: "
+                         "clearing them loses nothing of yours.");
+    return y - y0 + 10;
+}
+
+/* ---- Power ---- */
+
+static int minutes_choice(rect c, int y, const char *label, const char *key, int def, int id) {
+    static const char *const lab[] = {"Never", "5 min", "10 min", "15 min", "30 min", "1 hour"};
+    static const int val[] = {0, 5, 10, 15, 30, 60};
+    int cur = 0, now = settings_get_int(key, def);
+    for (int i = 0; i < 6; i++)
+        if (val[i] == now)
+            cur = i;
+    draw_text(A.frame, BODY(), c.x, y + 9, label, P.muted);
+    rect sr = {c.x + 170, y, 480 < c.w - 170 ? 480 : c.w - 170, 38};
+    if (log_now) {
+        char nm[32];
+        snprintf(nm, sizeof nm, "power-%d", id);
+        LOGRECT(nm, sr);
+    }
+    int pick = ctl_segmented(sr, lab, 6, cur, BODY(), &P);
+    if (pick != cur) {
+        settings_set_int(key, val[pick]);
+        LOG("settings: %s %d\n", key, val[pick]);
+    }
+    return y + 54;
+}
+
+static int page_power(rect c, int y) {
+    int y0 = y;
+    y = settings_section(c, y, "When you're away");
+    y = minutes_choice(c, y, "Screen off after", "screen_off", 10, 0);
+    y = minutes_choice(c, y, "Lock after", "lock_after", 0, 1);
+    y += note_text(c, y, "Never while something plays full screen. Any key or a move of the mouse brings the screen "
+                         "back; with a password, the lock screen asks for it.");
+    y += 22;
+    y = settings_section(c, y, "Turning off");
+    rect off = {c.x, y, 140, 40}, re = {c.x + 152, y, 140, 40};
+    if (ctl_button(off, "Shut down", BODY(), false, true, &P))
+        A.confirm_power = true, A.power_restart = false;
+    if (ctl_button(re, "Restart", BODY(), false, true, &P))
+        A.confirm_power = true, A.power_restart = true;
+    y += 52;
+    y += note_text(c, y, "What you were doing is kept first: the windows you had open come back, and your work in "
+                         "Notes is already saved.");
+    return y - y0 + 10;
+}
+
+/* ---- Mouse ---- */
+
+static int page_mouse(rect c, int y) {
+    int y0 = y;
+    font *f = BODY();
+    y = settings_section(c, y, "Pointer");
+    int sp = settings_get_int("mouse_speed", 100);
+    char val[32];
+    row_label(c, y, 40, "Speed", NULL);
+    snprintf(val, sizeof val, sp == 100 ? "Normal" : "%d%%", sp);
+    draw_text(A.frame, f, c.x + c.w - text_width(f, val), y + (40 - LH(f)) / 2, val, P.muted);
+    float t = (sp - 20) / 280.0f;
+    rect sl = {c.x + 230, y + 9, c.w - 230 - 90, 22};
+    if (log_now)
+        LOGRECT("mouse-speed", sl);
+    if (ctl_slider(2201, sl, &t, &P) != CTL_IDLE) {
+        sp = 20 + (int)lroundf(t * 280 / 10) * 10;
+        if (sp > 90 && sp < 110)
+            sp = 100; /* it snaps to normal */
+        settings_set_int("mouse_speed", sp);
+        mouse_apply();
+    }
+    y += 50;
+    struct {
+        const char *key, *label, *sub;
+        int def;
+    } rows[] = {
+        {"mouse_accel", "Acceleration", "Fast moves go further, slow ones stay precise", 1},
+        {"mouse_natural", "Natural scrolling", "The content moves the way your fingers do, as on a phone", 0},
+        {"mouse_left", "Left-handed", "The left and right buttons swap", 0},
+    };
+    for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        row_label(c, y, 48, rows[i].label, rows[i].sub);
+        bool on = settings_get_int(rows[i].key, rows[i].def) != 0;
+        rect sw = {c.x + c.w - 52, y + 12, 48, 26};
+        if (log_now) {
+            char nm[40];
+            snprintf(nm, sizeof nm, "%s", rows[i].key);
+            for (char *p = nm; *p; p++)
+                if (*p == '_')
+                    *p = '-';
+            LOGRECT(nm, sw);
+        }
+        if (ctl_switch(sw, on, &P)) {
+            settings_set_int(rows[i].key, !on);
+            mouse_apply();
+            LOG("settings: %s %s\n", rows[i].key, !on ? "on" : "off");
+        }
+        y += 60;
+    }
+    if (input_pointer_absolute())
+        y += note_text(c, y, "This pointer is a tablet's or a virtual machine's: it goes where it points, so speed and "
+                             "acceleration don't change it. Scrolling and the buttons still follow these.");
+    return y - y0 + 10;
 }
 
 /* ---- Mind ---- */
@@ -1707,9 +2314,14 @@ static int page_list(struct page *out) {
                                          {"Display", SYM_DISPLAY, page_display, NULL},
                                          {"Sound", SYM_SPEAKER, page_sound, NULL},
                                          {"Keyboard", SYM_KEYBOARD, page_keyboard, NULL},
+                                         {"Mouse", SYM_SLIDERS, page_mouse, NULL},
                                          {"Date & time", SYM_CALENDAR, page_time, NULL},
                                          {"AI", SYM_MIND, page_mind, NULL}};
     static const struct page after[] = {{"Users", SYM_SHIELD, page_users, NULL},
+                                        {"Notifications", SYM_BELL, page_notify, NULL},
+                                        {"Apps", SYM_GEAR, page_apps, NULL},
+                                        {"Power", SYM_MOON, page_power, NULL},
+                                        {"Storage", SYM_INFO, page_storage, NULL},
                                         {"Security", SYM_SHIELD, page_security, NULL},
                                         {"Privacy", SYM_SHIELD, page_privacy, NULL},
                                         {"About", SYM_INFO, page_about, NULL}};

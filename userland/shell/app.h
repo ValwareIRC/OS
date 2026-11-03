@@ -222,6 +222,7 @@ void their_name_keep(const char *name);
  * (`act`: its ui tags run); and its replies taken in, off the desktop. */
 void companion_tell(const char *text);
 void companion_note(const char *note, bool act);
+void companion_note_picture(const char *note, bool act, char *picture); /* picture: base64 JPEG, taken */
 /* What [[write]] tags did in the reply just taken (actions.c); read once. */
 const char *actions_report(void);
 void companion_tick(void);

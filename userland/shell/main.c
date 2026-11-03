@@ -47,11 +47,20 @@ void set_screen(enum screen s) {
     A.dirty = true;
 }
 
+/* While the companion's tags are carried out, what the screen tells them is kept for it too (desktop.c): it saw
+ * none of it, and tried again and again when "there's no app" was shown only to the person. */
+char toast_heard[1200];
+bool toast_listening;
+
 void toast(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(A.toast, sizeof A.toast, fmt, ap);
     va_end(ap);
+    if (toast_listening) {
+        size_t l = strlen(toast_heard);
+        snprintf(toast_heard + l, sizeof toast_heard - l, "- the screen said: \"%s\"\n", A.toast);
+    }
     A.toast_until = A.now + 2500 + 45 * strlen(A.toast); /* long enough to read */
 }
 

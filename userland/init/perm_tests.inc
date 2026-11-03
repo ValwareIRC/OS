@@ -40,6 +40,11 @@ static int child_plain_user(void) {
     STEP(13, rename("/tmp/pt/open", "/tmp/pt-stolen") < 0 && errno == EACCES); /* out of a directory it can't write */
     STEP(14, mkdir("/etc/pt-not-mine", 0755) < 0 && errno == EACCES);
     STEP(15, symlink("/etc/passwd", "/tmp/pt/link") < 0 && errno == EACCES);
+    /* a name already there is EEXIST first, even where it may not write (what `mkdir -p` goes on) */
+    errno = 0;
+    STEP(30, mkdir("/tmp/pt", 0755) < 0 && errno == EEXIST && mkdir("/etc", 0755) < 0 && errno == EEXIST);
+    errno = 0;
+    STEP(31, symlink("/x", "/tmp/pt/open") < 0 && errno == EEXIST);
     /* executing needs x */
     pid_t pid = fork();
     if (pid == 0) {

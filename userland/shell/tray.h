@@ -19,6 +19,11 @@ void notify(const char *title, const char *body, const char *app);
 #define NOTIFY_SPOOL "/run/os/notify"
 
 bool notify_dnd(void);
+bool notify_dnd_by_hand(void); /* on by hand (not by the hours) */
+bool notify_dnd_hours(void);   /* within the hours they chose */
+bool notify_app_allowed(const char *app);
+void notify_app_allow(const char *app, bool on);
+const char *notify_apps(void); /* every app that has sent one, comma-separated */
 void notify_set_dnd(bool on);
 int notify_unread(void);
 

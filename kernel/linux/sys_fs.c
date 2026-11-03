@@ -119,6 +119,31 @@ static int parent_at(int dirfd, const char *path, struct path *dir, char *name, 
     return r;
 }
 
+/* The folder a new name goes in, for making it (mkdir, symlink, link): as Linux, a name that is already there is
+ * -EEXIST before anything else (a read-only mount, no right to write the folder): `mkdir -p /home/them/x` asks
+ * for /home first, where the person may not write, and goes on only on EEXIST. */
+static int create_parent_at(int dirfd, const char *path, struct path *dir, char *name, size_t size) {
+    struct path base;
+    int r = at_dir(dirfd, path, &base);
+    if (r < 0)
+        return r;
+    r = vfs_lookup_parent_path(&base, path, dir, name, size);
+    path_put(&base);
+    if (r < 0)
+        return r;
+    struct vnode *there = NULL;
+    if (name[0] && dir->v->ops->lookup && dir->v->ops->lookup(dir->v, name, &there) == 0 && there) {
+        vnode_put(there);
+        path_put(dir);
+        return -EEXIST;
+    }
+    if ((r = path_may_write(dir)) < 0 || (r = vfs_may_create(dir->v)) < 0) {
+        path_put(dir);
+        return r;
+    }
+    return 0;
+}
+
 /* Runs `fn` with a kernel copy of the path and its starting directory. */
 #define WITH_PATH_AT(dirfd, upath, body)                                                                 \
     ({                                                                                                   \
@@ -606,10 +631,8 @@ static int64_t mkdir_at(int dirfd, uint64_t upath, uint64_t mode) {
         return r;
     struct path dir;
     char name[NAME_MAX + 1];
-    r = parent_at(dirfd, path, &dir, name, sizeof name);
-    if (r == 0 && (r = vfs_may_create(dir.v)) < 0)
-        path_put(&dir);
-    else if (r == 0) {
+    r = create_parent_at(dirfd, path, &dir, name, sizeof name);
+    if (r == 0) {
         r = dir.v->ops->mkdir ? dir.v->ops->mkdir(dir.v, name, (uint32_t)mode & ~proc_current()->umask & 07777)
                               : -EROFS;
         path_put(&dir);
@@ -740,10 +763,8 @@ static int64_t symlink_at(uint64_t utarget, int dirfd, uint64_t upath) {
     if (r == 0 || r > 0) {
         struct path dir;
         char name[NAME_MAX + 1];
-        r = parent_at(dirfd, path, &dir, name, sizeof name);
-        if (r == 0 && (r = vfs_may_create(dir.v)) < 0)
-            path_put(&dir);
-        else if (r == 0) {
+        r = create_parent_at(dirfd, path, &dir, name, sizeof name);
+        if (r == 0) {
             r = dir.v->ops->symlink ? dir.v->ops->symlink(dir.v, name, target) : -EROFS;
             path_put(&dir);
         }
@@ -776,10 +797,8 @@ static int64_t link_at(int odirfd, uint64_t uold, int ndirfd, uint64_t unew, int
     }
     struct path dir;
     char name[NAME_MAX + 1];
-    r = parent_at(ndirfd, path, &dir, name, sizeof name);
-    if (r == 0 && (r = vfs_may_create(dir.v)) < 0)
-        path_put(&dir);
-    else if (r == 0) {
+    r = create_parent_at(ndirfd, path, &dir, name, sizeof name);
+    if (r == 0) {
         /* a hard link to someone else's file needs to be able to write it, or own it (protected_hardlinks) */
         r = vfs_owner_or(target, 3) || vfs_permission(target, MAY_READ | MAY_WRITE) == 0 ? 0 : -EPERM;
         r = r ? r : dir.v->ops->link ? dir.v->ops->link(dir.v, name, target) : -EPERM;
