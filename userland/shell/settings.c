@@ -2,6 +2,7 @@
 #include "settings.h"
 #include "lock.h"
 #include "clock.h"
+#include "voice.h"
 #include "launcher.h"
 #include "iconart.h"
 #include "files.h"
@@ -790,6 +791,74 @@ static int page_sound(rect c, int y) {
     if (log_now)
         LOGRECT("settings-test-sound", tb);
     y += 40 + 26;
+    y = settings_section(c, y, "Voice");
+    {
+        const char *mix = settings_get("voice.mix", ""), *name = settings_get("voice.name", "");
+        char line[300];
+        snprintf(line, sizeof line, "%s%s", mix[0] ? "A mix of " : name[0] ? name : "The stand-in voice (none chosen yet)",
+                 mix[0] ? mix : "");
+        draw_text(A.frame, BODY(), c.x, y, line, P.ink);
+        y += LH(BODY()) + 4;
+        y += note_text(c, y, "Ask your companion for a voice of its own: it mixes its voices into a new one and "
+                             "shapes it with you. Or shape it here.");
+        y += 12;
+        static const struct {
+            const char *label, *key, *lo, *hi;
+            float min, max, step;
+        } knobs[] = {{"Pitch", "voice.pitch", "lower", "higher", -12, 12, 0.5f},
+                     {"Character", "voice.formant", "bigger", "smaller", -6, 6, 0.5f},
+                     {"Warmth", "voice.warmth", "brighter", "warmer", -1, 1, 0.05f},
+                     {"Breath", "voice.breath", "none", "airy", 0, 1, 0.05f}};
+        for (int i = 0; i < 4; i++) {
+            float v = (float)atof(settings_get(knobs[i].key, "0"));
+            row_label(c, y, 40, knobs[i].label, NULL);
+            char val[32];
+            snprintf(val, sizeof val, "%s", v == 0 ? "as it is" : v < 0 ? knobs[i].lo : knobs[i].hi);
+            draw_text(A.frame, SMALL(), c.x + c.w - text_width(SMALL(), val), y + (40 - LH(SMALL())) / 2, val, P.muted);
+            float t = (v - knobs[i].min) / (knobs[i].max - knobs[i].min);
+            rect sl = {c.x + 140, y + 9, c.w - 140 - 90, 22};
+            if (log_now) {
+                char nm[32];
+                snprintf(nm, sizeof nm, "voice-%s", knobs[i].key + 6);
+                LOGRECT(nm, sl);
+            }
+            if (ctl_slider(2301 + i, sl, &t, &P) == CTL_RELEASED) {
+                float nv = knobs[i].min + t * (knobs[i].max - knobs[i].min);
+                nv = roundf(nv / knobs[i].step) * knobs[i].step;
+                if (fabsf(nv) < knobs[i].step * 0.75f)
+                    nv = 0; /* it snaps to as it is */
+                char num[16];
+                snprintf(num, sizeof num, "%.2f", (double)nv);
+                settings_set(knobs[i].key, num);
+                LOG("settings: %s %s\n", knobs[i].key, num);
+            }
+            y += 46;
+        }
+        static const char *const fx_l[] = {"None", "Robot", "Whisper", "Radio", "Phone", "Room", "Hall"};
+        static const char *const fx_v[] = {"none", "robot", "whisper", "radio", "phone", "room", "hall"};
+        int cur = 0;
+        for (int i = 0; i < 7; i++)
+            if (!strcmp(settings_get("voice.effect", "none"), fx_v[i]))
+                cur = i;
+        draw_text(A.frame, BODY(), c.x, y + 9, "Effect", P.muted);
+        rect er = {c.x + 140, y, c.w - 140, 38};
+        if (log_now)
+            LOGRECT("voice-effect", er);
+        int pick = ctl_segmented(er, fx_l, 7, cur, SMALL(), &P);
+        if (pick != cur) {
+            settings_set("voice.effect", fx_v[pick]);
+            LOG("settings: voice.effect %s\n", fx_v[pick]);
+        }
+        y += 52;
+        rect hb = {c.x, y, 120, 38}, rb = {c.x + 132, y, 160, 38};
+        if (log_now)
+            LOGRECT("voice-hear", hb);
+        if (ctl_button(hb, "Hear it", BODY(), true, voice_can_speak(), &P))
+            voice_say("This is how I sound now. Is it right?");
+        if (ctl_button(rb, "Back to plain", BODY(), false, voice_shape_now()[0] != 0, &P))
+            voice_shape("reset");
+        y += 38 + 26;
+    }
     y = settings_section(c, y, "Output");
     y += note_text(c, y, on ? "Built-in audio (Intel High Definition Audio)." : "No sound card was found on this computer.");
     return y - y0 + 10;

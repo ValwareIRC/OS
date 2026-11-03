@@ -1037,10 +1037,10 @@ static void companion_update(void) {
                 take_app(name, src);
             free(src);
         }
-        while ((o = strstr(m->text, "[[voice:"))) { /* its voice: hear, use, speed */
+        while ((o = strstr(m->text, "[[voice:"))) { /* its voice: hear, use, speed, mix, shape */
             char *e = strstr(o, "]]");
-            char arg[96];
-            snprintf(arg, sizeof arg, "%.*s", e ? (int)(e - o - 8) < 95 ? (int)(e - o - 8) : 95 : 0, o + 8);
+            char arg[300];
+            snprintf(arg, sizeof arg, "%.*s", e ? (int)(e - o - 8) < 299 ? (int)(e - o - 8) : 299 : 0, o + 8);
             char *after = e ? e + 2 : o + strlen(o);
             memmove(o, after, strlen(after) + 1);
             if (!from_person || !e)
@@ -1058,8 +1058,12 @@ static void companion_update(void) {
             } else if (!strcmp(verb, "speed")) {
                 voice_set_speed(strtof(what, NULL));
                 snprintf(note, sizeof note, "(voice: speed now %s)", what);
-            } else
-                snprintf(note, sizeof note, "(voice: [[voice:%s]] isn't a thing; hear, use, speed or key)", arg);
+            } else if (!strcmp(verb, "mix"))
+                snprintf(note, sizeof note, "(voice: %s)", voice_mix(arg + 3));
+            else if (!strcmp(verb, "shape"))
+                snprintf(note, sizeof note, "(voice: %s)", voice_shape(arg + 5));
+            else
+                snprintf(note, sizeof note, "(voice: [[voice:%.100s]] isn't a thing; hear, use, speed, mix, shape or key)", arg);
             convo_add(c, "hidden", note);
         }
         persona_take(m->text); /* [[trait:]]: what it read in them, private */

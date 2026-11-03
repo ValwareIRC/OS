@@ -97,6 +97,7 @@ initrd: userland
 	mkdir -p $(BUILD)/initrd/usr/libexec && cp $(BUILD)/userland/os-boot $(BUILD)/initrd/usr/libexec/os-boot
 	ln -sf os-audio $(BUILD)/initrd/bin/os-play
 	ln -sf os-audio $(BUILD)/initrd/bin/os-rec
+	cp $(BUILD)/userland/os-voicefx $(BUILD)/initrd/bin/os-voicefx
 	[ ! -f $(BUILD)/userland/os-shell ] || cp $(BUILD)/userland/os-shell $(BUILD)/initrd/bin/os-shell
 	mkdir -p $(BUILD)/initrd/usr/libexec
 	[ ! -f $(BUILD)/userland/os-figure ] || cp $(BUILD)/userland/os-figure $(BUILD)/initrd/usr/libexec/os-figure

@@ -42,7 +42,9 @@ class Vm:
         qargs = [QEMU, "-M", "q35,vmport=on", "-m", self.memory, "-smp", "8", "-accel", "whpx,kernel-irqchip=on", "-accel",
                  "tcg", "-cpu", "Skylake-Client-noTSX-IBRS", "-vga", "std", "-display", "none",
                  "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
-                 "-audiodev", "none,id=a0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0",
+                 # silent always; AUDIO_WAV=path records what it plays into a file instead (still nothing heard)
+                 "-audiodev", ("wav,id=a0,path=" + os.environ["AUDIO_WAV"].replace(os.sep, "/")) if os.environ.get("AUDIO_WAV")
+                 else "none,id=a0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0",
                  *fw("mind.json", self.mind), *(fw("facet.xml", self.desk) if self.facet else []), *fw("alive.conf", self.alive),
                  "-qmp", f"tcp:127.0.0.1:{self.qport},server,nowait", "-serial", "file:" + self.log.replace(os.sep, "/"),
                  "-cdrom", os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso")).replace(os.sep, "/")]

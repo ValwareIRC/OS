@@ -9,7 +9,7 @@ LIB_SRCS := $(wildcard lib/*.c)
 LIB_OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(LIB_SRCS))
 
 PROGRAMS := $(OUT)/init $(OUT)/os-ai $(OUT)/os-audio $(if $(wildcard shell/*.c),$(OUT)/os-shell) $(OUT)/os-figure \
-            $(OUT)/os-boot
+            $(OUT)/os-boot $(OUT)/os-voicefx
 
 all: $(PROGRAMS)
 
@@ -22,6 +22,10 @@ $(OUT)/init: $(OUT)/obj/init/init.o $(OUT)/obj/shell/store.o $(OUT)/obj/shell/ho
 
 $(OUT)/os-audio: $(OUT)/obj/tools/os-audio.o
 	$(CC) -static -o $@ $^
+
+# the companion's voice, shaped on its way to the speaker (pitch, formants, warmth, breath, effects)
+$(OUT)/os-voicefx: $(OUT)/obj/tools/os-voicefx.o
+	$(CC) -static -o $@ $^ -lm
 
 # the boot screen, in the person's design, between the kernel's and the desktop
 $(OUT)/obj/tools/os-boot.o: CFLAGS += -Wno-unused-function -Wno-sign-compare

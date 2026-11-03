@@ -34,6 +34,11 @@ bool voice_preview(const char *name);       /* plays its clip; false if there is
 const char *voice_use(const char *name);    /* chooses it (downloading it first if needed); what happened, in words */
 const char *voice_current(void);            /* "af_heart", "openai:nova", or "" (the stand-in voice) */
 void voice_set_speed(float speed);          /* 0.7 .. 1.4 */
+/* A voice of its own: "af_heart 60, bm_george 40" blended into a new one (fetched first if needed), and shaping
+ * ("pitch -2 formant 1 warmth 0.3 breath 0.2 effect room", or "reset"): what happened, in words. */
+const char *voice_mix(const char *spec);
+const char *voice_shape(const char *spec);
+const char *voice_shape_now(void); /* the shaping, as os-voicefx's arguments ("" none) */
 void voice_poll(void);                      /* a download finishing */
 /* What the companion is told about choosing a voice. */
 const char *voice_prompt(void);

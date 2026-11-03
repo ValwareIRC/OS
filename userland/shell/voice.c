@@ -5,6 +5,7 @@
 #include "web.h"
 #include "../lib/http.h"
 #include "../lib/json.h"
+#include <ctype.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -17,10 +18,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* The companion's voice and ears, on this computer: speech comes from Piper
- * into the sound card, and what they say is recorded and written down by
- * whisper.cpp. Nothing leaves the machine for either. Every word spoken is
- * also on screen, so the voice is never the only way in. */
+/* The companion's voice and ears, on this computer: speech comes from Kokoro (Piper until a voice is chosen)
+ * into the sound card, shaped on the way by os-voicefx when they asked for it, and what they say is recorded and
+ * written down by whisper.cpp. A voice of its own is made by mixing Kokoro's (a voice is 510 x 256 numbers: a
+ * weighted average of several is a voice between them) and shaping it (pitch, formants, warmth, breath, an
+ * effect). Nothing leaves the machine for any of it, unless a cloud voice was chosen. Every word spoken is also
+ * on screen, so the voice is never the only way in. */
 
 #define VOICE_DIR "/usr/share/os/voice"
 #define KOKORO VOICE_DIR "/kokoro"
@@ -58,6 +61,47 @@ static bool kokoro_ready(const char *name) {
     char p[256];
     snprintf(p, sizeof p, VOICES "/%s.bin", name);
     return name[0] && !strchr(name, ':') && access(KOKORO "/os-speak", X_OK) == 0 && access(p, R_OK) == 0;
+}
+
+#define VOICEFX "/bin/os-voicefx"
+static const char *const effects[] = {"none", "robot", "whisper", "radio", "phone", "room", "hall", NULL};
+
+static float shape_get(const char *key, float lo, float hi) {
+    float v = (float)atof(settings_get(key, "0"));
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+/* " pitch=-2 formant=1 ..." for os-voicefx (numbers and a known name only: it goes into a command) */
+static void shape_args(char *out, size_t n) {
+    float pitch = shape_get("voice.pitch", -12, 12), formant = shape_get("voice.formant", -6, 6);
+    float warmth = shape_get("voice.warmth", -1, 1), breath = shape_get("voice.breath", 0, 1);
+    const char *fx = settings_get("voice.effect", "none");
+    int e = 0;
+    for (int i = 0; effects[i]; i++)
+        if (!strcmp(fx, effects[i]))
+            e = i;
+    size_t o = 0;
+    out[0] = 0;
+    if (pitch != 0)
+        o += (size_t)snprintf(out + o, n - o, " pitch=%.1f", (double)pitch);
+    if (formant != 0 && o < n)
+        o += (size_t)snprintf(out + o, n - o, " formant=%.1f", (double)formant);
+    if (warmth != 0 && o < n)
+        o += (size_t)snprintf(out + o, n - o, " warmth=%.2f", (double)warmth);
+    if (breath != 0 && o < n)
+        o += (size_t)snprintf(out + o, n - o, " breath=%.2f", (double)breath);
+    if (e && o < n)
+        snprintf(out + o, n - o, " effect=%s", effects[e]);
+}
+
+/* "| os-voicefx RATE ... " when its voice is shaped, else nothing */
+static void shape_stage(int rate, char *out, size_t n) {
+    char a[160];
+    shape_args(a, sizeof a);
+    if (a[0] && access(VOICEFX, X_OK) == 0)
+        snprintf(out, n, " | " VOICEFX " %d%s", rate, a);
+    else
+        out[0] = 0;
 }
 
 bool voice_can_speak(void) {
@@ -131,16 +175,18 @@ void voice_say(const char *text) {
         snprintf(speed, sizeof speed, "%.2f", (double)(sp < 0.7f || sp > 1.4f ? 1.0f : sp));
         if (!strncmp(v, "openai:", 7) || !strncmp(v, "elevenlabs:", 11))
             _exit(cloud_speak(v, 0) ? 0 : 1); /* (the text is on stdin) */
+        char fx[220], cmd[900];
         if (kokoro_ready(v)) {
-            char cmd[600];
+            shape_stage(kokoro_rate(), fx, sizeof fx);
             snprintf(cmd, sizeof cmd,
-                     KOKORO "/os-speak " KOKORO "/model " VOICES "/%s.bin %s 2>/tmp/os-speak.err | /bin/os-play %d 1", v,
-                     speed, kokoro_rate());
+                     KOKORO "/os-speak " KOKORO "/model " VOICES "/%s.bin %s 2>/tmp/os-speak.err%s | /bin/os-play %d 1", v,
+                     speed, fx, kokoro_rate());
             execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         }
-        execl("/bin/sh", "sh", "-c",
-              PIPER " --model " SPEAK_MODEL " --output_raw --sentence_silence 0.25 | /bin/os-play 22050 1",
-              (char *)NULL);
+        shape_stage(22050, fx, sizeof fx);
+        snprintf(cmd, sizeof cmd,
+                 PIPER " --model " SPEAK_MODEL " --output_raw --sentence_silence 0.25%s | /bin/os-play 22050 1", fx);
+        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
     close(p[0]);
@@ -225,21 +271,214 @@ void voice_set_speed(float s) {
 }
 
 static job *downloading;
-static char want[64];
+static char want[300];    /* the voices being fetched, space-separated */
+static char mix_next[300]; /* a mix waiting for them, its recipe */
 
+#define VOICE_FLOATS (510 * 256) /* a Kokoro voice */
+
+/* each voice in arg ("a b c") that isn't here yet */
 static void download_child(void *arg, char **result) {
-    const char *name = arg;
-    char url[300], part[300], done[300];
-    snprintf(url, sizeof url, VOICES_URL "%s.bin", name);
-    snprintf(part, sizeof part, VOICES "/%s.bin.part", name);
-    snprintf(done, sizeof done, VOICES "/%s.bin", name);
-    bool ok = web_download(url, part, 4u << 20);
-    struct stat st;
-    ok = ok && stat(part, &st) == 0 && st.st_size == 510 * 256 * 4; /* a voice: 510 x 256 numbers */
-    ok = ok && rename(part, done) == 0;
-    if (!ok)
-        unlink(part);
+    char list[300];
+    snprintf(list, sizeof list, "%s", (const char *)arg);
+    bool ok = true;
+    for (char *save, *name = strtok_r(list, " ", &save); name; name = strtok_r(NULL, " ", &save)) {
+        char url[300], part[300], done[300];
+        snprintf(done, sizeof done, VOICES "/%s.bin", name);
+        if (access(done, R_OK) == 0)
+            continue;
+        snprintf(url, sizeof url, VOICES_URL "%s.bin", name);
+        snprintf(part, sizeof part, VOICES "/%s.bin.part", name);
+        bool one = web_download(url, part, 4u << 20);
+        struct stat st;
+        one = one && stat(part, &st) == 0 && st.st_size == VOICE_FLOATS * 4;
+        one = one && rename(part, done) == 0;
+        if (!one)
+            unlink(part);
+        ok &= one;
+    }
     *result = strdup(ok ? "ok" : "failed");
+}
+
+/* "af_heart 60, bm_george 40" (or "af_heart:0.6 bm_george:0.4"): up to four voices and their shares */
+struct mix_part {
+    char name[32];
+    float w;
+};
+
+static int mix_parse(const char *spec, struct mix_part *p, char *why, size_t wn) {
+    char s[300];
+    snprintf(s, sizeof s, "%s", spec);
+    for (char *c = s; *c; c++)
+        if (*c == ',' || *c == ':' || *c == '%' || *c == '+' || *c == '=')
+            *c = ' ';
+    int n = 0;
+    char *save, *tok = strtok_r(s, " \t", &save);
+    while (tok && n < 4) {
+        if (!known_clip(tok)) {
+            snprintf(why, wn, "there is no voice called %s", tok);
+            return 0;
+        }
+        snprintf(p[n].name, sizeof p[n].name, "%s", tok);
+        p[n].w = 1;
+        tok = strtok_r(NULL, " \t", &save);
+        if (tok && (isdigit((unsigned char)tok[0]) || tok[0] == '.')) {
+            p[n].w = (float)atof(tok);
+            tok = strtok_r(NULL, " \t", &save);
+        }
+        if (p[n].w > 0)
+            n++;
+    }
+    if (n < 2) {
+        snprintf(why, wn, "a mix takes two to four voices, each with its share (\"af_heart 60, bm_george 40\")");
+        return 0;
+    }
+    float sum = 0;
+    for (int i = 0; i < n; i++)
+        sum += p[i].w;
+    for (int i = 0; i < n; i++)
+        p[i].w /= sum;
+    return n;
+}
+
+/* the mix made: the weighted average of the voices, as a voice of its own; its name starts with the letter of
+ * the voice with the biggest share (os-speak takes the language from it) */
+static bool mix_make(const char *spec, char *name, size_t nn, char *why, size_t wn) {
+    struct mix_part p[4];
+    int n = mix_parse(spec, p, why, wn);
+    if (!n)
+        return false;
+    static float acc[VOICE_FLOATS], one[VOICE_FLOATS];
+    memset(acc, 0, sizeof acc);
+    int lead = 0;
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < n; i++) {
+        char path[256];
+        snprintf(path, sizeof path, VOICES "/%s.bin", p[i].name);
+        FILE *f = fopen(path, "rb");
+        bool got = f && fread(one, sizeof(float), VOICE_FLOATS, f) == VOICE_FLOATS;
+        if (f)
+            fclose(f);
+        if (!got) {
+            snprintf(why, wn, "%s isn't on this computer yet", p[i].name);
+            return false;
+        }
+        for (int k = 0; k < VOICE_FLOATS; k++)
+            acc[k] += one[k] * p[i].w;
+        if (p[i].w > p[lead].w)
+            lead = i;
+        for (const char *c = p[i].name; *c; c++)
+            h = (h ^ (uint8_t)*c) * 16777619u;
+        h = (h ^ (uint32_t)lrintf(p[i].w * 1000)) * 16777619u;
+    }
+    snprintf(name, nn, "%cmix_%08x", p[lead].name[0], (unsigned)h);
+    char path[256], tmp[260];
+    snprintf(path, sizeof path, VOICES "/%s.bin", name);
+    snprintf(tmp, sizeof tmp, "%s.part", path);
+    FILE *f = fopen(tmp, "wb");
+    bool ok = f && fwrite(acc, sizeof(float), VOICE_FLOATS, f) == VOICE_FLOATS;
+    if (f && fclose(f) != 0)
+        ok = false;
+    if (!ok || rename(tmp, path) != 0) {
+        unlink(tmp);
+        snprintf(why, wn, "the mix couldn't be saved");
+        return false;
+    }
+    /* the recipe, as said back: shares in whole percent */
+    char recipe[200];
+    size_t o = 0;
+    recipe[0] = 0;
+    for (int i = 0; i < n && o < sizeof recipe; i++)
+        o += (size_t)snprintf(recipe + o, sizeof recipe - o, "%s%s %d", i ? ", " : "", p[i].name,
+                              (int)lrintf(p[i].w * 100));
+    settings_set("voice.mix", recipe);
+    return true;
+}
+
+const char *voice_mix(const char *spec) {
+    static char back[300];
+    struct mix_part p[4];
+    char why[200], missing[300] = "";
+    int n = mix_parse(spec, p, why, sizeof why);
+    if (!n) {
+        snprintf(back, sizeof back, "%s", why);
+        return back;
+    }
+    for (int i = 0; i < n; i++) {
+        char path[256];
+        snprintf(path, sizeof path, VOICES "/%s.bin", p[i].name);
+        if (access(path, R_OK) != 0) {
+            size_t l = strlen(missing);
+            snprintf(missing + l, sizeof missing - l, "%s%s", l ? " " : "", p[i].name);
+        }
+    }
+    if (missing[0]) { /* fetched first, then mixed */
+        if (downloading) {
+            snprintf(back, sizeof back, "still fetching %s; ask again in a moment", want);
+            return back;
+        }
+        mkdir(VOICES, 0755);
+        snprintf(want, sizeof want, "%s", missing);
+        snprintf(mix_next, sizeof mix_next, "%s", spec);
+        downloading = job_start(download_child, want);
+        LOG("voice: fetching %s for a mix\n", missing);
+        snprintf(back, sizeof back, "fetching %s (a few seconds), then mixing; it is used as soon as it's made",
+                 missing);
+        return back;
+    }
+    char name[48];
+    if (!mix_make(spec, name, sizeof name, why, sizeof why)) {
+        snprintf(back, sizeof back, "couldn't mix them: %s", why);
+        return back;
+    }
+    settings_set("voice.name", name);
+    LOG("voice: now a mix of %s\n", settings_get("voice.mix", ""));
+    snprintf(back, sizeof back, "now speaking as a mix of %s", settings_get("voice.mix", ""));
+    return back;
+}
+
+/* "pitch -2 formant 1 warmth 0.3 breath 0.2 effect radio" (any of them, = optional), or "reset" */
+const char *voice_shape(const char *spec) {
+    static char back[300];
+    char s[300];
+    snprintf(s, sizeof s, "%s", spec);
+    for (char *c = s; *c; c++)
+        if (*c == '=' || *c == ',' || *c == ':')
+            *c = ' ';
+    if (strstr(s, "reset") || strstr(s, "plain")) {
+        settings_set("voice.pitch", "0"), settings_set("voice.formant", "0"), settings_set("voice.warmth", "0");
+        settings_set("voice.breath", "0"), settings_set("voice.effect", "none");
+    }
+    char *save;
+    for (char *k = strtok_r(s, " \t", &save); k; k = strtok_r(NULL, " \t", &save)) {
+        char *v = strtok_r(NULL, " \t", &save);
+        if (!v)
+            break;
+        char num[16];
+        snprintf(num, sizeof num, "%.2f", atof(v));
+        if (!strcasecmp(k, "pitch") || !strcasecmp(k, "formant") || !strcasecmp(k, "character") ||
+            !strcasecmp(k, "warmth") || !strcasecmp(k, "breath")) {
+            char key[32];
+            snprintf(key, sizeof key, "voice.%s", !strcasecmp(k, "character") ? "formant" : k);
+            for (char *c = key; *c; c++)
+                *c = (char)tolower((unsigned char)*c);
+            settings_set(key, num);
+        } else if (!strcasecmp(k, "effect")) {
+            for (int i = 0; effects[i]; i++)
+                if (!strcasecmp(v, effects[i]))
+                    settings_set("voice.effect", effects[i]);
+        }
+    }
+    char a[160];
+    shape_args(a, sizeof a);
+    LOG("voice: shaped:%s\n", a[0] ? a : " plain");
+    snprintf(back, sizeof back, "your voice now:%s", a[0] ? a : " as it is, unshaped");
+    return back;
+}
+
+const char *voice_shape_now(void) {
+    static char a[160];
+    shape_args(a, sizeof a);
+    return a;
 }
 
 const char *voice_use(const char *name) {
@@ -265,6 +504,7 @@ const char *voice_use(const char *name) {
     }
     if (kokoro_ready(name)) {
         settings_set("voice.name", name);
+        settings_set("voice.mix", "");
         LOG("voice: now %s\n", name);
         snprintf(said_back, sizeof said_back, "now speaking as %s", name);
         return said_back;
@@ -293,10 +533,17 @@ void voice_poll(void) {
         bool ok = res && !strcmp(res, "ok");
         free(res);
         LOG("voice: %s %s\n", want, ok ? "arrived" : "couldn't be fetched");
-        if (ok) {
+        if (ok && mix_next[0]) {
+            char spec[300];
+            snprintf(spec, sizeof spec, "%s", mix_next);
+            mix_next[0] = 0;
+            LOG("voice: %s\n", voice_mix(spec));
+        } else if (ok) {
             settings_set("voice.name", want);
+            settings_set("voice.mix", "");
             toast("Voice downloaded.");
         } else {
+            mix_next[0] = 0;
             toast("The voice could not be downloaded. Check the internet connection.");
         }
     }
@@ -337,7 +584,10 @@ static bool cloud_speak(const char *v, int unused) {
     free(body.p);
     bool ok = r.status == 200 && r.body_len > 0;
     if (ok) { /* 24 kHz, 16-bit, mono */
-        FILE *play = popen("/bin/os-play 24000 1", "w");
+        char fx[220], cmd[300];
+        shape_stage(24000, fx, sizeof fx);
+        snprintf(cmd, sizeof cmd, "cat%s | /bin/os-play 24000 1", fx);
+        FILE *play = popen(cmd, "w");
         if (play) {
             fwrite(r.body, 1, r.body_len, play);
             pclose(play);
@@ -355,8 +605,18 @@ const char *voice_prompt(void) {
     sb_printf(&b, "\nYOUR VOICE: %s. Their choice, made with you by ear: when they talk about how you sound, offer "
                   "a few that suit what they want and play them with [[voice:hear NAME]] (one per reply, then ask "
                   "what they thought); when they pick one, [[voice:use NAME]] (it downloads, then you speak with it). "
-                  "[[voice:speed 1.1]] for faster or slower (0.7 to 1.4). Voices: ",
-              cur[0] ? cur : "a temporary stand-in voice (none chosen yet)");
+                  "[[voice:speed 1.1]] for faster or slower (0.7 to 1.4). A voice of your own, made with them: "
+                  "[[voice:mix af_heart 60, bm_george 40]] blends two to four of these voices by their shares into a "
+                  "new one, between them (it fetches what it needs and is used at once), and [[voice:shape pitch -2 "
+                  "formant -1 warmth 0.3 breath 0.2 effect room]] shapes whatever you speak with: pitch in semitones "
+                  "(-12 to 12, the same speed), formant (-6 to 6: lower is a bigger, deeper body, higher a smaller, "
+                  "younger one, the pitch kept), warmth (-1 brighter to 1 warmer), breath (0 to 1: air), effect (none, "
+                  "robot, whisper, radio, phone, room, hall); any of them, [[voice:shape reset]] for none. Your next "
+                  "words are heard in it: make one change at a time and ask how it sounds. Its make-up now: %s%s%s%s. "
+                  "Voices: ",
+              cur[0] ? cur : "a temporary stand-in voice (none chosen yet)",
+              settings_get("voice.mix", "")[0] ? "a mix of " : "unmixed", settings_get("voice.mix", ""),
+              voice_shape_now()[0] ? ", shaped:" : ", unshaped", voice_shape_now());
     DIR *d = opendir(KOKORO "/clips");
     struct dirent *e;
     int n = 0;
