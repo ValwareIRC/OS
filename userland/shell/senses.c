@@ -684,7 +684,7 @@ void senses_write(char *out, size_t n) {
         struct tm tm;
         localtime_r(&t, &tm);
         char when[64];
-        strftime(when, sizeof when, "%A %e %B %Y, %H:%M", &tm);
+        fm_strftime(when, sizeof when, "%A %e %B %Y, %H:%M", &tm);
         ADD("- Now: %s (%s).\n", when, part_of_day(tm.tm_hour));
     }
     if (sense_on(SENSE_ACTIVITY)) {
@@ -924,7 +924,7 @@ bool senses_look(const char *what, char *out, size_t n) {
         time_t t = time(NULL);
         struct tm tm;
         localtime_r(&t, &tm);
-        strftime(out, n, "%A %e %B %Y, %H:%M:%S", &tm);
+        fm_strftime(out, n, "%A %e %B %Y, %H:%M:%S", &tm);
         return true;
     }
     if (!strcasecmp(word, "activity") || !strcasecmp(word, "them")) {

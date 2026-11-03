@@ -22,7 +22,7 @@
     X(130, rt_sigsuspend) X(131, sigaltstack) X(137, statfs) X(138, fstatfs) X(140, getpriority) X(141, setpriority) X(142, sched_setparam) X(143, sched_getparam) X(144, sched_setscheduler) X(145, sched_getscheduler) X(157, prctl)                \
     X(158, arch_prctl) X(160, setrlimit) X(162, sync) X(169, reboot) X(170, sethostname) X(155, pivot_root) X(161, chroot) X(165, mount) X(166, umount2) X(272, unshare) X(308, setns) X(317, seccomp)                \
     X(186, gettid) X(200, tkill) X(201, time) X(202, futex) X(203, sched_setaffinity) X(204, sched_getaffinity)                    \
-    X(217, getdents64) X(218, set_tid_address) X(228, clock_gettime) X(229, clock_getres)               \
+    X(217, getdents64) X(218, set_tid_address) X(227, clock_settime) X(228, clock_gettime) X(164, settimeofday) X(229, clock_getres)               \
     X(230, clock_nanosleep) X(231, exit_group) X(234, tgkill) X(257, openat) X(258, mkdirat)            \
     X(260, fchownat) X(262, newfstatat) X(263, unlinkat) X(264, renameat) X(265, linkat) X(266, symlinkat) \
     X(267, readlinkat) X(268, fchmodat) X(269, faccessat) X(271, ppoll) X(273, set_robust_list)         \

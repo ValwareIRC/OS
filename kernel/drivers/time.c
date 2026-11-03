@@ -4,10 +4,13 @@
 #include <kernel/proc.h>
 
 /* Wall clock from the CMOS real-time clock at boot, then the TSC for
- * everything after (assumes an invariant TSC, true on every CPU we target). */
+ * everything after (assumes an invariant TSC, true on every CPU we target).
+ * Set later (clock_settime: the network's time, from init) by moving where
+ * the wall clock starts; the monotonic clock never jumps. */
 
 static uint64_t tsc_hz, tsc_boot;
 static int64_t boot_epoch;
+static int64_t real_base_ns; /* the wall clock = this + the monotonic clock */
 
 /* Measures the TSC over 50 ms of the (already calibrated) APIC tick. */
 void time_init(void) {
@@ -21,6 +24,7 @@ void time_init(void) {
     uint64_t t1 = arch_counter();
     tsc_hz = (t1 - t0) * 20;
     tsc_boot = t0 - (tick0 * tsc_hz / HZ);
+    __atomic_store_n(&real_base_ns, boot_epoch * 1000000000LL, __ATOMIC_RELAXED);
     kprintf("time: counter %lu MHz, wall clock %ld\n", tsc_hz / 1000000, boot_epoch);
 }
 
@@ -31,7 +35,19 @@ uint64_t time_monotonic_ns(void) {
     return d / tsc_hz * 1000000000ULL + (d % tsc_hz) * 1000000000ULL / tsc_hz;
 }
 
-int64_t time_realtime_s(void) { return boot_epoch + (int64_t)(time_monotonic_ns() / 1000000000ULL); }
+/* Wall clock with the monotonic clock's resolution. */
+uint64_t time_realtime_ns(void) {
+    int64_t base = __atomic_load_n(&real_base_ns, __ATOMIC_RELAXED);
+    if (!base && boot_epoch) /* before time_init */
+        base = boot_epoch * 1000000000LL;
+    return (uint64_t)(base + (int64_t)time_monotonic_ns());
+}
 
-/* Wall clock with the monotonic clock's resolution (boot_epoch + uptime). */
-uint64_t time_realtime_ns(void) { return (uint64_t)boot_epoch * 1000000000ULL + time_monotonic_ns(); }
+int64_t time_realtime_s(void) { return (int64_t)(time_realtime_ns() / 1000000000ULL); }
+
+void time_set_realtime_ns(uint64_t ns) {
+    int64_t was = (int64_t)time_realtime_ns();
+    __atomic_store_n(&real_base_ns, (int64_t)ns - (int64_t)time_monotonic_ns(), __ATOMIC_RELAXED);
+    kprintf("time: wall clock set to %lu (moved %ld ms)\n", (unsigned long)(ns / 1000000000ULL),
+            (long)(((int64_t)ns - was) / 1000000));
+}

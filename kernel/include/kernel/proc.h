@@ -331,3 +331,4 @@ void time_init(void);
 uint64_t time_monotonic_ns(void);
 int64_t time_realtime_s(void);
 uint64_t time_realtime_ns(void);
+void time_set_realtime_ns(uint64_t ns); /* clock_settime */

@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "settings.h"
 #include "lock.h"
+#include "clock.h"
+#include "priv.h"
 #include "appgate.h"
 #include "nerve.h"
 #include "app.h"
@@ -1444,6 +1446,140 @@ static int page_about(rect c, int y) {
     return y - y0 + 10;
 }
 
+/* Date & time: the time and the time zone, each automatic or chosen, and the 12- or 24-hour clock (clock.c). */
+static struct textfield zone_q;
+static int zone_focus, zone_scroll;
+static char sync_msg[160];
+
+static int page_time(rect c, int y) {
+    int y0 = y;
+    font *f = BODY(), *big = settings_font(SF_SECTION);
+    time_t t = time(NULL);
+    struct tm tm;
+    localtime_r(&t, &tm);
+    char now[64], day[64];
+    fm_strftime(now, sizeof now, "%H:%M:%S", &tm);
+    fm_strftime(day, sizeof day, "%A %e %B %Y", &tm);
+    draw_text(A.frame, big, c.x, y, now, P.ink);
+    y += LH(big) + 2;
+    char line[160];
+    snprintf(line, sizeof line, "%s  \xc2\xb7  %s", day[0] == ' ' ? day + 1 : day, clock_zone());
+    draw_text(A.frame, f, c.x, y, line, P.muted);
+    y += LH(f) + 22;
+
+    y = settings_section(c, y, "Time");
+    row_label(c, y, 48, "Set the time automatically", "From time servers on the internet, at the start and every six hours");
+    rect sw = {c.x + c.w - 52, y + 12, 48, 26};
+    if (log_now)
+        LOGRECT("time-auto", sw);
+    if (ctl_switch(sw, clock_auto_time(), &P))
+        clock_set_auto_time(!clock_auto_time());
+    y += 58;
+    rect sb = {c.x, y, 140, 38};
+    if (ctl_button(sb, "Set it now", f, false, priv_available(), &P)) {
+        clock_sync_now();
+        snprintf(sync_msg, sizeof sync_msg, "Asking...");
+    }
+    if (log_now)
+        LOGRECT("time-sync", sb);
+    char m[160];
+    int r = clock_sync_result(m, sizeof m);
+    if (r == 1)
+        snprintf(sync_msg, sizeof sync_msg, "Set %s.", m);
+    else if (r == -1)
+        snprintf(sync_msg, sizeof sync_msg, "Not set: %s.", m);
+    if (sync_msg[0])
+        draw_text(A.frame, SMALL(), sb.x + sb.w + 16, sb.y + (38 - LH(SMALL())) / 2, sync_msg, P.muted);
+    y += 38 + 14;
+    row_label(c, y, 48, "24-hour clock", clock_12h() ? "Now 3:05 pm" : "Now 15:05");
+    rect hs = {c.x + c.w - 52, y + 12, 48, 26};
+    if (log_now)
+        LOGRECT("time-24h", hs);
+    if (ctl_switch(hs, !clock_12h(), &P))
+        clock_set_12h(!clock_12h());
+    y += 64;
+
+    y = settings_section(c, y, "Time zone");
+    const char *st = clock_auto_status();
+    row_label(c, y, 48, "Set the time zone automatically",
+              clock_auto_zone() ? (st[0] ? st : "From where this computer is on the internet") : "Chosen below");
+    rect zs = {c.x + c.w - 52, y + 12, 48, 26};
+    if (log_now)
+        LOGRECT("time-zone-auto", zs);
+    if (ctl_switch(zs, clock_auto_zone(), &P))
+        clock_set_auto_zone(!clock_auto_zone());
+    y += 58;
+    y += note_text(c, y, "Looking it up sends this computer's internet address to ipapi.co (or ip-api.com, or "
+                         "worldtimeapi.org, if it doesn't answer). Choosing one below turns this off.");
+    y += 12;
+    /* the zones: searched by place or name */
+    const struct clock_zone_entry *z;
+    int nz = clock_zones(&z);
+    rect qf = {c.x, y, c.w < 420 ? c.w : 420, 40};
+    if (A.in.clicked)
+        zone_focus = pt_in(qf, A.in.mx, A.in.my);
+    ui_textfield(qf, &zone_q, zone_focus, "Search: a city, a country or a zone", f, color_alpha(P.ink, 0.06f), P.ink,
+                 P.muted, 10);
+    if (log_now)
+        LOGRECT("time-zone-search", qf);
+    if (zone_focus)
+        ui_type(&zone_q);
+    y += 50;
+    int shown = 0, rowh = 40;
+    const char *q = zone_q.buf;
+    char qq[64]; /* "new york" finds America/New_York */
+    snprintf(qq, sizeof qq, "%s", q);
+    for (char *p = qq; *p; p++)
+        if (*p == ' ')
+            *p = '_';
+    for (int i = 0; i < nz && shown < 8; i++) {
+        bool cur = !strcmp(z[i].name, clock_zone());
+        if (q[0] ? !(strcasestr(z[i].name, qq) || strcasestr(z[i].where, q)) : !cur)
+            continue;
+        rect row = {c.x, y, c.w, rowh - 4};
+        bool hover = pt_in(row, A.in.mx, A.in.my);
+        if (cur || hover)
+            fill_round(A.frame, row, 8, color_alpha(cur ? P.accent : P.ink, cur ? 0.16f : 0.05f));
+        char nm[64];
+        snprintf(nm, sizeof nm, "%s", z[i].name);
+        for (char *p = nm; *p; p++)
+            if (*p == '_')
+                *p = ' ';
+        draw_text(A.frame, f, row.x + 12, row.y + (row.h - LH(f)) / 2, nm, P.ink);
+        /* its time now, and where */
+        char tzwas[64];
+        snprintf(tzwas, sizeof tzwas, "%s", clock_zone());
+        setenv("TZ", z[i].name, 1);
+        tzset();
+        struct tm zt;
+        localtime_r(&t, &zt);
+        setenv("TZ", tzwas, 1);
+        tzset();
+        char zh[32], right[120];
+        fm_strftime(zh, sizeof zh, "%H:%M", &zt);
+        snprintf(right, sizeof right, "%s  \xc2\xb7  %s", z[i].where, zh);
+        int rw = text_width(SMALL(), right);
+        draw_text(A.frame, SMALL(), row.x + row.w - 12 - rw, row.y + (row.h - LH(SMALL())) / 2, right, P.muted);
+        if (log_now && shown < 4) {
+            char rn[32];
+            snprintf(rn, sizeof rn, "time-zone-row-%d", shown);
+            LOGRECT(rn, row);
+        }
+        if (hover && A.in.clicked && !cur) {
+            clock_set_zone(z[i].name);
+            zone_q.buf[0] = 0, zone_q.len = 0;
+            te_reset(&zone_q.ed, zone_q.buf);
+            zone_focus = 0;
+        }
+        y += rowh;
+        shown++;
+    }
+    if (q[0] && !shown)
+        y += note_text(c, y, "No time zone by that name.");
+    (void)zone_scroll;
+    return y - y0 + 10;
+}
+
 /* Users: their account, its password (optional, init keeps it: lock.c), when it locks. */
 static struct textfield pw_old = {.secret = true}, pw_new = {.secret = true}, pw_again = {.secret = true};
 static int pw_focus;
@@ -1571,6 +1707,7 @@ static int page_list(struct page *out) {
                                          {"Display", SYM_DISPLAY, page_display, NULL},
                                          {"Sound", SYM_SPEAKER, page_sound, NULL},
                                          {"Keyboard", SYM_KEYBOARD, page_keyboard, NULL},
+                                         {"Date & time", SYM_CALENDAR, page_time, NULL},
                                          {"AI", SYM_MIND, page_mind, NULL}};
     static const struct page after[] = {{"Users", SYM_SHIELD, page_users, NULL},
                                         {"Security", SYM_SHIELD, page_security, NULL},

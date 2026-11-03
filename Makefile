@@ -105,6 +105,8 @@ initrd: userland
 	for app in $$($(BUSYBOX) --list); do \
 		[ -e $(BUILD)/initrd/bin/$$app ] || ln -s busybox $(BUILD)/initrd/bin/$$app; done
 	cp -r userland/rootfs/. $(BUILD)/initrd/
+	# the time zones (the tz database, from the build machine: tzdata)
+	tar -C /usr/share -cf - --exclude=zoneinfo/right --exclude=zoneinfo/posix zoneinfo | tar -C $(BUILD)/initrd/usr/share -xf -
 	# the build machine's CA bundle, so HTTPS works on images without the base system
 	install -D -m 644 /etc/ssl/certs/ca-certificates.crt $(BUILD)/initrd/usr/share/os/ca-certificates.crt
 	chmod +x $(BUILD)/initrd/etc/hello.sh

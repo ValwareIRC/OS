@@ -2,19 +2,24 @@
 #include "notes.h"
 #include "app.h"
 #include "theme.h"
+#include "fm/fm.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <dirent.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
+#include "files.h"
 
-/* Notes, a small plain-text editor: soft word wrap, a caret and a selection
- * (mouse, Shift+arrows, double click for a word, triple for a paragraph),
- * the clipboard, undo and redo, and quiet saving to ~/Documents under
- * the note's title. Everything is UTF-8 and kept as plain text. */
+/* Notes, a plain-text editor with the list of their notes beside it: soft word wrap, a caret and a selection
+ * (mouse, Shift+arrows, double click for a word, triple for a paragraph), the clipboard, undo and redo, finding
+ * in the note (Ctrl+F), and quiet saving to ~/Documents under the note's title. The list is every note in
+ * Documents, newest first, searched by title and by what they say; a note goes to Trash from it. Everything is
+ * UTF-8 and kept as plain text. */
 
 #define DOCS home_path("/Documents")
 #define LAST STATE_DIR "/notes-last" /* the note that was open, for next time */
@@ -41,7 +46,7 @@ static struct {
     char path[512];    /* "" until it is first saved */
     bool readonly, dirty, failed;
     uint64_t changed_at;
-    int focus; /* 0 the text, 1 the title */
+    int focus; /* 0 the text, 1 the title, 2 the search in the list, 3 finding in the note */
     int scroll, want_x;
     bool follow; /* keep the caret in view after this frame's keys */
     bool dragging;
@@ -646,6 +651,408 @@ static void text_keys(font *f, int view_lines) {
     }
 }
 
+/* ---- the list of notes ---- */
+
+static bool log_now;
+
+#define MAXN 500
+struct note_entry {
+    char path[512], title[96], preview[140];
+    time_t mtime;
+};
+static struct {
+    struct note_entry *e;
+    int n, scroll;
+    uint64_t at;     /* when Documents was last read */
+    char q[256];     /* the search it was read for */
+    struct textfield search;
+    bool shown;      /* a narrow window: the list over the page, on asking */
+} NL;
+
+static bool is_note(const char *name) {
+    const char *dot = strrchr(name, '.');
+    return name[0] != '.' && dot && (!strcasecmp(dot, ".txt") || !strcasecmp(dot, ".md")) &&
+           !strstr(name, ".saving");
+}
+
+static int newest_first(const void *a, const void *b) {
+    time_t x = ((const struct note_entry *)a)->mtime, y = ((const struct note_entry *)b)->mtime;
+    return x < y ? 1 : x > y ? -1 : strcasecmp(((const struct note_entry *)a)->title, ((const struct note_entry *)b)->title);
+}
+
+/* Does the file say q (any case)? Read whole, up to what Notes edits. */
+static bool file_says(const char *path, const char *q) {
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+    static char b[CAP + 1];
+    size_t n = fread(b, 1, CAP, f);
+    fclose(f);
+    b[n] = 0;
+    return strcasestr(b, q) != NULL;
+}
+
+/* Documents read again: every two seconds while Notes is on screen, at once when the search changes. */
+static void list_read(void) {
+    const char *q = NL.search.buf;
+    if (NL.e && A.now - NL.at < 2000 && !strcmp(NL.q, q))
+        return;
+    NL.at = A.now;
+    snprintf(NL.q, sizeof NL.q, "%s", q);
+    if (!NL.e)
+        NL.e = calloc(MAXN, sizeof *NL.e);
+    NL.n = 0;
+    DIR *d = opendir(DOCS);
+    struct dirent *de;
+    while (d && (de = readdir(d)) && NL.n < MAXN) {
+        if (!is_note(de->d_name))
+            continue;
+        struct note_entry *e = &NL.e[NL.n];
+        snprintf(e->path, sizeof e->path, "%s/%s", DOCS, de->d_name);
+        struct stat st;
+        if (stat(e->path, &st) != 0 || !S_ISREG(st.st_mode))
+            continue;
+        e->mtime = st.st_mtime;
+        snprintf(e->title, sizeof e->title, "%s", de->d_name);
+        char *dot = strrchr(e->title, '.');
+        if (dot && !strcasecmp(dot, ".txt"))
+            *dot = 0;
+        if (q[0] && !strcasestr(e->title, q) && !file_says(e->path, q))
+            continue;
+        /* what it begins with, on one line */
+        e->preview[0] = 0;
+        FILE *f = fopen(e->path, "rb");
+        if (f) {
+            char b[400];
+            size_t n = fread(b, 1, sizeof b - 1, f);
+            fclose(f);
+            b[n] = 0;
+            size_t o = 0, from = strspn(b, " \t\r\n");
+            /* a first line that is the title already shown isn't said twice */
+            size_t tl = strlen(e->title);
+            if (!strncasecmp(b + from, e->title, tl) && strchr("\r\n", b[from + tl]))
+                from += tl;
+            bool sp = true;
+            for (size_t i = from; i < n && o + 1 < sizeof e->preview; i++) {
+                unsigned char c = (unsigned char)b[i];
+                if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+                    if (!sp)
+                        e->preview[o++] = ' ';
+                    sp = true;
+                } else if (c >= 32) {
+                    e->preview[o++] = (char)c;
+                    sp = false;
+                }
+            }
+            while (o && e->preview[o - 1] == ' ')
+                o--;
+            /* cut at a character's start */
+            while (o && ((unsigned char)e->preview[o] & 0xc0) == 0x80)
+                o--;
+            e->preview[o] = 0;
+        }
+        NL.n++;
+    }
+    if (d)
+        closedir(d);
+    qsort(NL.e, (size_t)NL.n, sizeof *NL.e, newest_first);
+}
+
+/* s as fits in w, with "..." when it doesn't */
+static void draw_fit(font *f, int x, int y, int w, const char *s, color col) {
+    if (text_width(f, s) <= w) {
+        draw_text(A.frame, f, x, y, s, col);
+        return;
+    }
+    int ell = text_width(f, "\xe2\x80\xa6"), n = (int)strlen(s);
+    while (n > 0 && text_width_n(f, s, n) + ell > w) {
+        n--;
+        while (n > 0 && ((unsigned char)s[n] & 0xc0) == 0x80)
+            n--;
+    }
+    int dx = draw_text_n(A.frame, f, x, y, s, n, col);
+    draw_text(A.frame, f, x + dx, y, "\xe2\x80\xa6", col);
+}
+
+static void when_text(time_t t, char *out, size_t n) {
+    time_t now = time(NULL);
+    struct tm a, b;
+    localtime_r(&t, &a);
+    localtime_r(&now, &b);
+    if (a.tm_year == b.tm_year && a.tm_yday == b.tm_yday)
+        fm_strftime(out, n, "%H:%M", &a);
+    else if (a.tm_year == b.tm_year && b.tm_yday - a.tm_yday == 1)
+        snprintf(out, n, "Yesterday");
+    else if (a.tm_year == b.tm_year)
+        fm_strftime(out, n, "%e %b", &a);
+    else
+        fm_strftime(out, n, "%e %b %Y", &a);
+    if (out[0] == ' ')
+        memmove(out, out + 1, strlen(out));
+}
+
+static void open_entry(const char *path) {
+    if (!strcmp(path, N.path))
+        return;
+    if (N.dirty)
+        save();
+    if (load(path, false)) {
+        remember();
+        N.focus = 0;
+        LOG("notes: opened %s\n", path);
+    }
+    NL.at = 0;
+}
+
+static void new_note(void);
+
+/* The list: search at the top, then their notes, the open one marked. */
+static void list_draw(rect r, font *f, font *small, color ink, color muted, color accent) {
+    list_read();
+    canvas *cv = A.frame;
+    int k0 = cv->cx0, k1 = cv->cy0, k2 = cv->cx1, k3 = cv->cy1; /* the window's clip, for after the list */
+    fill_rect(A.frame, r, color_alpha(ink, 0.035f));
+    fill_rect(A.frame, (rect){r.x + r.w - 1, r.y, 1, r.h}, color_alpha(ink, 0.10f));
+    rect sf = {r.x + 10, r.y + 10, r.w - 20, 36};
+    if (A.in.pressed && pt_in(sf, A.in.mx, A.in.my))
+        N.focus = 2;
+    ui_textfield(sf, &NL.search, N.focus == 2, "Search notes", small, color_alpha(ink, 0.06f), ink, muted, 8);
+    if (log_now)
+        LOGRECT("notes-search", sf);
+    if (N.focus == 2) {
+        for (int i = 0; i < A.in.nkeys; i++)
+            if (A.in.keys[i] == K_ESC) {
+                NL.search.buf[0] = 0, NL.search.len = 0;
+                te_reset(&NL.search.ed, NL.search.buf);
+                N.focus = 0;
+            }
+        if (N.focus == 2 && ui_type(&NL.search)) { /* Enter: the first one found */
+            list_read();
+            if (NL.n) {
+                open_entry(NL.e[0].path);
+                NL.shown = false;
+            }
+        }
+        list_read();
+    }
+    int lh = font_line_height(f), sh = font_line_height(small);
+    int rowh = lh + sh + 18;
+    rect list = {r.x, sf.y + sf.h + 10, r.w - 1, r.y + r.h - (sf.y + sf.h + 10)};
+    bool cur_listed = false;
+    for (int i = 0; i < NL.n; i++)
+        cur_listed |= !strcmp(NL.e[i].path, N.path);
+    /* a new note not kept yet comes first, under its title so far */
+    bool draft = !cur_listed && !N.path[0] && !NL.search.buf[0];
+    int total = (NL.n + draft) * rowh;
+    if (pt_in(list, A.in.mx, A.in.my) && A.in.wheel)
+        NL.scroll -= A.in.wheel * rowh;
+    if (NL.scroll > total - list.h)
+        NL.scroll = total - list.h;
+    if (NL.scroll < 0)
+        NL.scroll = 0;
+    canvas_clip(A.frame, list);
+    int y = list.y - NL.scroll;
+    if (draft) {
+        rect row = {list.x + 6, y, list.w - 12, rowh - 4};
+        fill_round(A.frame, row, 8, color_alpha(accent, 0.16f));
+        draw_fit(f, row.x + 10, row.y + 7, row.w - 20, N.title[0] ? N.title : "New note", ink);
+        draw_fit(small, row.x + 10, row.y + 9 + lh, row.w - 20, "Not kept yet", muted);
+        y += rowh;
+    }
+    const char *trash_hit = NULL;
+    for (int i = 0; i < NL.n; i++, y += rowh) {
+        if (y + rowh < list.y || y > list.y + list.h)
+            continue;
+        struct note_entry *e = &NL.e[i];
+        rect row = {list.x + 6, y, list.w - 12, rowh - 4};
+        bool cur = !strcmp(e->path, N.path), hover = pt_in(row, A.in.mx, A.in.my) && pt_in(list, A.in.mx, A.in.my);
+        if (cur || hover)
+            fill_round(A.frame, row, 8, cur ? color_alpha(accent, 0.16f) : color_alpha(ink, 0.05f));
+        char when[32];
+        when_text(e->mtime, when, sizeof when);
+        int ww = text_width(small, when);
+        rect bin = {row.x + row.w - 30, row.y + (row.h - 24) / 2, 24, 24};
+        draw_fit(f, row.x + 10, row.y + 7, row.w - 30 - ww, e->title, ink);
+        if (hover) {
+            bool over_bin = pt_in(bin, A.in.mx, A.in.my);
+            ui_glyph(A.frame, (rect){bin.x + 4, bin.y + 4, 16, 16}, G_TRASH, 1.5f, over_bin ? accent : muted);
+            if (over_bin && A.in.clicked)
+                trash_hit = e->path;
+            else if (A.in.clicked) {
+                open_entry(e->path);
+                NL.shown = false;
+            }
+        } else
+            draw_text(A.frame, small, row.x + row.w - 10 - ww, row.y + 9, when, muted);
+        draw_fit(small, row.x + 10, row.y + 9 + lh, row.w - (hover ? 44 : 20), e->preview[0] ? e->preview : "Empty",
+                 muted);
+        if (log_now && i < 8) {
+            char nm[32];
+            snprintf(nm, sizeof nm, "notes-row-%d", i);
+            LOGRECT(nm, row);
+        }
+    }
+    if (!NL.n && !draft)
+        draw_text_centered(A.frame, small, (rect){list.x, list.y + 20, list.w, sh + 4},
+                           NL.search.buf[0] ? "No notes say that." : "No notes yet.", muted);
+    cv->cx0 = k0, cv->cy0 = k1, cv->cx1 = k2, cv->cy1 = k3;
+    if (trash_hit) {
+        char path[512], title[96];
+        snprintf(path, sizeof path, "%s", trash_hit);
+        const char *b = strrchr(path, '/');
+        snprintf(title, sizeof title, "%s", b ? b + 1 : path);
+        bool open_one = !strcmp(path, N.path);
+        if (open_one && N.dirty)
+            save();
+        if (files_trash(path)) {
+            toast("\"%s\" is in Trash.", title);
+            LOG("notes: %s to Trash\n", path);
+            if (open_one) {
+                new_note();
+                unlink(LAST);
+            }
+        } else
+            toast("\"%s\" couldn't be moved to Trash.", title);
+        NL.at = 0;
+    }
+}
+
+/* ---- finding in the note (Ctrl+F) ---- */
+
+#define MAXF 4000
+static struct {
+    bool open;
+    struct textfield q;
+    int *at, n, cur, ver;
+    char was[256];
+} FD;
+
+static void find_matches(void) {
+    if (FD.ver == N.ver && !strcmp(FD.was, FD.q.buf))
+        return;
+    FD.ver = N.ver;
+    snprintf(FD.was, sizeof FD.was, "%s", FD.q.buf);
+    if (!FD.at)
+        FD.at = malloc(sizeof *FD.at * MAXF);
+    FD.n = 0;
+    size_t ql = strlen(FD.q.buf);
+    if (!ql)
+        return;
+    for (const char *p = N.buf; FD.n < MAXF && (p = strcasestr(p, FD.q.buf)); p += ql)
+        FD.at[FD.n++] = (int)(p - N.buf);
+    if (FD.cur >= FD.n)
+        FD.cur = 0;
+}
+
+/* to the match nearest after the caret (or before it), selected */
+static void find_go(int dir) {
+    find_matches();
+    if (!FD.n)
+        return;
+    int k = -1;
+    if (dir > 0) {
+        for (int i = 0; i < FD.n; i++)
+            if (FD.at[i] >= (N.caret == N.anchor ? N.caret : sel_lo() + 1)) {
+                k = i;
+                break;
+            }
+        if (k < 0)
+            k = 0;
+    } else {
+        for (int i = FD.n - 1; i >= 0; i--)
+            if (FD.at[i] < sel_lo()) {
+                k = i;
+                break;
+            }
+        if (k < 0)
+            k = FD.n - 1;
+    }
+    FD.cur = k;
+    N.anchor = FD.at[k];
+    N.caret = FD.at[k] + (int)strlen(FD.q.buf);
+    N.follow = true;
+    N.last_kind = 0;
+}
+
+static void find_open(void) {
+    FD.open = true;
+    N.focus = 3;
+    int a = sel_lo(), b = sel_hi();
+    if (b > a && b - a < 200 && !memchr(N.buf + a, '\n', (size_t)(b - a))) { /* what's selected, to find */
+        snprintf(FD.q.buf, sizeof FD.q.buf, "%.*s", b - a, N.buf + a);
+        FD.q.len = (int)strlen(FD.q.buf);
+    }
+    te_reset(&FD.q.ed, FD.q.buf);
+    LOG("notes: find\n");
+}
+
+static void find_close(void) {
+    FD.open = false;
+    if (N.focus == 3)
+        N.focus = 0;
+}
+
+/* The bar over the text: the field, how many, previous, next, close. Returns its height. */
+static int find_bar(rect r, font *small, color ink, color muted) {
+    if (!FD.open)
+        return 0;
+    rect bar = {r.x, r.y, r.w, 40};
+    rect field = {bar.x, bar.y + 2, bar.w < 520 ? bar.w - 200 : 320, 36};
+    if (A.in.pressed && pt_in(field, A.in.mx, A.in.my))
+        N.focus = 3;
+    if (N.focus == 3) {
+        int step = 0;
+        bool esc = false;
+        for (int i = 0; i < A.in.nkeys; i++) {
+            if (A.in.keys[i] == K_ENTER)
+                step = (A.in.keymod[i] & KM_SHIFT) ? -1 : 1;
+            if (A.in.keys[i] == K_ESC)
+                esc = true;
+        }
+        char before[256];
+        snprintf(before, sizeof before, "%s", FD.q.buf);
+        ui_type(&FD.q);
+        if (strcmp(before, FD.q.buf)) { /* as they type: the first match from where they were */
+            find_matches();
+            if (FD.n) {
+                N.caret = N.anchor = sel_lo();
+                find_go(1);
+            }
+        }
+        if (step)
+            find_go(step);
+        if (esc) {
+            find_close();
+            return 0;
+        }
+    }
+    ui_textfield(field, &FD.q, N.focus == 3, "Find in this note", small, color_alpha(ink, 0.06f), ink, muted, 8);
+    if (log_now)
+        LOGRECT("notes-find", field);
+    find_matches();
+    char count[48];
+    if (!FD.q.buf[0])
+        count[0] = 0;
+    else if (!FD.n)
+        snprintf(count, sizeof count, "Not found");
+    else
+        snprintf(count, sizeof count, "%d of %d%s", FD.cur + 1, FD.n, FD.n == MAXF ? "+" : "");
+    int x = field.x + field.w + 12;
+    draw_text(A.frame, small, x, bar.y + (40 - font_line_height(small)) / 2, count, muted);
+    x += 90;
+    rect up = {x, bar.y + 6, 28, 28}, down = {x + 32, bar.y + 6, 28, 28}, close = {x + 70, bar.y + 6, 28, 28};
+    color bg = color_alpha(ink, 0.06f);
+    if (ui_button(up, "\xe2\x86\x91", small, bg, ink, 14, FD.n > 0))
+        find_go(-1);
+    if (ui_button(down, "\xe2\x86\x93", small, bg, ink, 14, FD.n > 0))
+        find_go(1);
+    if (ui_button(close, "\xc3\x97", small, bg, ink, 14, true)) {
+        find_close();
+        return 0;
+    }
+    return bar.h + 8;
+}
+
 /* ---- drawing ---- */
 
 static void word_count(char *out, size_t n) {
@@ -660,9 +1067,14 @@ static void word_count(char *out, size_t n) {
     snprintf(out, n, "%d word%s", words, words == 1 ? "" : "s");
 }
 
-void notes_draw(rect r) {
+void notes_draw(rect whole) {
     ensure_loaded();
     design *D = &A.d;
+    rect r = whole;
+    static uint64_t logged_at;
+    log_now = A.now - logged_at > 1000;
+    if (log_now)
+        logged_at = A.now;
     /* Writing faces: the design's own, unless it is a wide display face. */
     const char *face = D->font_body;
     if (!strcasecmp(face, "Unbounded") || !strcasecmp(face, "Syne"))
@@ -675,25 +1087,55 @@ void notes_draw(rect r) {
     color accent = theme_fit(D->accent, surf, 3.0f);
     int lh = (int)(font_line_height(f) * 1.45f);
 
+    /* Ctrl+F, wherever the keys are going */
+    for (int i = 0; i < A.in.nkeys; i++)
+        if ((A.in.keymod[i] & KM_CTRL) && (A.in.keys[i] == 'f' || A.in.keys[i] == 'F')) {
+            find_open();
+            memmove(&A.in.keys[i], &A.in.keys[i + 1], sizeof A.in.keys[0] * (size_t)(A.in.nkeys - i - 1));
+            memmove(&A.in.keymod[i], &A.in.keymod[i + 1], sizeof A.in.keymod[0] * (size_t)(A.in.nkeys - i - 1));
+            A.in.nkeys--;
+            i--;
+        }
+
+    /* the list of notes: beside the page when there's room, over it on asking when there isn't */
+    bool wide = whole.w >= 640;
+    int sidew = whole.w >= 900 ? 280 : 240;
+    rect side = {whole.x - 6, whole.y - 6, sidew, whole.h + 12};
+    if (wide) {
+        r = (rect){whole.x + sidew + 10, whole.y, whole.w - sidew - 10, whole.h};
+        list_draw(side, f, small, ink, muted, accent);
+    } else if (N.focus == 2)
+        NL.shown = true;
+
     /* the title, the line under it, and a quiet footer */
     int th = font_line_height(tf);
-    rect title = {r.x + 6, r.y + 4, r.w - 150, th + 8};
+    int lx = wide ? 0 : 84; /* the "Notes" button, narrow */
+    rect title = {r.x + 6 + lx, r.y + 4, r.w - 150 - lx, th + 8};
     rect newb = {r.x + r.w - 76, r.y + 6 + (th - 26) / 2, 70, 28};
+    rect listb = {r.x + 6, newb.y, 76, 28};
     int top = title.y + title.h + 14;
     rect foot = {r.x + 6, r.y + r.h - font_line_height(small) - 2, r.w - 12, font_line_height(small)};
-    rect text = {r.x + 6, top + 10, r.w - 18, foot.y - 12 - (top + 10)};
+    int fb = find_bar((rect){r.x + 6, top + 8, r.w - 12, 40}, small, ink, muted);
+    rect text = {r.x + 6, top + 10 + fb, r.w - 18, foot.y - 12 - (top + 10 + fb)};
     if (text.h < lh)
         text.h = lh;
 
     /* pointer */
-    bool over_text = pt_in(text, A.in.mx, A.in.my);
+    bool over_text = pt_in(text, A.in.mx, A.in.my) && !(NL.shown && !wide);
     if (A.in.pressed && pt_in(title, A.in.mx, A.in.my)) {
         if (N.focus != 1)
             te_reset(&N.title_ed, N.title);
         N.focus = 1;
     }
-    if (ui_button(newb, "New", small, color_alpha(D->surface_text, 0.08f), ink, newb.h / 2.0f, true))
+    if (log_now)
+        LOGRECT("notes-new", newb);
+    if (ui_button(newb, "New", small, color_alpha(D->surface_text, 0.08f), ink, newb.h / 2.0f, true)) {
         new_note();
+        NL.at = 0;
+    }
+    if (!wide && ui_button(listb, NL.shown ? "Close" : "Notes", small, color_alpha(D->surface_text, 0.08f), ink,
+                           listb.h / 2.0f, true))
+        NL.shown = !NL.shown;
     layout(f, text.w);
     if (A.in.pressed && over_text) {
         N.focus = 0;
@@ -743,7 +1185,7 @@ void notes_draw(rect r) {
     /* keys */
     if (N.focus == 1)
         title_keys();
-    else
+    else if (N.focus == 0)
         text_keys(f, text.h / lh > 1 ? text.h / lh - 1 : 1);
     layout(f, text.w);
     int content = N.nlines * lh;
@@ -788,6 +1230,18 @@ void notes_draw(rect r) {
             if (x1 > x0)
                 fill_rect(A.frame, (rect){x0, y, x1 - x0, lh}, selc);
         }
+        if (FD.open && FD.n) { /* what Ctrl+F found, on this line */
+            int ql = (int)strlen(FD.q.buf);
+            for (int k = 0; k < FD.n; k++) {
+                int a = FD.at[k], b = a + ql;
+                if (b <= s || a >= e)
+                    continue;
+                int x0 = text.x + seg_width(f, N.buf + s, (a > s ? a : s) - s);
+                int x1 = text.x + seg_width(f, N.buf + s, (b < e ? b : e) - s);
+                fill_round(A.frame, (rect){x0 - 1, y + 2, x1 - x0 + 2, lh - 4}, 3,
+                           color_alpha(accent, k == FD.cur ? 0.42f : 0.18f));
+            }
+        }
         seg_draw(f, text.x, y + ascent_pad, N.buf + s, e - s, ink);
     }
     if (!N.len && N.focus == 0)
@@ -827,11 +1281,17 @@ void notes_draw(rect r) {
         snprintf(status, sizeof status, A.now - N.saved_flash < 1500 ? "Saved just now" : "Saved");
     else
         status[0] = 0;
-    const char *shown = N.path;
-    if (!strncmp(shown, home_path("/"), 6))
-        shown += 6;
+    const char *shown = N.path, *home = home_path("/");
+    if (!strncmp(shown, home, strlen(home)))
+        shown += strlen(home);
     snprintf(where, sizeof where, "%s%s%s", words, shown[0] ? "  \xc2\xb7  " : "", shown);
     draw_text(A.frame, small, foot.x, foot.y, where, muted);
     int sw = text_width(small, status);
     draw_text(A.frame, small, foot.x + foot.w - sw, foot.y, status, N.failed ? theme_fit(RGBA(220, 70, 60, 255), surf, 3.0f) : muted);
+    canvas_clip(A.frame, (rect){whole.x - 6, whole.y - 6, whole.w + 12, whole.h + 12});
+    if (!wide && NL.shown) { /* narrow: the list over the page */
+        rect over = {whole.x - 6, whole.y + th + 24, whole.w + 12 < 320 ? whole.w + 12 : 320, whole.h - th - 18};
+        fill_rect(A.frame, over, surf | 0xff000000u);
+        list_draw(over, f, small, ink, muted, accent);
+    }
 }

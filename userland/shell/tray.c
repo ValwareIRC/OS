@@ -682,7 +682,7 @@ static void calendar_draw(rect r, const palette *p, bool interactive) {
     y += 14;
     char date[64], clock[16];
     strftime(date, sizeof date, "%A, %d %B", &today);
-    strftime(clock, sizeof clock, "%H:%M:%S", &today);
+    fm_strftime(clock, sizeof clock, "%H:%M:%S", &today);
     draw_text(A.frame, BF(15), x + 4, y, date, color_alpha(p->ink, p->op));
     font *tf = BF(15);
     draw_text(A.frame, tf, x + w - 4 - text_width(tf, clock), y, clock, color_alpha(p->muted, p->op));

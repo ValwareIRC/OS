@@ -3,6 +3,7 @@
 #include <kernel/blkdev.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
+#include <kernel/ns.h>
 #include <kernel/platform.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
@@ -59,6 +60,48 @@ SYSCALL(clock_gettime) {
         return -EINVAL;
     }
     return copy_to_user(a2, &ts, sizeof ts);
+}
+
+/* Setting the wall clock: for the whole computer, so only root of the first user namespace (a sandbox's own
+ * "root" can't). */
+static int may_set_time(void) {
+    bool proc_has_cap(int cap);
+    struct process *p = proc_current();
+    if (!proc_has_cap(25) || userns_level(p->ns.user) != 0) /* CAP_SYS_TIME */
+        return -EPERM;
+    return 0;
+}
+
+SYSCALL(clock_settime) {
+    UNUSED_ARGS();
+    if (a1 != CLOCK_REALTIME)
+        return -EINVAL;
+    struct linux_timespec ts;
+    if (copy_from_user(&ts, a2, sizeof ts) < 0)
+        return -EFAULT;
+    if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000)
+        return -EINVAL;
+    int e = may_set_time();
+    if (e)
+        return e;
+    time_set_realtime_ns((uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec);
+    return 0;
+}
+
+SYSCALL(settimeofday) {
+    UNUSED_ARGS();
+    if (!a1)
+        return 0; /* the time zone alone: nothing keeps it */
+    struct linux_timeval tv;
+    if (copy_from_user(&tv, a1, sizeof tv) < 0)
+        return -EFAULT;
+    if (tv.tv_sec < 0 || tv.tv_usec < 0 || tv.tv_usec >= 1000000)
+        return -EINVAL;
+    int e = may_set_time();
+    if (e)
+        return e;
+    time_set_realtime_ns((uint64_t)tv.tv_sec * 1000000000ULL + (uint64_t)tv.tv_usec * 1000ULL);
+    return 0;
 }
 
 SYSCALL(clock_getres) {

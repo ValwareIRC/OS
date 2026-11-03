@@ -119,6 +119,8 @@ static void open_window(int w) {
             ww = 640, wh = 520;
         if (w == WIN_FILES) /* room for its sidebar and a few columns */
             ww = 940, wh = 600;
+        if (w == WIN_NOTES) /* the list of notes and the page */
+            ww = 900, wh = 600;
         if (w == WIN_SETTINGS) /* a sidebar and a page */
             ww = 940, wh = 660;
         if (w == WIN_PREVIEW) { /* the picture at the screen's proportions, and room to talk */
@@ -1852,7 +1854,7 @@ bool fm_host_bind(const char *key, char *out, size_t n) {
         time_t t = time(NULL);
         struct tm tm;
         localtime_r(&t, &tm);
-        strftime(out, n, "%A %e %B", &tm);
+        fm_strftime(out, n, "%A %e %B", &tm);
         if (out[0] && strstr(out, "  "))
             memmove(strstr(out, "  ") + 1, strstr(out, "  ") + 2, strlen(strstr(out, "  ") + 2) + 1);
     }

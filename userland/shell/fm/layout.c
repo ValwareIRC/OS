@@ -35,6 +35,86 @@ static const char *const hour_words[] = {"twelve", "one", "two", "three", "four"
 
 static const char *const minute_words[] = {"", "five", "ten", "quarter", "twenty", "twenty-five", "half"};
 
+bool fm_clock_12h;
+
+void fm_strftime(char *buf, size_t len, const char *fmt, const struct tm *tm) {
+    if (!len)
+        return;
+    /* %e is the day with no padding ("Tuesday 3 November", never "Tuesday  3 November") */
+    char fe[160];
+    if (strstr(fmt, "%e")) {
+        size_t k = 0;
+        for (const char *p = fmt; *p && k + 4 < sizeof fe; p++) {
+            if (p[0] == '%' && p[1] == 'e') {
+                k += (size_t)snprintf(fe + k, sizeof fe - k, "%d", tm->tm_mday);
+                p++;
+            } else if (p[0] == '%' && p[1]) {
+                fe[k++] = *p++;
+                fe[k++] = *p;
+            } else
+                fe[k++] = *p;
+        }
+        fe[k] = 0;
+        fmt = fe;
+    }
+    if (!fm_clock_12h || (!strstr(fmt, "%H") && !strstr(fmt, "%R") && !strstr(fmt, "%T"))) {
+        if (!strftime(buf, len, fmt, tm))
+            buf[0] = 0;
+        return;
+    }
+    /* %H -> \1%I (the \1 marks where a leading zero goes), am/pm after the time it begins */
+    char f2[160];
+    size_t k = 0;
+    bool ampm = strstr(fmt, "%p") || strstr(fmt, "%P"), pending = false;
+    for (const char *p = fmt; *p && k + 12 < sizeof f2; p++) {
+        if (p[0] == '%' && (p[1] == 'H' || p[1] == 'R' || p[1] == 'T')) {
+            const char *rep = p[1] == 'H' ? "\x01%I" : p[1] == 'R' ? "\x01%I:%M" : "\x01%I:%M:%S";
+            for (const char *r = rep; *r; r++)
+                f2[k++] = *r;
+            p++;
+            pending = !ampm;
+            if (p[0] != 'H' && pending) { /* %R, %T end the time */
+                f2[k++] = ' ', f2[k++] = '%', f2[k++] = 'p';
+                pending = false;
+            }
+            continue;
+        }
+        if (pending && p[0] == '%' && (p[1] == 'M' || p[1] == 'S')) {
+            f2[k++] = '%', f2[k++] = p[1];
+            p++;
+            if (!(p[1] == ':' && p[2] == '%' && p[3] == 'S')) {
+                f2[k++] = ' ', f2[k++] = '%', f2[k++] = 'p';
+                pending = false;
+            }
+            continue;
+        }
+        if (p[0] == '%' && p[1]) {
+            f2[k++] = *p++;
+        }
+        f2[k++] = *p;
+    }
+    if (pending)
+        f2[k++] = ' ', f2[k++] = '%', f2[k++] = 'p';
+    f2[k] = 0;
+    char out[256];
+    if (!strftime(out, sizeof out, f2, tm))
+        out[0] = 0;
+    /* 03:05 -> 3:05; "PM" -> "pm" */
+    size_t o = 0;
+    for (size_t i = 0; out[i] && o + 1 < len; i++) {
+        if (out[i] == '\x01') {
+            if (out[i + 1] == '0' && out[i + 2] >= '0' && out[i + 2] <= '9')
+                i++;
+            continue;
+        }
+        if ((out[i] == 'A' || out[i] == 'P') && out[i + 1] == 'M' && !ampm)
+            buf[o++] = (char)(out[i] + 32), buf[o++] = 'm', i++;
+        else
+            buf[o++] = out[i];
+    }
+    buf[o] = 0;
+}
+
 static void time_words(const struct tm *tm, char *out, size_t len) {
     int m = (tm->tm_min + 2) / 5 * 5, h = tm->tm_hour % 12;
     if (m == 60)
@@ -116,9 +196,9 @@ const char *fmi_own_text(fm_doc *d, fm_node *n, char *buf, size_t len) {
                 else f2[k++] = *p;
             }
             f2[k] = 0;
-            strftime(buf, len, f2, &tm);
+            fm_strftime(buf, len, f2, &tm);
         } else {
-            strftime(buf, len, fmt, &tm);
+            fm_strftime(buf, len, fmt, &tm);
         }
         return buf;
     }

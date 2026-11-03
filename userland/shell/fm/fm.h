@@ -335,6 +335,11 @@ const char *fm_var(const fm_doc *d, const char *name);
  * ...)): 0 none, 1 light, 2 dark. And, when the document has no block for
  * the scheme wanted, a mapping the shell applies to every colour it names. */
 extern int fm_scheme;
+/* The person's clock: 12-hour (3:05 pm) when true, else 24-hour (15:05). fm_strftime is strftime with their
+ * choice: every hour a format writes as %H (or %R, %T) becomes 12-hour, with am/pm after the time. */
+extern bool fm_clock_12h;
+struct tm;
+void fm_strftime(char *buf, size_t len, const char *fmt, const struct tm *tm);
 extern color (*fm_color_filter)(color c);
 /* A colour as written, with no scheme mapping. */
 bool fm_parse_color_raw(const char *s, color *out);

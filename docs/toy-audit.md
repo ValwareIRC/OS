@@ -47,19 +47,27 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
     names, and applying one could make the desktop call them Sam. A design never sets their name now (the one
     they gave is the only one), the companion's only while it has none; the samples are gone from every design.
     tests/names_vm_win.py.
+14c. **The version said 0.9.5** after all of this: 0.10.0.
+14d. **Notes was one note**: the list of their notes in Documents beside the page (newest first, with the
+    start of each), searched by title and by what they say, Ctrl+F in a note (every match shown, "2 of 5",
+    Enter and Shift+Enter, the arrows), a note to Trash from the list; narrow windows show the list on asking.
+    tests/notes_list_vm_win.py 7/7.
+15. **No date and time**: the clock is set from the network (SNTP in init, at the start and every six hours;
+    the kernel gained clock_settime, for root of the first user namespace only); the time zone is found from
+    where the computer is on the internet, or chosen in Settings > Date & time (searched by city, country or
+    zone, with each zone's time); the tz database is in the system; a 12- or 24-hour clock that every clock
+    follows (the desktop's, the lock screen, Files, Notes, the tray). tests/time_vm_win.py 6/6.
 
 ## To fix (in this order)
 
 ### Found by using it
 14b. **The desktop froze once after closing Notes** (Alt+F4; the log stopped, no key answered), right as the
-    built-in model finished loading. Not seen again in two runs: a stress test (open and close every app many
-    times, the kernel's hang reports on) runs until it is caught and fixed.
-14c. **The version still says 0.9.5** after all of this: a new version number for the next release.
-14d. **Notes is one note**: a list of notes, search in them, and finding text (Ctrl+F) in a note.
+    built-in model finished loading. Not caught yet: tests/freeze_stress_vm_win.py opens and closes Notes, Files,
+    Terminal and Settings over and over with the built-in model loading and after, the kernel's hang reports on;
+    61 closes passed (24 of them Notes). Still open until it is caught or it holds over many more runs.
 
 ### What every operating system has, and this one doesn't
-15. **No date and time settings**: time zone, 12/24-hour clock, set automatically from the network.
-17. **Settings is missing pages**: Date & time, Users (account, password, lock), Mouse (speed, scrolling, hand),
+17. **Settings is missing pages**: Mouse (speed, scrolling, hand),
     Power (screen off after, lock after), Storage (what uses the disk, emptying the trash, caches), Apps
     (installed apps, removing them, default apps for files and links), Notifications (which apps may, Do not
     disturb).

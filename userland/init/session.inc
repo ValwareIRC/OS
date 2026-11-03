@@ -10,8 +10,8 @@
  * close-on-exec, so nothing it starts (every app is its descendant, and runs as the same user) ever holds it.
  * A small root process here answers it. It does only these, each checked: save to the disk, restart, power off,
  * install or uninstall an app from Flathub (its ID checked), refresh what Flathub offers, the graphics extension
- * Flatpak apps need, erase the
- * disk store (forget me), and mark a factory reset. Messages are atomic (SOCK_SEQPACKET): "ID COMMAND ARG" in,
+ * Flatpak apps need, erase the disk store (forget me), mark a factory reset, check and set their password, set
+ * the time zone and set the clock from the network now (time.inc). Messages are atomic (SOCK_SEQPACKET): "ID COMMAND ARG" in,
  * "ID ok|failed TEXT" out, so requests answered out of order are never mixed up. */
 
 #include "../shell/store.h"
@@ -295,6 +295,8 @@ static bool password_errand(int fd, const char *id, const char *cmd, const char 
     return true;
 }
 
+#include "time.inc"
+
 /* ---- the helper ---- */
 
 static void priv_reply(int fd, const char *id, const char *status, const char *text) {
@@ -354,7 +356,7 @@ static void priv_serve(int fd) {
             continue;
         }
         printf("init: the desktop asks: %s %s\n", cmd, !strncmp(cmd, "password", 8) ? "(not shown)" : arg);
-        if (password_errand(fd, id, cmd, arg))
+        if (password_errand(fd, id, cmd, arg) || time_errand(fd, id, cmd, arg))
             continue;
         if (!strcmp(cmd, "restart") || !strcmp(cmd, "power-off")) {
             priv_reply(fd, id, "ok", "");
@@ -436,6 +438,8 @@ static pid_t spawn_gui(void) {
         return -1;
     restore_once();
     account_setup();
+    zone_setup(); /* their time zone (TZ, for the desktop and all it starts) */
+    timesync_start();
     prepare_session();
     int sv[2] = {-1, -1};
     if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)

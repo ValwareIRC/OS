@@ -4,6 +4,7 @@
 #include "presence.h"
 #include "app.h"
 #include "lock.h"
+#include "clock.h"
 #include "priv.h"
 #include "nerve.h"
 #include "emblem.h"
@@ -232,6 +233,7 @@ void main_frame(void) {
     input_state real = A.in;
     if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
+    clock_frame(); /* the automatic time zone, the network's time (clock.c) */
     if (lock_frame()) /* locked: the lock screen is everything (lock.c) */
         goto drawn;
     switch (A.screen) {

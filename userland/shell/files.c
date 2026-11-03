@@ -312,6 +312,8 @@ static bool trash_put(const char *path, char *trashed, size_t tn) {
     return true;
 }
 
+bool files_trash(const char *path) { return trash_put(path, NULL, 0); }
+
 static bool trash_origin(const char *name, char *out, size_t n) {
     char info[PATHN], line[PATHN + 16];
     snprintf(info, sizeof info, "%s/%s.trashinfo", TRASH_INFO, name);
@@ -820,11 +822,11 @@ static void fmt_date(time_t t, char *out, size_t n) {
     localtime_r(&t, &a);
     localtime_r(&now, &b);
     if (a.tm_year == b.tm_year && a.tm_yday == b.tm_yday)
-        strftime(out, n, "Today, %H:%M", &a);
+        fm_strftime(out, n, "Today, %H:%M", &a);
     else if (a.tm_year == b.tm_year && b.tm_yday - a.tm_yday == 1)
-        strftime(out, n, "Yesterday, %H:%M", &a);
+        fm_strftime(out, n, "Yesterday, %H:%M", &a);
     else if (a.tm_year == b.tm_year)
-        strftime(out, n, "%d %b, %H:%M", &a);
+        fm_strftime(out, n, "%d %b, %H:%M", &a);
     else
         strftime(out, n, "%d %b %Y", &a);
 }

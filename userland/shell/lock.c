@@ -161,7 +161,7 @@ bool lock_frame(void) {
     struct tm tm;
     localtime_r(&t, &tm);
     char hm[16], day[64];
-    strftime(hm, sizeof hm, "%H:%M", &tm);
+    fm_strftime(hm, sizeof hm, "%H:%M", &tm);
     char wd[16], mon[16];
     strftime(wd, sizeof wd, "%A", &tm);
     strftime(mon, sizeof mon, "%B", &tm);

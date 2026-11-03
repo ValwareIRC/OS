@@ -58,7 +58,7 @@ your real files, planets that orbit, fish that swim, a sky that follows the time
 ## Building (inside WSL Ubuntu or Linux)
 
 ```
-sudo apt install -y build-essential qemu-system-x86 xorriso ovmf mtools git
+sudo apt install -y build-essential qemu-system-x86 xorriso ovmf mtools git tzdata
 make          # kernel + bootable ISO (fetches the Limine bootloader into vendor/)
 make run      # boot in QEMU with UEFI, serial log in the terminal
 make test     # headless boot tests (UEFI and BIOS), with a scratch disk attached
