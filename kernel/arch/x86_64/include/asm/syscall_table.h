@@ -32,7 +32,8 @@
     X(270, pselect6) X(281, epoll_pwait) X(282, signalfd) X(283, timerfd_create) X(284, eventfd)        \
     X(285, fallocate) X(286, timerfd_settime) X(287, timerfd_gettime) X(289, signalfd4)                 \
     X(290, eventfd2) X(291, epoll_create1) X(319, memfd_create) X(441, epoll_pwait2) X(306, syncfs)    \
-    X(149, mlock) X(150, mlock) X(151, mlock) X(152, mlock) X(325, mlock) X(221, fadvise64) X(135, personality)
+    X(149, mlock) X(150, mlock) X(151, mlock) X(152, mlock) X(325, mlock) X(221, fadvise64) X(135, personality) \
+    X(253, inotify_init) X(254, inotify_add_watch) X(255, inotify_rm_watch) X(294, inotify_init1)
 
 #define NR_read 0
 #define NR_write 1

@@ -7,7 +7,7 @@
 
 #define SYSCALLS(X)                                                                                      \
     X(17, getcwd) X(19, eventfd2) X(20, epoll_create1) X(21, epoll_ctl) X(22, epoll_pwait) X(23, dup)      \
-    X(24, dup3) X(25, fcntl) X(29, ioctl) X(32, flock) X(34, mkdirat) X(35, unlinkat) X(36, symlinkat)     \
+    X(24, dup3) X(26, inotify_init1) X(27, inotify_add_watch) X(28, inotify_rm_watch) X(25, fcntl) X(29, ioctl) X(32, flock) X(34, mkdirat) X(35, unlinkat) X(36, symlinkat)     \
     X(37, linkat) X(38, renameat) X(39, umount2) X(40, mount) X(41, pivot_root) X(43, statfs)              \
     X(44, fstatfs) X(45, truncate) X(46, ftruncate) X(47, fallocate) X(48, faccessat) X(49, chdir)         \
     X(50, fchdir) X(51, chroot) X(52, fchmod) X(53, fchmodat) X(54, fchownat) X(55, fchown) X(56, openat) \

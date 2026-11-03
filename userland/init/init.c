@@ -1844,6 +1844,7 @@ static void ramfs_perf_test(void) {
 #include "ns_tests.inc"
 #include "ext2_tests.inc"
 #include "lock_tests.inc"
+#include "inotify_tests.inc"
 #include "perm_tests.inc"
 
 #ifdef __aarch64__
@@ -1993,6 +1994,7 @@ static void tests(void) {
     base_tests();
     ext2_tests();
     lock_tests();
+    inotify_tests();
     perm_tests();
     doc_fd_tests();
     shared_mapping_tests();

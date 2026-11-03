@@ -336,6 +336,8 @@ int64_t unix_bind(struct file *f, uint64_t uaddr, uint64_t len) {
     }
     node->data = s;
     r = dir->ops->create ? ramfs_add_node(dir, name, node) : -EROFS;
+    if (r == 0)
+        fsnotify_dir(dir, name, false, FSN_CREATE, 0);
     vnode_put(dir);
     if (r < 0) {
         vnode_put(node);

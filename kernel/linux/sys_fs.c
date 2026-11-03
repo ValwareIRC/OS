@@ -212,6 +212,8 @@ static int64_t do_write(struct file *f, uint64_t ubuf, uint64_t len, int64_t off
         } else {
             struct vnode *v = f->vnode;
             n = v->ops->write ? v->ops->write(v, f, kb, want, (uint64_t)off + (uint64_t)total) : -EINVAL;
+            if (n > 0 && v->type == VN_REG)
+                fsnotify(v, FSN_MODIFY);
         }
         if (n <= 0) {
             if (total == 0)
@@ -635,6 +637,8 @@ static int64_t mkdir_at(int dirfd, uint64_t upath, uint64_t mode) {
     if (r == 0) {
         r = dir.v->ops->mkdir ? dir.v->ops->mkdir(dir.v, name, (uint32_t)mode & ~proc_current()->umask & 07777)
                               : -EROFS;
+        if (r == 0)
+            fsnotify_dir(dir.v, name, true, FSN_CREATE, 0);
         path_put(&dir);
     }
     kfree(path);
@@ -664,10 +668,12 @@ static int64_t unlink_at(int dirfd, uint64_t upath, bool dir_only) {
         if (dir.v->ops->lookup && dir.v->ops->lookup(dir.v, name, &victim) < 0)
             victim = NULL;
         r = vfs_may_delete(dir.v, victim);
-        if (victim)
-            vnode_put(victim);
         if (r == 0)
             r = dir.v->ops->unlink ? dir.v->ops->unlink(dir.v, name, dir_only) : -EROFS;
+        if (r == 0)
+            fsnotify_gone(dir.v, name, victim, victim ? victim->type == VN_DIR : dir_only);
+        if (victim)
+            vnode_put(victim);
         path_put(&dir);
     }
     kfree(path);
@@ -719,8 +725,6 @@ static int64_t rename_at(int odirfd, uint64_t uold, int ndirfd, uint64_t unew, u
         int pr = vfs_may_delete(odir.v, src);
         if (pr == 0)
             pr = dst ? vfs_may_delete(ndir.v, dst) : vfs_may_create(ndir.v);
-        if (src)
-            vnode_put(src);
         if (dst)
             vnode_put(dst);
         if (pr < 0)
@@ -730,6 +734,10 @@ static int64_t rename_at(int odirfd, uint64_t uold, int ndirfd, uint64_t unew, u
         else
             r = (flags & 1) && name_exists(ndir.v, nname) ? -EEXIST /* RENAME_NOREPLACE */
                 : odir.v->ops->rename ? odir.v->ops->rename(odir.v, oname, ndir.v, nname) : -EROFS;
+        if (r == 0)
+            fsnotify_moved(odir.v, oname, ndir.v, nname, src);
+        if (src)
+            vnode_put(src);
     }
     path_put(&odir);
     path_put(&ndir);
@@ -766,6 +774,8 @@ static int64_t symlink_at(uint64_t utarget, int dirfd, uint64_t upath) {
         r = create_parent_at(dirfd, path, &dir, name, sizeof name);
         if (r == 0) {
             r = dir.v->ops->symlink ? dir.v->ops->symlink(dir.v, name, target) : -EROFS;
+            if (r == 0)
+                fsnotify_dir(dir.v, name, false, FSN_CREATE, 0);
             path_put(&dir);
         }
         kfree(path);
@@ -802,6 +812,8 @@ static int64_t link_at(int odirfd, uint64_t uold, int ndirfd, uint64_t unew, int
         /* a hard link to someone else's file needs to be able to write it, or own it (protected_hardlinks) */
         r = vfs_owner_or(target, 3) || vfs_permission(target, MAY_READ | MAY_WRITE) == 0 ? 0 : -EPERM;
         r = r ? r : dir.v->ops->link ? dir.v->ops->link(dir.v, name, target) : -EPERM;
+        if (r == 0)
+            fsnotify_dir(dir.v, name, target->type == VN_DIR, FSN_CREATE, 0);
         path_put(&dir);
     }
     kfree(path);
@@ -856,6 +868,7 @@ static int64_t chmod_vnode(struct vnode *v, uint64_t mode) {
         return -EPERM;
     }
     v->mode = (uint32_t)mode & 07777;
+    fsnotify(v, FSN_ATTRIB);
     vnode_put(v);
     return 0;
 }
@@ -891,6 +904,7 @@ SYSCALL(fchmod) {
     if (!f)
         return -EBADF;
     f->vnode->mode = (uint32_t)a2 & 07777;
+    fsnotify(f->vnode, FSN_ATTRIB);
     file_put(f);
     return 0;
 }
@@ -900,7 +914,10 @@ static int64_t do_truncate(struct vnode *v, uint64_t len) {
         return -EISDIR;
     if (v->type != VN_REG || !v->ops->truncate)
         return -EINVAL;
-    return v->ops->truncate(v, len);
+    int r = v->ops->truncate(v, len);
+    if (r == 0)
+        fsnotify(v, FSN_MODIFY);
+    return r;
 }
 
 SYSCALL(truncate) {
@@ -1411,6 +1428,7 @@ static int64_t chown_vnode(struct vnode *v, uint64_t uuid, uint64_t ugid) {
         return -EPERM;
     v->uid = ku;
     v->gid = kg;
+    fsnotify(v, FSN_ATTRIB);
     return 0;
 }
 

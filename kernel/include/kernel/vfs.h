@@ -129,6 +129,20 @@ int vfs_create_node(const char *path, struct vnode *node);
 #define MAY_WRITE 2
 #define MAY_READ 4
 int vfs_permission(const struct vnode *v, int mask);
+
+/* inotify (linux/sys_inotify.c): what changed, told to whoever watches it. Each returns at once while nothing
+ * is watched. */
+#define FSN_MODIFY 0x2
+#define FSN_ATTRIB 0x4
+#define FSN_CLOSE_WRITE 0x8
+#define FSN_CLOSE_NOWRITE 0x10
+#define FSN_OPEN 0x20
+#define FSN_CREATE 0x100
+void fsnotify(struct vnode *v, uint32_t mask); /* the file itself: its watches, and its folder's with its name */
+void fsnotify_dir(struct vnode *dir, const char *name, bool isdir, uint32_t mask, uint32_t cookie);
+void fsnotify_lookup(struct vnode *dir, const char *name, struct vnode *child); /* found by name */
+void fsnotify_gone(struct vnode *dir, const char *name, struct vnode *child, bool isdir); /* unlinked */
+void fsnotify_moved(struct vnode *odir, const char *oname, struct vnode *ndir, const char *nname, struct vnode *child);
 /* as the process's real user and group (access()) */
 int vfs_permission_real(const struct vnode *v, int mask);
 /* making a name in dir, and taking victim's name out of it (a sticky directory keeps others' names) */

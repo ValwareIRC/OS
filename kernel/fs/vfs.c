@@ -239,6 +239,7 @@ static int walk(const struct path *base, const char *path, int flags, struct pat
             mount_put(next.mnt);
             break;
         }
+        fsnotify_lookup(cur.v, name, next.v);
         path_cross(&next);
         if (next.v->type == VN_LNK && (!is_last || (flags & LOOKUP_FOLLOW) || *p == '/')) {
             struct path target;
@@ -317,6 +318,8 @@ void file_put(struct file *f) {
         locks_file_released(f); /* its OFD locks */
         if (f->vnode->ops->close)
             f->vnode->ops->close(f->vnode, f);
+        if ((f->vnode->type == VN_REG || f->vnode->type == VN_DIR) && !(f->flags & O_PATH))
+            fsnotify(f->vnode, (f->flags & O_ACCMODE) != O_RDONLY ? FSN_CLOSE_WRITE : FSN_CLOSE_NOWRITE);
         vnode_put(f->vnode);
         path_put(&f->path_base);
         mount_put(f->mnt);
@@ -342,6 +345,7 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
             struct vnode *v = NULL;
             r = dir.v->ops->lookup ? dir.v->ops->lookup(dir.v, name, &v) : -ENOTDIR;
             if (r == 0) {
+                fsnotify_lookup(dir.v, name, v);
                 at.mnt = mount_get(dir.mnt);
                 at.v = v;
                 path_cross(&at);
@@ -366,6 +370,8 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
                 if (r == 0) {
                     at.mnt = mount_get(dir.mnt);
                     at.v = v;
+                    fsnotify_dir(dir.v, name, false, FSN_CREATE, 0);
+                    fsnotify_lookup(dir.v, name, v);
                 }
             }
             path_put(&dir);
@@ -398,8 +404,13 @@ int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t
         r = path_may_write(&at);
     else if ((v->type == VN_CHR || v->type == VN_BLK) && !(flags & O_PATH) && (mount_flags(at.mnt) & MNT_NODEV))
         r = -EACCES;
-    if (r == 0 && (flags & O_TRUNC) && v->type == VN_REG && (flags & O_ACCMODE) != O_RDONLY)
+    if (r == 0 && (flags & O_TRUNC) && v->type == VN_REG && (flags & O_ACCMODE) != O_RDONLY) {
         r = v->ops->truncate ? v->ops->truncate(v, 0) : -EINVAL;
+        if (r == 0)
+            fsnotify(v, FSN_MODIFY);
+    }
+    if (r == 0 && !(flags & O_PATH) && (v->type == VN_REG || v->type == VN_DIR))
+        fsnotify(v, FSN_OPEN);
     if (r < 0) {
         path_put(&at);
         return r;
@@ -464,6 +475,8 @@ int64_t file_write(struct file *f, const void *buf, size_t len) {
     int64_t n = v->ops->write(v, f, buf, len, off);
     if (n > 0 && vnode_seekable(v))
         f->offset = off + (uint64_t)n;
+    if (n > 0 && v->type == VN_REG)
+        fsnotify(v, FSN_MODIFY);
     return n;
 }
 
@@ -508,6 +521,8 @@ int vfs_mkdir_p(const char *path, uint32_t mode) {
         if (r < 0)
             return r;
         r = dir->ops->mkdir ? dir->ops->mkdir(dir, name, mode) : -EROFS;
+        if (r == 0)
+            fsnotify_dir(dir, name, true, FSN_CREATE, 0);
         vnode_put(dir);
         if (r < 0 && r != -EEXIST)
             return r;
