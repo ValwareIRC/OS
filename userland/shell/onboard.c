@@ -785,8 +785,10 @@ void design_begin(const char *extra) {
         char *cur = base ? fm_serialize(base) : design_to_facet(&A.d);
         sb_printf(&r, "Here is their current desktop document:\n%s\nThey asked for this change: %s\n"
                       "Return the complete updated document. Their request wins over everything below, the room "
-                      "and wallpaper included: if they ask for stars, there are stars. Keep what they didn't ask "
-                      "to change unless it no longer fits.\n", cur ? cur : "", extra);
+                      "and wallpaper included: if they ask for stars, there are stars. Change what they asked for, "
+                      "and what must change with it to still fit; everything else stays exactly as it is (the same "
+                      "layout, words, ids and rules), because they asked for a change, not a new desktop.\n",
+                      cur ? cur : "", extra);
         free(cur);
     }
     sb_printf(&r, "About them:\nName: %s\nYour name: %s\n",

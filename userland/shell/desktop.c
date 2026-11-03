@@ -357,7 +357,7 @@ static void take_app(const char *raw_name, const char *src) {
 }
 
 static const char *companion_system(void) {
-    static char buf[40000];
+    static char buf[96000]; /* (the desktop's tree, the portrait and the Facet reference can be long) */
     /* With a preview open, the document it talks about and edits is that one. */
     fm_doc *seen = preview_doc() ? preview_doc() : A.ui;
     char *tree = seen ? fm_describe(seen) : NULL;
@@ -386,7 +386,13 @@ static const char *companion_system(void) {
              "copy their style. Plain is not empty: answer what they actually asked, straight, with your real "
              "opinion and a specific reason (asked about their desktop, say what you like or would change in it and "
              "why); don't fill a reply with the time or the hour unless they asked, and don't repeat what you said "
-             "in your last few replies.\n\n"
+             "in your last few replies. No \"not X, but Y\" turns, no strings of dashes, and no narrating your own "
+             "steps (\"Let me...\", \"Now I'll...\"): do it, with the tags, and say what came of it.\n\n"
+             "Done means done: say something is done only once the note after your tags says so; while a step or a "
+             "redesign is still running, say that it is and what you're waiting for, and stop. Small asks get small "
+             "changes: change only what they named, with ui tags; a redesign only when they want a new look or the "
+             "whole thing over. If a bigger change would help, suggest it in a sentence and let them say yes. When "
+             "they leave a choice to you, say what you picked.\n\n"
              "What you know about them (they can see and edit this):\n%s\n"
              "Why things on their desktop are the way they are (use these when they ask \"why\"):\n%s\n"
              "You can see and work their desktop. This is it right now (element, #id, .class, attributes, text):\n%s\n"
@@ -433,6 +439,8 @@ static const char *companion_system(void) {
              whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", preview_prompt(), alive_prompt(),
              presence_prompt(), facet_prompt(), voice_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
+    if (strlen(buf) >= sizeof buf - 1) /* (the tags are explained at the end: cut short, it can't use them) */
+        LOG("companion: its instructions were cut short at %zu bytes\n", sizeof buf);
     free(tree);
     { /* its body: what it feels of itself, and how it moves it (agent.c) */
         size_t l = strlen(buf);
