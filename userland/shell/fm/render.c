@@ -1498,6 +1498,13 @@ static const char *const default_frame =
     "<slot/></frame>";
 
 fm_node *fmi_tpl_root(fm_doc *d) {
+    if (d->window_tpl) { /* still in the document? (an edit may have taken it out, and with it the memory) */
+        bool there = false;
+        for (fm_node *t = d->root ? d->root->first : NULL; t && !there; t = t->next)
+            there = t == d->window_tpl;
+        if (!there)
+            d->window_tpl = NULL;
+    }
     if (!d->window_tpl) {
         fm_node *t = fm_node_new(d, "template");
         t->generated = true;
@@ -1602,8 +1609,23 @@ fm_node *fmi_frame_layout(fm_doc *d, int win, rect r, bool focused, rect *conten
     return root;
 }
 
+/* Is n the frame of one of d's window templates now? (last_frame may be from a document since freed, a draft the
+ * next one replaced, or a template an edit took out: read, it crashed the desktop.) Compared, never followed. */
+static bool frame_of(fm_doc *d, const fm_node *n) {
+    if (!n || !d || !d->root)
+        return false;
+    for (fm_node *t = d->root->first; t; t = t->next) {
+        if (t->kind != FM_ELEM || strcmp(t->tag, "template"))
+            continue;
+        for (fm_node *k = t->first; k; k = k->next)
+            if (k == n)
+                return true;
+    }
+    return false;
+}
+
 bool fm_window_slot(fm_doc *d, rect *frame, float radius[4], float *border, rect *slot, rect *content) {
-    fm_node *root = last_frame && d && d->window_tpl ? last_frame : d && d->window_tpl ? fmi_tpl_root(d) : NULL;
+    fm_node *root = d && d->window_tpl ? (frame_of(d, last_frame) ? last_frame : fmi_tpl_root(d)) : NULL;
     fm_node *s = root ? find_tag(root->first, "slot") : NULL;
     if (!s || !s->laid_out || !root->laid_out)
         return false;

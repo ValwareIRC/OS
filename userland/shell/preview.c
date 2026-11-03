@@ -156,14 +156,29 @@ void preview_drafting(void) {
 
 /* The companion says what it did, and acts on anything they said while it
  * was drafting. */
+static int drafts; /* drafts that have come in (the first, then each redesign of it) */
+
 static void tell_companion_draft_is_in(void) {
-    char note[700];
-    if (onboarding())
+    char note[900];
+    bool sees = ai_sees_images(&A.cfg);
+    drafts++;
+    if (onboarding() && drafts == 1)
         snprintf(note, sizeof note,
                  "(The first draft of their space is in front of them now, in a preview: nothing is final until "
-                 "they press \"Make it mine\". %sIn two or three short sentences, tell them why a few things are the "
+                 "they press \"Make it mine\". %s%sIn two or three short sentences, tell them why a few things are the "
                  "way they are, tied to what they told you, and that they can change anything first: by telling "
                  "you, or by clicking something in the picture to point at it.)",
+                 sees ? "The pictures show it as it is. " : "",
+                 PV.waiting ? "First act on what they said while you were drafting, with ui tags on the preview. " : "");
+    else if (onboarding())
+        /* (this said "the first draft" every time: it took each new one for the old, said it had never started
+         * and redrew from scratch again and again) */
+        snprintf(note, sizeof note,
+                 "(The redesign you started is done: the new draft is in front of them now, in place of the one "
+                 "before (draft %d). It did happen; never say it didn't start. %s%sIn one or two short sentences, "
+                 "say what is different now, and that they can change anything before \"Make it mine\". Smaller "
+                 "changes from here are ui tags on this draft, not another redesign.)",
+                 drafts, sees ? "The pictures show it as it is now: look at them before you speak. " : "",
                  PV.waiting ? "First act on what they said while you were drafting, with ui tags on the preview. " : "");
     else
         snprintf(note, sizeof note,
@@ -171,7 +186,11 @@ static void tell_companion_draft_is_in(void) {
                  "two sentences tell them what you changed and that they can apply it or keep adjusting.)",
                  PV.waiting ? "First act on what they said while you were drafting, with ui tags on the preview. " : "");
     PV.waiting = false;
-    companion_note(note, true);
+    char *a = NULL, *b = NULL;
+    if (sees && PV.doc) /* a model that sees is shown what it made, with the note about it */
+        stylist_pictures(PV.doc, &a, &b);
+    companion_note_pictures(note, true, a, b, NULL);
+    LOG("preview: told the companion draft %d is in%s\n", drafts, a ? ", with pictures" : "");
 }
 
 void preview_draft(fm_doc *doc, const design *d) {
@@ -195,6 +214,22 @@ void preview_draft(fm_doc *doc, const design *d) {
     show_window();
     LOG("preview: draft ready\n");
     tell_companion_draft_is_in();
+}
+
+/* The draft as it was before the desktop program restarted, shown again without a word about it being new. */
+void preview_restore(fm_doc *doc, const design *d) {
+    if (PV.doc && PV.doc != doc)
+        fm_free(PV.doc);
+    PV.doc = doc;
+    PV.d = *d;
+    if (onboarding())
+        A.d = *d;
+    PV.state = PV_READY;
+    PV.changed = true;
+    PV.redraw = true;
+    drafts = 1;
+    show_window();
+    LOG("preview: the draft as it was\n");
 }
 
 void preview_failed(const char *why) {

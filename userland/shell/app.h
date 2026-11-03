@@ -198,6 +198,9 @@ void connect_draw(void);
 void models_draw(void); /* onboarding: choosing a model that runs on this computer (onboard.c) */
 void models_draw(void); /* onboarding: a model on this computer (onboard.c) */
 void onboard_start(void);
+bool onboard_resume(void); /* a start in the middle of onboarding: back where it was (false: nothing kept) */
+void onboard_keep(void);   /* once a frame: its place kept as it changes */
+void onboard_forget(void); /* finished, or started over */
 void onboard_draw(void);
 void designing_draw(void);
 void design_begin(const char *extra_instruction);
@@ -222,7 +225,9 @@ void their_name_keep(const char *name);
  * (`act`: its ui tags run); and its replies taken in, off the desktop. */
 void companion_tell(const char *text);
 void companion_note(const char *note, bool act);
+void facet_reference_write(void); /* Facet 2's reference, as a file the companion can read (desktop.c) */
 void companion_note_picture(const char *note, bool act, char *picture); /* picture: base64 JPEG, taken */
+void companion_note_pictures(const char *note, bool act, char *a, char *b, char *z);
 /* What [[write]] tags did in the reply just taken (actions.c); read once. */
 const char *actions_report(void);
 void companion_tick(void);

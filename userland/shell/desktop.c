@@ -243,6 +243,7 @@ static void chat_strip(rect r);
 bool chat_on_desktop(void);
 
 /* Facet 2: the whole reference while apps are being talked about (or one it wrote is being fixed), else a line. */
+#define FACET_REFERENCE_FILE "/run/user/1000/facet-reference.txt" /* (theirs alone, like the sockets beside it) */
 static int facet_fixing; /* replies left to correct an app that didn't load */
 
 static const char *facet_prompt(void) {
@@ -250,8 +251,10 @@ static const char *facet_prompt(void) {
     for (int i = A.companion.n - 1; i >= 0 && !last; i--)
         if (!strcmp(A.companion.msgs[i].role, "user"))
             last = A.companion.msgs[i].text;
-    static const char *const words[] = {" app",   "apps",  "tool",   "tracker", "widget", "make me", "build me",
-                                        "write me", "counter", "timer", "dashboard", "facet", "program", NULL};
+    static const char *const words[] = {" app",   "apps",   "tool",    "tracker", "widget", "make me", "build me",
+                                        "write me", "counter", "timer", "dashboard", "facet", "program", "irc",
+                                        "client", "socket", "tcp",  "tls",   "network", "connect", "server", " bot",
+                                        "game",  "chat",   "api",   "http",  "download", "script", NULL};
     char padded[2100];
     snprintf(padded, sizeof padded, " %s", last ? last : "");
     if (facet_fixing > 0 || has_any(padded, words)) {
@@ -259,8 +262,20 @@ static const char *facet_prompt(void) {
         snprintf(ref, sizeof ref, "\n\n%s", fx_reference());
         return ref;
     }
-    return "\n\nYou can write small apps for them in Facet 2 when they ask for one (a tracker, a tool, a timer...): "
-           "the instructions appear when they do.";
+    /* (this line said only "a tracker, a tool, a timer": asked about an IRC client, it looked for a network source,
+     * found none in an app it read, and said Facet had none) */
+    return "\n\nYou can write apps for them in Facet 2 when they ask for one: trackers, tools, games, and things that "
+           "talk to the internet (web requests, and TCP or TLS sockets: an IRC client, a chat, a bot). The whole "
+           "reference appears when they ask for one, and is always in " FACET_REFERENCE_FILE " to read.";
+}
+
+/* The reference, as a file it can read whenever it wants to check (it looked in an app's source instead, once). */
+void facet_reference_write(void) {
+    FILE *f = fopen(FACET_REFERENCE_FILE, "w");
+    if (f) {
+        fprintf(f, "%s\n", fx_reference());
+        fclose(f);
+    }
 }
 
 /* [[app:Name]] ... [[/app]]: an app it wrote. Checked first: problems go back to it with their fixes (twice at
@@ -857,13 +872,18 @@ static bool apply_design_file(const char *path, const char *name) {
     return true;
 }
 
-void companion_note(const char *note, bool act) { companion_note_picture(note, act, NULL); }
+void companion_note(const char *note, bool act) { companion_note_pictures(note, act, NULL, NULL, NULL); }
 
 /* A note with a picture (base64 JPEG, taken) on it: the picture goes with the very request that asks about it. */
 void companion_note_picture(const char *note, bool act, char *picture) {
+    companion_note_pictures(note, act, picture, NULL, NULL);
+}
+
+/* ...or up to three (each taken; NULLs are fine). */
+void companion_note_pictures(const char *note, bool act, char *a, char *b, char *z) {
     convo_add(&A.companion, "hidden", note);
-    if (picture)
-        convo_picture(&A.companion, picture, NULL);
+    if (a || b || z)
+        convo_picture3(&A.companion, a, b, z);
     if (act)
         act_on = A.companion.n - 1;
     if (!A.companion.pending)
@@ -1364,6 +1384,7 @@ void forget_everything(void) {
     notes_forget();
     theme_follow_design();
     unlink(STATE_DIR "/companion.txt");
+    onboard_forget();
     if (priv_available()) /* and from the disk */
         priv_send("wipe");
     else
@@ -2341,6 +2362,8 @@ void desktop_set_ui(fm_doc *doc) {
 }
 
 void desktop_adopt(fm_doc *doc, const design *d, bool first) {
+    if (first)
+        onboard_forget(); /* it is theirs now: onboarding's kept place goes */
     A.d = *d;
     design_take_their_name(doc, &A.d); /* their own name, never a design's sample one */
     if (their_name()[0])

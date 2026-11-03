@@ -72,6 +72,7 @@ static void account_line(const char *file, const char *line) {
  * /home/<name> (a home under another name, from before, takes the new one), in /etc/passwd and /etc/group
  * (what a terminal and every program see), the computer called after it. */
 static void account_setup(void) {
+    unsetenv("HOME"); /* (set here last time: home_dir() would take it, and a new name never got its own home) */
     home_forget();
     const char *name = account_name(), *home = home_dir();
     mkdir("/home", 0755);

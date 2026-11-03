@@ -69,8 +69,10 @@ void toast(const char *fmt, ...) {
 static void splash_draw(void) {
     if (A.have_design)
         desktop_enter();
-    else if (A.cfg.provider[0] && A.cfg.model[0])
-        onboard_start();
+    else if (A.cfg.provider[0] && A.cfg.model[0]) {
+        if (!onboard_resume()) /* (the desktop program restarted mid-way: back where it was) */
+            onboard_start();
+    }
     else if (A.provider)
         set_screen(SCR_CONNECT);
     else
@@ -243,6 +245,7 @@ void main_frame(void) {
     if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
     clock_frame(); /* the automatic time zone, the network's time (clock.c) */
+    onboard_keep(); /* onboarding's place, kept as it changes (onboard_talk.inc) */
     if (lock_frame()) /* locked: the lock screen is everything (lock.c) */
         goto drawn;
     switch (A.screen) {
@@ -456,6 +459,7 @@ int main(void) {
     portal_init();   /* where os-portal reaches us */
     appapi_init();   /* where apps reach the companion */
     presence_init(); /* the light, or its face (os-figure) */
+    facet_reference_write();
     set_screen(SCR_SPLASH);
     lock_boot(); /* with a password: signed in first */
 

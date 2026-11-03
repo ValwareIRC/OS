@@ -14,7 +14,12 @@
 #include "alive.h"
 
 static char answered[12][16]; /* pick kinds already chosen */
+static char answered_as[12][120]; /* ...and what they chose */
 static int n_answered;
+/* What was on the screen for the picks being answered: told to it with their answer. Its [[pick:]] tags are taken
+ * out of what it reads back, so all it saw was itself promising options and them naming one: it took it that the
+ * options never showed, and offered them again ("I think my rooms didn't show up, here they are again"). */
+static char shown_note[1400];
 /* A model may offer several picks in one message: they are shown one after
  * another and the answers go back together. */
 static char queued[4][1400];
@@ -87,7 +92,100 @@ static const char *onboarding_system(void) {
     return buf;
 }
 
+/* ---- keeping its place ----
+ * Until "Make it mine", nothing of onboarding was kept: the desktop program crashed once mid-way (it is restarted
+ * at once), and they were back at the very first screen, the companion knowing nothing. Now the conversation, the
+ * companion's talk about the draft and the draft itself are kept as they change, and a start that finds them
+ * picks up there. (A finished onboarding, or starting over, lets them go.) */
+static int user_turns(void);
+#define ONB_TALK STATE_DIR "/onboard-talk.txt"
+#define ONB_COMPANION STATE_DIR "/onboard-companion.txt"
+#define ONB_DRAFT STATE_DIR "/onboard-draft.xml"
+
+void onboard_forget(void) {
+    unlink(ONB_TALK);
+    unlink(ONB_COMPANION);
+    unlink(ONB_DRAFT);
+}
+
+void onboard_keep(void) {
+    if (A.have_design || (A.screen != SCR_ONBOARD && A.screen != SCR_DESIGNING))
+        return;
+    static int talk_n = -1, comp_n = -1;
+    static uint64_t draft_at, draft_hash;
+    if (A.onboard.n && A.onboard.n != talk_n && !A.onboard.pending) {
+        convo_save(&A.onboard, ONB_TALK);
+        portrait_save(&A.prof, STATE_DIR "/portrait.txt");
+        talk_n = A.onboard.n;
+    }
+    if (A.companion.n != comp_n && !A.companion.pending) {
+        convo_save(&A.companion, ONB_COMPANION);
+        comp_n = A.companion.n;
+    }
+    fm_doc *draft = preview_doc();
+    if (draft && A.now - draft_at > 2000) { /* the draft, as edited so far */
+        draft_at = A.now;
+        char *text = fm_serialize(draft);
+        uint64_t h = 1469598103934665603ull;
+        for (const char *p = text; p && *p; p++)
+            h = (h ^ (uint8_t)*p) * 1099511628211ull;
+        if (text && h != draft_hash) {
+            FILE *f = fopen(ONB_DRAFT ".new", "w");
+            if (f && fputs(text, f) >= 0 && fclose(f) == 0 && rename(ONB_DRAFT ".new", ONB_DRAFT) == 0)
+                draft_hash = h;
+            else if (f)
+                fclose(f);
+        }
+        free(text);
+    }
+}
+
+/* A start in the middle of onboarding (the desktop program stopped and was started again): back where it was. */
+bool onboard_resume(void) {
+    if (convo_load(&A.onboard, ONB_TALK) <= 0) {
+        convo_clear(&A.onboard);
+        return false;
+    }
+    portrait_load(&A.prof, STATE_DIR "/portrait.txt");
+    convo_load(&A.companion, ONB_COMPANION);
+    A.onboard_done = false;
+    mirror_asked = user_turns() >= 9;
+    static const char back[] = "(The desktop program stopped because of a fault (not anything they did) and was "
+                               "started again at once. Everything is as it was before it: this conversation, what "
+                               "you know of them%s. Say in one short, plain sentence that it had to restart and "
+                               "you're back where you were, then carry on exactly from there. Don't start over.)";
+    char note[600];
+    FILE *f = fopen(ONB_DRAFT, "r");
+    fm_doc *doc = NULL;
+    design d;
+    if (f) {
+        static char text[262144];
+        size_t n = fread(text, 1, sizeof text - 1, f);
+        text[n] = 0;
+        fclose(f);
+        doc = fm_parse(text);
+        if (doc && !design_from_facet(&d, doc, &A.prof, NULL, 0)) {
+            fm_free(doc);
+            doc = NULL;
+        }
+    }
+    if (doc) { /* the draft, as it was, and the talk about it */
+        set_screen(SCR_DESIGNING);
+        preview_restore(doc, &d);
+        snprintf(note, sizeof note, back, ", and the draft in front of them, with every change you had made to it");
+        companion_note(note, false);
+    } else {
+        set_screen(SCR_ONBOARD);
+        snprintf(note, sizeof note, back, "");
+        convo_add(&A.onboard, "hidden", note);
+        convo_send(&A.onboard, onboarding_system(), 700);
+    }
+    LOG("onboarding: picked up where it was (%d messages%s)\n", A.onboard.n, doc ? ", the draft" : "");
+    return true;
+}
+
 void onboard_start(void) {
+    onboard_forget(); /* a new start: nothing from one before */
     convo_clear(&A.onboard);
     persona_reset(); /* met again: read again */
     memset(&A.prof, 0, sizeof A.prof);
@@ -102,6 +200,7 @@ void onboard_start(void) {
     n_answered = 0;
     n_queued = 0;
     choices[0] = 0;
+    shown_note[0] = 0;
     room_set = false;
     mirror_asked = false;
     /* Comfort comes before anything else, and the OS asks it itself: nobody
@@ -357,8 +456,15 @@ static void parse_pick(char *body) {
     /* Each question is asked once: a model that loses track and offers the
      * same pick again is quietly ignored. */
     for (int i = 0; i < n_answered; i++)
-        if (!strcmp(answered[i], pk->kind) && strcmp(pk->kind, "name"))
+        if (!strcmp(answered[i], pk->kind) && strcmp(pk->kind, "name") && pk->active) {
             pk->active = false;
+            LOG("pick %s offered again: told it was answered\n", pk->kind);
+            if (!pending_nudge && asprintf(&pending_nudge,
+                                           "(You offered the %s choice again, but they already chose it earlier: "
+                                           "\"%s\". It was not shown again. Take that answer and go on; don't ask "
+                                           "it again.)", pk->kind, answered_as[i]) < 0)
+                pending_nudge = NULL;
+        }
     if (pk->active)
         LOG("pick shown %s\n", pk->kind); /* what is really on screen (tests follow this) */
 }
@@ -694,8 +800,19 @@ static void record_pick(int i) {
         snprintf(msg, sizeof msg, "%s", pk->value[i]);
     }
     LOG("picked %s %d: %s\n", k, i, pk->value[i]);
-    if (n_answered < 12)
+    {
+        size_t sl = strlen(shown_note);
+        sl += (size_t)snprintf(shown_note + sl, sizeof shown_note - sl, "%sthe %s choice (", sl ? "; " : "", k);
+        for (int j = 0; j < pk->n && sl < sizeof shown_note - 4; j++)
+            sl += (size_t)snprintf(shown_note + sl, sizeof shown_note - sl, "%s%s", j ? ", " : "",
+                                   pk->label[j][0] ? pk->label[j] : pk->value[j]);
+        if (sl < sizeof shown_note - 2)
+            snprintf(shown_note + sl, sizeof shown_note - sl, ")");
+    }
+    if (n_answered < 12) {
+        snprintf(answered_as[n_answered], sizeof answered_as[0], "%s", msg);
         snprintf(answered[n_answered++], sizeof answered[0], "%s", k);
+    }
     free_pick(pk);
     size_t cl = strlen(choices);
     snprintf(choices + cl, sizeof choices - cl, "%s%s", cl ? " " : "", msg);
@@ -707,6 +824,14 @@ static void record_pick(int i) {
         parse_pick(next);
         if (A.pick.active)
             return;
+    }
+    if (shown_note[0]) { /* it knows the options were there, and that this is the answer to them */
+        char note[1600];
+        snprintf(note, sizeof note,
+                 "(What you offered was on the screen for them, as you asked: %s. They chose from it; their choice "
+                 "follows. It worked: don't offer it again or say it didn't show.)", shown_note);
+        convo_add(&A.onboard, "hidden", note);
+        shown_note[0] = 0;
     }
     say(choices);
     choices[0] = 0;

@@ -30,6 +30,7 @@ void preview_drafting(void);
 void preview_draft(struct fm_doc *doc, const design *d);
 /* The design didn't come through: say why, keep what was there. */
 void preview_failed(const char *why);
+void preview_restore(struct fm_doc *doc, const design *d); /* the kept draft, after a restart */
 
 /* Every frame: reads the design as it is written. */
 void preview_frame(void);
