@@ -77,6 +77,16 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
 14h. **`mkdir -p` failed in a folder they can't write** (their home, under /home): the kernel said "permission
     denied" for a folder that was already there, where Linux says "already there". Fixed for mkdir, symlink and
     link, with a self-test.
+14i. **Firefox took 20 minutes to install**: the desktop downloaded its 1.1 GB reflex model and copied the 5 GB
+    built-in model onto the disk at the same moment. The desktop's own downloads and copies now wait while an app
+    installs (and go on from where they were). From a fresh disk, in the desktop: 157-165 s
+    (tests/browser_vm_win.py, which fails past 5 minutes; tests/flatpak_install_win.py: 147 s alone).
+19. **Subsurfaces were accepted but not drawn**: Firefox's window was black (its toolbar and page are in one).
+    Composited now: places, order, synchronized and desynchronized frames, alpha. tests/wl-sub-test.sh, and
+    tests/browser_vm_win.py checks the window shows its page.
+14j. **Apps couldn't see files change**: no inotify, so GLib had no file monitor (folders didn't refresh, settings
+    files weren't reread). The kernel has inotify now; `gio monitor` sees files made, changed, renamed and
+    deleted. 18 self-tests.
 
 ## To fix (in this order)
 
@@ -93,7 +103,6 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
     with real hardware (docs/gpu.md); updates are built on that, with a way back to the version before.
 
 ### Apps (Wayland) that don't fully work
-19. **Subsurfaces are accepted but not drawn**: parts of some apps (video, embedded views, some menus) are missing.
 20. **No viewporter or fractional scaling**: apps can't scale or crop their surfaces (video players, browsers).
 
 ### Still to look at (each surface used, not just opened)
