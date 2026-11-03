@@ -96,6 +96,40 @@ static void send_segment(struct sock *s, uint8_t flags, uint32_t seq, uint64_t o
 
 void tcp_send_ack(struct sock *s) { send_segment(s, ACK, s->snd_nxt, 0, 0); }
 
+#define DEFERRED 64
+static struct sock *deferred[DEFERRED];
+static int ndeferred;
+
+void tcp_defer(struct sock *s) {
+    for (int i = 0; i < ndeferred; i++)
+        if (deferred[i] == s)
+            return;
+    if (ndeferred == DEFERRED) { /* (full: this one now) */
+        waitq_wake_all(&s->wq);
+        tcp_send_ack(s);
+        return;
+    }
+    deferred[ndeferred++] = s;
+}
+
+int tcp_flush_deferred(void) {
+    int n = ndeferred;
+    for (int i = 0; i < ndeferred; i++) {
+        struct sock *s = deferred[i];
+        waitq_wake_all(&s->wq);
+        if (s->state != TCP_CLOSED)
+            tcp_send_ack(s);
+    }
+    ndeferred = 0;
+    return n;
+}
+
+void tcp_forget_deferred(struct sock *s) {
+    for (int i = 0; i < ndeferred; i++)
+        if (deferred[i] == s)
+            deferred[i--] = deferred[--ndeferred];
+}
+
 static void send_rst(uint32_t src, uint16_t sport, uint32_t dst, uint16_t dport, uint32_t seq, uint32_t ack,
                      bool with_ack) {
     struct sock tmp = {0};
@@ -432,7 +466,9 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
             memcpy(s->rx, data + first, take - first);
             s->rx_head += take;
             s->rcv_nxt += (uint32_t)take;
-            need_ack = true;
+            need_ack = (flags & FIN) || take < dlen; /* a FIN, or no room: told now; plain data: at the batch's end */
+            if (!need_ack && take)
+                tcp_defer(s);
             if ((flags & FIN) && take == dlen) {
                 s->rcv_nxt++;
                 s->rx_eof = true;
@@ -445,7 +481,7 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
                 if (s->state == TCP_TIME_WAIT)
                     s->timewait_deadline = now_ms() + TIME_WAIT_MS;
             }
-            if (take || (flags & FIN))
+            if (flags & FIN)
                 waitq_wake_all(&s->wq);
         }
     } else if (seq_lt(seq, s->rcv_nxt) && now_ms() - s->challenge_ack_ms >= CHALLENGE_ACK_MS) {

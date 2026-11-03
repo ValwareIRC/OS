@@ -6,6 +6,7 @@
 #define IRQ_RESCHED 0
 #define IRQ_TIMER   27 /* EL1 virtual timer */
 #define IRQ_HDA     8192
+#define IRQ_NET     8193
 
 typedef void (*irq_handler_t)(struct regs *r);
 

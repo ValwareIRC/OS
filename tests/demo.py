@@ -71,7 +71,7 @@ class Qemu:
         self.proc = subprocess.Popen(
             ["qemu-system-x86_64", "-M", "q35,vmport=on", "-m", os.environ.get("OS_MEM", "6G"), "-smp", "4", *kvm,
              "-display", "none", "-vga", "std",
-             *(["-nic", "none"] if os.environ.get("OS_DEMO_NONET") else ["-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]),
+             *(["-nic", "none"] if os.environ.get("OS_DEMO_NONET") else ["-netdev", "user,id=n0", "-device", "e1000e,netdev=n0"]),
              *disk_args(),
              "-audiodev", f"wav,id=snd0,path={QMP}.wav",
              "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0",

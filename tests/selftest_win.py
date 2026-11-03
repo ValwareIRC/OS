@@ -19,7 +19,7 @@ if os.path.exists(log):
     os.remove(log)
 args = [QEMU, "-M", "q35", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg", "-cpu", "Skylake-Client-noTSX-IBRS",
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-m", "12G", "-smp", "4", "-no-reboot", "-display", "none",
-        "-fw_cfg", "name=opt/os/mode,string=" + os.environ.get("MODE", "test"), "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
+        "-fw_cfg", "name=opt/os/mode,string=" + os.environ.get("MODE", "test"), "-netdev", "user,id=n0", "-device", os.environ.get("NIC", "e1000") + ",netdev=n0",
         "-drive", "id=d0,file=" + disk.replace(os.sep, "/") + ",format=raw,if=none", "-device", "ide-hd,drive=d0,bus=ide.0",
         "-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0",
         "-serial", "file:" + log.replace(os.sep, "/"), "-cdrom", iso.replace(os.sep, "/")]

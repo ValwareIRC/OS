@@ -37,6 +37,7 @@ struct sock *sock_alloc(int type) {
 void sock_free_if_done(struct sock *s) {
     if (s->file_open || (s->type == 1 && s->state != TCP_CLOSED))
         return;
+    tcp_forget_deferred(s);
     for (struct sock **pp = &all_socks; *pp; pp = &(*pp)->next)
         if (*pp == s) {
             *pp = s->next;

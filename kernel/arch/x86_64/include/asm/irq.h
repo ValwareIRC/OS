@@ -11,6 +11,7 @@
 
 /* Device IRQ numbers generic drivers use, which on x86 are vectors too. */
 #define IRQ_HDA 0x2c
+#define IRQ_NET 0x2d
 
 typedef void (*irq_handler_t)(struct regs *r);
 

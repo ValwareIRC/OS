@@ -158,7 +158,7 @@ $args = @("-name", "Operating System", "-M", "q35,vmport=on", "-m", $mem, "-smp"
           "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg,thread=multi",
           "-cpu", "Skylake-Client-noTSX-IBRS",
           "-vga", "std", "-display", $(if ($Display -eq "gtk") { $gtk } else { $Display }),
-          "-netdev", "user,id=n0", "-device", "e1000,netdev=n0",
+          "-netdev", "user,id=n0", "-device", "e1000e,netdev=n0", # (with interrupts: about 6x the e1000)
           "-audiodev", "dsound,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0",
           "-serial", ("file:" + ((Join-Path $root "build\os-vm-serial.log") -replace "\\", "/")),
           "-serial", "tcp:127.0.0.1:4555,server=on,wait=off",

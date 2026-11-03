@@ -169,12 +169,22 @@ static void lo_drain(void) {
     }
 }
 
+int tcp_flush_deferred(void);
+
 void net_unlock(uint64_t flags) {
-    lo_drain();
+    /* the readers woken and the ACKs sent for the data taken in meanwhile; an ACK over loopback is delivered in turn */
+    do
+        lo_drain();
+    while (tcp_flush_deferred());
     spin_unlock_irqrestore(&net_lock, flags);
 }
 
+static uint64_t last_traffic_ms;
+
 static int eth_send(struct netif *nif, const uint8_t dst[6], uint16_t type, const void *payload, size_t len) {
+    if (!nif->interrupts && now_ms() - last_traffic_ms > 100)
+        net_kick(); /* an answer will come: the ring is looked at often from now (a card without interrupts) */
+    last_traffic_ms = now_ms();
     uint8_t frame[ETH_FRAME_MAX];
     if (len > ETH_MTU)
         return -1;
@@ -366,14 +376,31 @@ static void write_resolv_conf(struct netif *nif) {
     file_put(f);
 }
 
+static struct thread *net_thr;
+static volatile bool net_kicked;
+
+void net_kick(void) {
+    net_kicked = true;
+    if (net_thr)
+        thread_wake(net_thr);
+}
+
+/* The network thread: takes in what the cards received and runs TCP's timers. Woken by a card's interrupt; a card
+ * without (the 82540EM) is looked at every millisecond while traffic flows, every 10 ms when the line is quiet,
+ * and at once when something is sent. (It used to look every 4 ms tick, whatever: a ceiling of 64 frames per
+ * tick, about 24 MB/s, and an interrupt's worth of work 250 times a second for nothing.) */
 static void net_thread(void *arg) {
     (void)arg;
+    net_thr = thread_current();
     bool announced = false;
     for (;;) {
+        bool polled_only = false;
         for (int i = 0; i < nnetif; i++) {
             struct netif *nif = netifs[i];
             uint64_t f = spin_lock_irqsave(&net_lock);
-            nif->poll(nif);
+            if (nif->poll(nif) > 0)
+                last_traffic_ms = now_ms();
+            polled_only |= !nif->interrupts;
             dhcp_tick(nif, now_ms());
             net_unlock(f);
             if (nif->configured && !announced) {
@@ -388,7 +415,9 @@ static void net_thread(void *arg) {
         uint64_t f = spin_lock_irqsave(&net_lock);
         tcp_timers(now_ms());
         net_unlock(f);
-        thread_sleep_ms(1); /* one scheduler tick (4 ms) */
+        uint64_t every_ms = polled_only && now_ms() - last_traffic_ms < 300 ? 1 : 10;
+        if (!__atomic_exchange_n(&net_kicked, false, __ATOMIC_ACQ_REL))
+            thread_block_until_ns(time_monotonic_ns() + every_ms * 1000000ULL);
     }
 }
 

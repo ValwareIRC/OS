@@ -22,7 +22,7 @@ OVMF        ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share
 OVMF_VARS   ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_VARS_4M.fd \
                  /opt/homebrew/share/qemu/edk2-i386-vars.fd /usr/local/share/qemu/edk2-i386-vars.fd))
 QEMU        ?= qemu-system-x86_64
-QEMU_FLAGS  ?= -M q35 -m 2G -smp 4 -cpu max -no-reboot -netdev user,id=n0 -device e1000,netdev=n0
+QEMU_FLAGS  ?= -M q35 -m 2G -smp 4 -cpu max -no-reboot -netdev user,id=n0 -device e1000e,netdev=n0
 DOCKER_PLATFORM := linux/amd64
 BUILDER     := os-builder
 EFI_BOOT    := BOOTX64.EFI
@@ -40,7 +40,7 @@ QEMU        := qemu-system-aarch64
 QEMU_MACHINE := -M virt,gic-version=3 -accel $(if $(filter Darwin,$(shell uname -s)),hvf,kvm) -cpu host \
                -device ramfb -device virtio-keyboard-pci -device virtio-tablet-pci -device ich9-ahci,id=ahci
 QEMU_FLAGS  := $(QEMU_MACHINE) -smp 4 -m 2G -fw_cfg name=opt/os/display,string=1600x900 \
-               -netdev user,id=n0 -device e1000,netdev=n0 -device intel-hda -device hda-duplex
+               -netdev user,id=n0 -device e1000e,netdev=n0 -device intel-hda -device hda-duplex
 DOCKER_PLATFORM := linux/arm64
 BUILDER     := os-builder-arm64
 EFI_BOOT    := BOOTAA64.EFI

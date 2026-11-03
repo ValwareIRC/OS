@@ -1,4 +1,5 @@
 #include <asm/io.h>
+#include <asm/irq.h>
 #include <kernel/boot.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
@@ -7,14 +8,25 @@
 
 /* Intel 8254x/8257x ("e1000") Gigabit Ethernet: the 82540EM that QEMU,
  * VirtualBox and VMware emulate, and the e1000e family (82574L, I217/I219
- * share the descriptor format). Polled by the network thread: no interrupt
- * routing needed, which keeps it working before ACPI _PRT parsing exists. */
+ * share the descriptor format). With MSI (the e1000e family: QEMU's e1000e,
+ * the I217/I219 in real PCs) a received packet interrupts and wakes the
+ * network thread at once; without (the 82540EM), the thread looks at the ring
+ * every millisecond while packets flow and every 10 ms when the line is quiet
+ * (no interrupt routing needed: ACPI _PRT parsing doesn't exist yet). Either
+ * way the receive tail is written once per batch, not once per packet: each
+ * register write is a VM exit under a hypervisor. */
 
 #define REG_CTRL   0x0000
 #define REG_STATUS 0x0008
 #define REG_EERD   0x0014
 #define REG_ICR    0x00c0
 #define REG_IMC    0x00d8
+#define REG_IMS    0x00d0
+#define REG_ITR    0x00c4
+#define ICR_LSC    0x04
+#define ICR_RXDMT0 0x10
+#define ICR_RXO    0x40
+#define ICR_RXT0   0x80
 #define REG_RCTL   0x0100
 #define REG_TCTL   0x0400
 #define REG_TIPG   0x0410
@@ -44,8 +56,8 @@
 #define TX_CMD_RS   0x08
 #define DESC_DD     0x01
 
-#define NRX 64
-#define NTX 64
+#define NRX 256 /* 256 frames in hand (64 held a 4 ms tick's worth at 24 MB/s: the ceiling measured) */
+#define NTX 256
 #define BUF 2048
 
 struct rx_desc {
@@ -114,22 +126,34 @@ static bool e1000_link(struct netif *nif) {
 static int e1000_poll(struct netif *nif) {
     struct e1000 *e = nif->drv;
     int n = 0;
-    (void)rd(e, REG_ICR); /* clear any latched causes */
+    uint32_t done = 0;
     while (e->rx[e->rx_cur].status & DESC_DD) {
         struct rx_desc *d = &e->rx[e->rx_cur];
         dma_rmb();
         if (!d->errors && (d->status & 0x02 /* EOP */))
             net_rx(nif, e->rx_buf[e->rx_cur], d->length);
         d->status = 0;
-        uint32_t done = e->rx_cur;
+        done = e->rx_cur;
         e->rx_cur = (e->rx_cur + 1) % NRX;
-        dma_wmb();
-        wr(e, REG_RDT, done);
         nif->rx_packets++;
         if (++n == NRX)
             break;
     }
+    if (n) { /* the slots taken go back to the card in one write */
+        dma_wmb();
+        wr(e, REG_RDT, done);
+    }
     return n;
+}
+
+static struct e1000 *irq_card; /* the one whose MSI this is */
+
+static void e1000_irq(struct regs *r) {
+    (void)r;
+    if (irq_card)
+        (void)rd(irq_card, REG_ICR); /* reading clears what it says, so the next packet can interrupt again */
+    irq_eoi();
+    net_kick();
 }
 
 static uint16_t eeprom_read(struct e1000 *e, uint8_t addr) {
@@ -215,14 +239,24 @@ static void bring_up(struct pci_dev *pd) {
     wr(e, REG_TIPG, 0x0060200a);
     wr(e, REG_CTRL, rd(e, REG_CTRL) | CTRL_SLU);
 
+    wr(e, REG_IMC, 0xffffffffu);
+    if (!irq_card && pci_enable_msi(pd, IRQ_NET)) {
+        irq_card = e;
+        irq_set_handler(IRQ_NET, e1000_irq);
+        wr(e, REG_ITR, 390); /* at most ~10000 interrupts a second (256 ns units): bursts are taken together */
+        (void)rd(e, REG_ICR);
+        wr(e, REG_IMS, ICR_RXT0 | ICR_RXO | ICR_RXDMT0 | ICR_LSC);
+        e->nif.interrupts = true;
+    }
+
     ksnprintf(e->nif.name, sizeof e->nif.name, "eth0");
     e->nif.tx = e1000_tx;
     e->nif.poll = e1000_poll;
     e->nif.link = e1000_link;
     e->nif.drv = e;
-    kprintf("e1000: %04x at %lx, mac %02x:%02x:%02x:%02x:%02x:%02x, link %s\n", pd->device, pd->bar[0],
+    kprintf("e1000: %04x at %lx, mac %02x:%02x:%02x:%02x:%02x:%02x, link %s, %s\n", pd->device, pd->bar[0],
             e->nif.mac[0], e->nif.mac[1], e->nif.mac[2], e->nif.mac[3], e->nif.mac[4], e->nif.mac[5],
-            (rd(e, REG_STATUS) & 2) ? "up" : "down");
+            (rd(e, REG_STATUS) & 2) ? "up" : "down", e->nif.interrupts ? "interrupts (msi)" : "polled");
     net_register(&e->nif);
 }
 

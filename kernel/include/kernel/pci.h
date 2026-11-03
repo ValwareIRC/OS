@@ -24,3 +24,6 @@ void pci_write16(const struct pci_dev *d, uint8_t off, uint16_t v);
 void pci_enable(const struct pci_dev *d);
 /* Offset of the next capability `id` after the one at `from` (0: the first), or 0 if there is none. */
 uint8_t pci_find_cap(const struct pci_dev *d, uint8_t id, uint8_t from);
+
+/* Message-signalled interrupts on `irq`, if the device has them (and the architecture does): true if enabled. */
+bool pci_enable_msi(struct pci_dev *d, unsigned irq);

@@ -40,6 +40,7 @@ struct netif {
     bool (*link)(struct netif *nif);
     void *drv;
     uint64_t rx_packets, tx_packets;
+    bool interrupts; /* the card wakes the network thread when a packet comes (else it is looked at often) */
 };
 
 extern spinlock_t net_lock;
@@ -50,6 +51,8 @@ extern spinlock_t net_lock;
 void net_unlock(uint64_t flags);
 
 void net_init(void);
+/* Something for the network thread: a packet in (the card's interrupt), or one sent (its answer will come). */
+void net_kick(void);
 void net_register(struct netif *nif);
 struct netif *net_default(void);
 /* An interface as netlink describes it (netinfo.c): 1 is lo, 2 the adapter. */

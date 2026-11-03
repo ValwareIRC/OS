@@ -96,3 +96,8 @@ void tcp_close(struct sock *s);
 void tcp_listener_closed(struct sock *l);
 void tcp_output(struct sock *s);
 void tcp_send_ack(struct sock *s);
+/* In-order data taken in while net_lock is held: its reader is woken, and the ACK for all of it sent, once, when the
+ * lock goes (net_unlock), not per segment: a batch of 256 frames from the card is one wake and one ACK. */
+void tcp_defer(struct sock *s);
+int tcp_flush_deferred(void); /* how many it woke */
+void tcp_forget_deferred(struct sock *s); /* (it is being freed) */
