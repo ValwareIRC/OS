@@ -7,7 +7,7 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $root = Split-Path -Parent $PSScriptRoot
 $stateDir = Join-Path $env:LOCALAPPDATA "Operating System"
 $stateFile = Join-Path $stateDir "launcher.json"
-$last = @{ fresh = $false; claude = $false; model = "sonnet"; design = ""; fullscreen = $false }
+$last = @{ fresh = $false; claude = $false; model = "sonnet"; design = ""; fullscreen = $false; expressive = $false }
 if (Test-Path $stateFile) {
     try {
         $j = Get-Content $stateFile -Raw | ConvertFrom-Json
@@ -31,7 +31,7 @@ $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
 $form.StartPosition = "CenterScreen"
-$form.ClientSize = New-Object System.Drawing.Size(460, 390)
+$form.ClientSize = New-Object System.Drawing.Size(460, 410)
 $form.AutoScaleMode = "Dpi"
 
 function Label($text, $x, $y, $f = $font) {
@@ -95,16 +95,24 @@ $full.Location = New-Object System.Drawing.Point(20, 274)
 $full.Checked = [bool]$last.fullscreen
 $form.Controls.Add($full)
 
+$expr = New-Object System.Windows.Forms.CheckBox
+$expr.Text = "Expressive voice, on this PC's graphics card (feeling and cloning)"
+$expr.AutoSize = $true
+$expr.Location = New-Object System.Drawing.Point(20, 300)
+$expr.Checked = [bool]$last.expressive
+$expr.Enabled = Test-Path (Join-Path $root "build\voice-gpu\venv\Scripts\python.exe")
+$form.Controls.Add($expr)
+
 $start = New-Object System.Windows.Forms.Button
 $start.Text = "Start"; $start.Font = $bold
 $start.Size = New-Object System.Drawing.Size(110, 34)
-$start.Location = New-Object System.Drawing.Point(330, 336)
+$start.Location = New-Object System.Drawing.Point(330, 356)
 $start.DialogResult = "OK"
 $form.Controls.Add($start)
 $cancel = New-Object System.Windows.Forms.Button
 $cancel.Text = "Cancel"
 $cancel.Size = New-Object System.Drawing.Size(90, 34)
-$cancel.Location = New-Object System.Drawing.Point(230, 336)
+$cancel.Location = New-Object System.Drawing.Point(230, 356)
 $cancel.DialogResult = "Cancel"
 $form.Controls.Add($cancel)
 $form.AcceptButton = $start
@@ -124,7 +132,8 @@ if ($env:OS_LAUNCHER_SHOT) { # (for checking how it looks: the window drawn to a
 if ($form.ShowDialog() -ne "OK") { exit 0 }
 
 $choice = @{ fresh = $fresh.Checked; claude = $claude.Checked; model = [string]$model.SelectedItem
-             design = [string]$designs[[string]$design.SelectedItem]; fullscreen = $full.Checked }
+             design = [string]$designs[[string]$design.SelectedItem]; fullscreen = $full.Checked
+             expressive = $expr.Checked }
 New-Item -ItemType Directory -Force $stateDir | Out-Null
 $choice | ConvertTo-Json | Set-Content -Encoding utf8 $stateFile
 
@@ -133,4 +142,5 @@ if ($choice.fresh) { $how.Fresh = $true }
 if ($choice.claude) { $how.Claude = $true; $how.Model = $choice.model }
 if ($choice.design) { $how.Facet = $choice.design }
 if ($choice.fullscreen) { $how.Fullscreen = $true }
+if ($choice.expressive) { $how.Expressive = $true }
 & (Join-Path $PSScriptRoot "os-win.ps1") @how

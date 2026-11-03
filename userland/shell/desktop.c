@@ -1070,6 +1070,8 @@ static void companion_update(void) {
                 snprintf(note, sizeof note, "(voice: %s)", voice_mix(arg + 3));
             else if (!strcmp(verb, "shape"))
                 snprintf(note, sizeof note, "(voice: %s)", voice_shape(arg + 5));
+            else if (!strcmp(verb, "clone"))
+                snprintf(note, sizeof note, "(voice: %s)", voice_clone(arg + 5));
             else
                 snprintf(note, sizeof note, "(voice: [[voice:%.100s]] isn't a thing; hear, use, speed, mix, shape or key)", arg);
             convo_add(c, "hidden", note);

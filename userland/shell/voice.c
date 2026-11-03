@@ -38,6 +38,200 @@ static int speaker_pid, rec_pid;
 static uint64_t spoke_at; /* when the words being said began, and with what */
 static char spoke_with[64];
 static bool cloud_speak(const char *v, int unused);
+static bool pc_speak(const char *voice);
+
+/* ---- the PC's expressive voice ----
+ * Chatterbox on this PC's graphics card (scripts/voice-gpu-server.py, started by the launcher's "Expressive
+ * voice" box), reached at 10.0.2.2, QEMU's way to the PC, until the OS drives the card itself (docs/gpu.md). It
+ * speaks with real feeling (how strongly: "exaggeration") and in any voice cloned from a recording. Voices are
+ * "pc:NAME" (pc:default is its own). */
+#define PC_VOICE_URL "http://10.0.2.2:4572" /* (4571 is the PC's senses) */
+static struct {
+    job *asking;
+    bool up;
+    uint64_t asked_at;
+    char voices[600]; /* their names, space-separated */
+    job *cloning;
+    char cloned[48], clone_why[200];
+} PCV;
+
+static void pc_status_child(void *arg, char **result) {
+    (void)arg;
+    struct http_response r;
+    int e = http_request("GET", PC_VOICE_URL "/status", NULL, NULL, 0, 3, &r);
+    *result = e == 0 && r.status == 200 && r.body ? strdup(r.body) : strdup("");
+    http_response_free(&r);
+}
+
+/* every minute (the PC's voice can be started or stopped while the OS runs) */
+static void pc_poll(void) {
+    char *res;
+    if (PCV.asking && job_poll(PCV.asking, &res)) {
+        job_free(PCV.asking);
+        PCV.asking = NULL;
+        json *j = res ? json_parse(res, strlen(res)) : NULL;
+        bool up = j && json_get(j, "ready") && json_bool(json_get(j, "ready"), false);
+        PCV.voices[0] = 0;
+        json *vs = j ? json_get(j, "voices") : NULL;
+        for (int i = 0; vs && i < json_len(vs); i++) {
+            size_t l = strlen(PCV.voices);
+            snprintf(PCV.voices + l, sizeof PCV.voices - l, "%s%s", l ? " " : "", json_str(json_at(vs, i), ""));
+        }
+        if (up != PCV.up)
+            LOG("voice: the PC's expressive voice is %s%s%s\n", up ? "here (" : "gone", up ? PCV.voices : "",
+                up ? ")" : "");
+        PCV.up = up;
+        json_free(j);
+        free(res);
+    }
+    if (!PCV.asking && (!PCV.asked_at || now_ms() - PCV.asked_at > 60000)) {
+        PCV.asked_at = now_ms();
+        PCV.asking = job_start(pc_status_child, NULL);
+    }
+}
+
+bool voice_pc_available(void) { return PCV.up; }
+
+/* a tone as the PC's voice says it: how strongly (exaggeration) and how closely it keeps to the voice (cfg) */
+static void pc_feeling(const char *tone, float *ex, float *cfg) {
+    static const struct {
+        const char *name;
+        float ex, cfg;
+    } f[] = {{"happy", 0.75f, 0.45f},   {"excited", 1.1f, 0.3f}, {"playful", 0.85f, 0.4f}, {"tender", 0.45f, 0.6f},
+             {"calm", 0.35f, 0.55f},    {"sad", 0.7f, 0.4f},     {"serious", 0.4f, 0.6f},  {"worried", 0.75f, 0.4f},
+             {"surprised", 1.0f, 0.35f}, {"sleepy", 0.3f, 0.6f},  {"whisper", 0.3f, 0.6f},  {"hushed", 0.25f, 0.6f}};
+    *ex = 0.5f, *cfg = 0.5f;
+    for (size_t i = 0; tone && i < sizeof f / sizeof f[0]; i++)
+        if (!strcmp(tone, f[i].name))
+            *ex = f[i].ex, *cfg = f[i].cfg;
+}
+
+static char pc_tone[16]; /* the line's tone, for the child that speaks it */
+
+static void play_piece(const char *data, size_t len, void *ctx) {
+    FILE *play = ctx;
+    if (play && len)
+        fwrite(data, 1, len, play), fflush(play);
+}
+
+/* in a child, the text on stdin: said by the PC's voice into the sound card as each sentence is made */
+static bool pc_speak(const char *voice) {
+    static char text[8192];
+    size_t n = fread(text, 1, sizeof text - 1, stdin);
+    text[n] = 0;
+    for (char *p = text; *p; p++)
+        if (*p == '\n')
+            *p = ' ';
+    float ex, cfg;
+    pc_feeling(pc_tone[0] ? pc_tone : NULL, &ex, &cfg);
+    sbuf body;
+    sb_init(&body);
+    sb_add(&body, "{\"text\":");
+    sb_json_str(&body, text);
+    sb_add(&body, ",\"voice\":");
+    sb_json_str(&body, voice);
+    sb_printf(&body, ",\"exaggeration\":%.2f,\"cfg\":%.2f}", (double)ex, (double)cfg);
+    const char *hdr[] = {"Content-Type: application/json", NULL};
+    FILE *play = popen("/bin/os-play 24000 1", "w");
+    struct http_response r;
+    http_request_stream("POST", PC_VOICE_URL "/speak", hdr, body.p, body.len, 120, play_piece, play, &r);
+    bool ok = r.status == 200;
+    if (!ok) {
+        FILE *e = fopen("/tmp/os-speak.err", "w");
+        if (e) {
+            fprintf(e, "os-speak: the PC's voice: %s\n", r.status ? (r.body ? r.body : "an error") : r.error);
+            fclose(e);
+        }
+    }
+    free(body.p);
+    http_response_free(&r);
+    if (play)
+        pclose(play);
+    return ok;
+}
+
+/* a voice of theirs for the PC: a recording (a file of theirs, or ten seconds from the microphone), sent to it */
+static void clone_child(void *arg, char **result) {
+    char spec[400], name[48] = "", path[300] = "";
+    snprintf(spec, sizeof spec, "%s", (const char *)arg);
+    char *sp = strchr(spec, ' ');
+    if (sp)
+        *sp = 0, snprintf(path, sizeof path, "%s", sp + 1);
+    snprintf(name, sizeof name, "%s", spec);
+    char rec[] = "/tmp/os-clone.wav";
+    if (!path[0] || !strcmp(path, "record")) { /* ten seconds of their voice */
+        pid_t pid = fork();
+        if (pid == 0) {
+            execl("/bin/os-rec", "os-rec", "24000", rec, (char *)NULL);
+            _exit(127);
+        }
+        sleep(10);
+        kill(pid, SIGTERM);
+        waitpid(pid, NULL, 0);
+        snprintf(path, sizeof path, "%s", rec);
+    }
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        *result = strdup("FAILED: that recording isn't there");
+        return;
+    }
+    static char data[16 << 20];
+    size_t n = fread(data, 1, sizeof data, f);
+    fclose(f);
+    char url[200];
+    snprintf(url, sizeof url, PC_VOICE_URL "/voice?name=%s", name);
+    const char *hdr[] = {"Content-Type: audio/wav", NULL};
+    struct http_response r;
+    http_request("POST", url, hdr, data, n, 30, &r);
+    char *res = NULL;
+    if (r.status == 200)
+        res = strdup("ok");
+    else if (asprintf(&res, "FAILED: %s", r.status ? (r.body ? r.body : "the PC refused it") : r.error) < 0)
+        res = NULL;
+    http_response_free(&r);
+    unlink(rec);
+    *result = res ? res : strdup("FAILED");
+}
+
+/* "NAME from ~/path.wav" or "NAME record" */
+const char *voice_clone(const char *spec) {
+    static char back[300];
+    char name[48] = "", rest[300] = "";
+    sscanf(spec, " %47s %299[^\n]", name, rest);
+    bool name_ok = name[0] != 0;
+    for (const char *c = name; *c; c++)
+        name_ok &= isalnum((unsigned char)*c) || *c == '-' || *c == '_';
+    if (!PCV.up) {
+        snprintf(back, sizeof back, "cloning needs the PC's expressive voice, which isn't running (the launcher's "
+                                    "\"Expressive voice\" box)");
+        return back;
+    }
+    if (!name_ok) {
+        snprintf(back, sizeof back, "a cloned voice needs a name of letters, digits, - or _");
+        return back;
+    }
+    if (PCV.cloning) {
+        snprintf(back, sizeof back, "still making %s", PCV.cloned);
+        return back;
+    }
+    char arg[400], path[300] = "record";
+    const char *from = !strncmp(rest, "from ", 5) ? rest + 5 : rest;
+    if (from[0] && strcmp(from, "record")) {
+        if (from[0] == '~')
+            snprintf(path, sizeof path, "%s%s", home_dir(), from + 1);
+        else
+            snprintf(path, sizeof path, "%s", from);
+    }
+    snprintf(arg, sizeof arg, "%s %s", name, path);
+    snprintf(PCV.cloned, sizeof PCV.cloned, "%s", name);
+    PCV.cloning = job_start(clone_child, strdup(arg));
+    LOG("voice: cloning %s from %s\n", name, path);
+    snprintf(back, sizeof back, !strcmp(path, "record")
+                                    ? "recording them for ten seconds now (they should talk naturally), then it becomes pc:%s"
+                                    : "making pc:%s from that recording (a few seconds)",
+             name);
+    return back;
+}
 static job *hearing;
 static bool enabled = true;
 static unsigned said, cut; /* the last line started, and the last one cut off */
@@ -67,7 +261,7 @@ static bool kokoro_ready(const char *name) {
 static const char *const effects[] = {"none", "robot", "whisper", "radio", "phone", "room", "hall", NULL};
 
 /* How one reply is said ([[tone:...]]), on top of its voice: pitch (semitones), how far the melody moves (range),
- * speed, warmth, breath and loudness; a whisper is its voice with some of af_nicole's (a breathy voice) in it, and
+ * speed, warmth and loudness (breath only for a whisper: added air is heard as hiss); a whisper is its voice with some of af_nicole's (a breathy voice) in it, and
  * hushed is a voiceless whisper. For that reply only, then its own voice again. */
 static const struct tone {
     const char *name;
@@ -77,15 +271,15 @@ static const struct tone {
 } tones[] = {
     {"happy", 1.0f, 1.25f, 1.05f, -0.1f, 0, 1, NULL, 0},
     {"excited", 2.0f, 1.5f, 1.12f, -0.15f, 0, 1.05f, NULL, 0},
-    {"playful", 1.2f, 1.35f, 1.06f, 0, 0.05f, 1, NULL, 0},
-    {"tender", -0.5f, 0.85f, 0.92f, 0.3f, 0.2f, 0.85f, NULL, 0},
-    {"calm", -0.5f, 0.8f, 0.93f, 0.2f, 0.05f, 0.95f, NULL, 0},
-    {"sad", -1.5f, 0.65f, 0.86f, 0.25f, 0.2f, 0.8f, NULL, 0},
+    {"playful", 1.2f, 1.35f, 1.06f, 0, 0, 1, NULL, 0},
+    {"tender", -0.5f, 0.85f, 0.92f, 0.3f, 0, 0.85f, NULL, 0},
+    {"calm", -0.5f, 0.8f, 0.93f, 0.2f, 0, 0.95f, NULL, 0},
+    {"sad", -1.5f, 0.65f, 0.86f, 0.25f, 0, 0.8f, NULL, 0},
     {"serious", -1.0f, 0.75f, 0.97f, 0.1f, 0, 1, NULL, 0},
-    {"worried", 0.6f, 1.1f, 1.06f, 0, 0.15f, 0.9f, NULL, 0},
+    {"worried", 0.6f, 1.1f, 1.06f, 0, 0, 0.9f, NULL, 0},
     {"surprised", 2.5f, 1.6f, 1.04f, -0.1f, 0, 1.05f, NULL, 0},
-    {"sleepy", -1.2f, 0.6f, 0.82f, 0.3f, 0.35f, 0.8f, NULL, 0},
-    {"whisper", -0.3f, 0.8f, 0.94f, 0.1f, 0.45f, 0.7f, NULL, 0.35f},
+    {"sleepy", -1.2f, 0.6f, 0.82f, 0.3f, 0, 0.8f, NULL, 0},
+    {"whisper", -0.3f, 0.8f, 0.94f, 0.1f, 0.2f, 0.7f, NULL, 0.35f},
     {"hushed", 0, 1, 0.95f, 0, 0, 0.8f, "whisper", 0},
 };
 static const struct tone *tone_next; /* for the next words said, then gone */
@@ -156,6 +350,8 @@ bool voice_can_speak(void) {
     if (access("/dev/dsp", W_OK) != 0)
         return false;
     const char *v = voice_current();
+    if (!strncmp(v, "pc:", 3) && !PCV.up)
+        return kokoro_ready(settings_get("voice.before_pc", "")) || access(PIPER, X_OK) == 0;
     if (strchr(v, ':') || kokoro_ready(v))
         return true;
     return access(PIPER, X_OK) == 0 && access(SPEAK_MODEL, R_OK) == 0;
@@ -229,6 +425,12 @@ void voice_say(const char *text) {
         char hushed[80];
         if (tone_now && tone_now->nicole > 0 && whisper_voice(v, tone_now->nicole, hushed, sizeof hushed))
             v = hushed; /* its own voice with some breathiness in it */
+        if (!strncmp(v, "pc:", 3) && PCV.up) {
+            snprintf(pc_tone, sizeof pc_tone, "%s", tone_now ? tone_now->name : "");
+            _exit(pc_speak(v + 3) ? 0 : 1);
+        }
+        if (!strncmp(v, "pc:", 3)) /* (not running: the voice it had before) */
+            v = settings_get("voice.before_pc", "");
         if (!strncmp(v, "openai:", 7) || !strncmp(v, "elevenlabs:", 11))
             _exit(cloud_speak(v, 0) ? 0 : 1); /* (the text is on stdin) */
         char fx[220], cmd[900];
@@ -594,6 +796,24 @@ const char *voice_use(const char *name) {
     static char said_back[200];
     while (*name == ' ')
         name++;
+    if (!strncmp(name, "pc:", 3)) {
+        char padded[620];
+        snprintf(padded, sizeof padded, " %s ", PCV.voices);
+        char want_v[60];
+        snprintf(want_v, sizeof want_v, " %.50s ", name + 3);
+        if (!PCV.up)
+            snprintf(said_back, sizeof said_back, "the PC's expressive voice isn't running (the launcher's \"Expressive voice\" box)");
+        else if (strcmp(name + 3, "default") && !strstr(padded, want_v))
+            snprintf(said_back, sizeof said_back, "the PC has no voice called %s (it has: default %s)", name + 3, PCV.voices);
+        else {
+            if (strncmp(voice_current(), "pc:", 3))
+                settings_set("voice.before_pc", voice_current());
+            settings_set("voice.name", name);
+            LOG("voice: now %s\n", name);
+            snprintf(said_back, sizeof said_back, "now speaking as %s, with feeling", name);
+        }
+        return said_back;
+    }
     if (!strncmp(name, "openai:", 7) || !strncmp(name, "elevenlabs:", 11)) {
         bool openai = name[0] == 'o';
         const char *key = openai ? (strcasestr(A.cfg.base_url, "openai.com") ? A.cfg.api_key : settings_get("voice.openai_key", ""))
@@ -631,6 +851,25 @@ const char *voice_use(const char *name) {
 }
 
 void voice_poll(void) {
+    pc_poll();
+    char *cres;
+    if (PCV.cloning && job_poll(PCV.cloning, &cres)) {
+        job_free(PCV.cloning);
+        PCV.cloning = NULL;
+        bool ok = cres && !strcmp(cres, "ok");
+        LOG("voice: cloning %s: %s\n", PCV.cloned, cres ? cres : "no answer");
+        if (ok) {
+            char v[60];
+            snprintf(v, sizeof v, "pc:%s", PCV.cloned);
+            if (strncmp(voice_current(), "pc:", 3))
+                settings_set("voice.before_pc", voice_current());
+            settings_set("voice.name", v);
+            PCV.asked_at = 0; /* its list again */
+            toast("The voice %s is ready.", PCV.cloned);
+        } else
+            toast("That voice couldn't be made: %s", cres ? cres + (strncmp(cres, "FAILED: ", 8) ? 0 : 8) : "no answer");
+        free(cres);
+    }
     if (clip_next[0] && !voice_speaking()) {
         play_clip(clip_next);
         clip_next[0] = 0;
@@ -745,6 +984,13 @@ const char *voice_prompt(void) {
         closedir(d);
     if (!n)
         sb_add(&b, "none installed");
+    if (PCV.up)
+        sb_printf(&b, ". This PC's graphics card can give you a far more expressive voice, with real feeling: "
+                      "[[voice:use pc:NAME]] (it has: default %s); with it your [[tone:...]] is said with that feeling "
+                      "for real. It can also clone a voice for them: [[voice:clone NAME from ~/Music/file.wav]] from "
+                      "a recording of theirs (8 seconds or more of clear speech), or [[voice:clone NAME record]] to "
+                      "record them for ten seconds (tell them to talk first); only voices they have the right to use",
+                  PCV.voices);
     bool oa = strcasestr(A.cfg.base_url, "openai.com") || settings_get("voice.openai_key", "")[0];
     if (oa)
         sb_add(&b, ". Cloud (more natural, online): openai:alloy, openai:ash, openai:ballad, openai:coral, "

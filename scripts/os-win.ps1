@@ -22,7 +22,7 @@
 # Ctrl+Alt+F leaves and
 # re-enters full screen; Ctrl+Alt+G lets go of the mouse.
 param([string]$Iso = "", [string]$Disk = "", [string]$Facet = "", [switch]$Claude, [string]$Model = "sonnet", [string]$Display = "gtk",
-      [string]$Memory = "", [switch]$Fullscreen, [string]$Vrm = "", [switch]$Fresh)
+      [string]$Memory = "", [switch]$Fullscreen, [string]$Vrm = "", [switch]$Fresh, [switch]$Expressive)
 $root = Split-Path -Parent $PSScriptRoot
 # The newest image: the latest release in dist\ or the latest build, whichever
 # is newer (a build still being written, changed in the last two minutes, waits).
@@ -211,6 +211,18 @@ if ($Claude) {
     [IO.File]::WriteAllText($mind, '{"provider":"claude-pc","base_url":"http://10.0.2.2:4570/v1","api_key":"","model":"' + $Model + '"}')
     $facetArgs += @("-fw_cfg", "name=opt/os/mind.json,file=$mind")
     Write-Host "Thinking with Claude ($Model) through this PC's Claude Code sign-in"
+}
+# -Expressive: a voice with real feeling and cloning, from this PC's graphics card (Chatterbox, in
+# build\voice-gpu\venv: scripts\voice-gpu-server.py), for the VM at 10.0.2.2:4572, gone when the VM closes.
+if ($Expressive) {
+    $vpy = Join-Path $root "build\voice-gpu\venv\Scripts\python.exe"
+    if (-not (Test-Path $vpy)) {
+        Write-Host "The expressive voice isn't installed (build\voice-gpu\venv): starting without it."
+    } elseif (-not (Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 4572 -State Listen -ErrorAction SilentlyContinue)) {
+        Start-Process $vpy -WindowStyle Hidden -ArgumentList @((Join-Path $PSScriptRoot "voice-gpu-server.py"), "--exit-with-vm") `
+            -RedirectStandardOutput (Join-Path $root "build\voice-gpu\stdout.log") -RedirectStandardError (Join-Path $root "build\voice-gpu\stderr.log")
+        Write-Host "The expressive voice is starting on the graphics card (it is ready about half a minute after)"
+    }
 }
 # The PC's senses (CPU, GPU, fans, RGB lights) for the VM at 10.0.2.2:4571,
 # unless they already run (e.g. elevated, from scripts\host-senses\enable-admin.ps1).

@@ -590,6 +590,8 @@ static char *apply_tags(const char *text) {
                 snprintf(note, sizeof note, "(voice: %s)", voice_mix(arg + 3));
             else if (!strcasecmp(verb, "shape"))
                 snprintf(note, sizeof note, "(voice: %s)", voice_shape(arg + 5));
+            else if (!strcasecmp(verb, "clone"))
+                snprintf(note, sizeof note, "(voice: %s)", voice_clone(arg + 5));
             else {
                 voice_set_speed(strtof(what, NULL));
                 snprintf(note, sizeof note, "(voice: speed %s)", what);

@@ -40,6 +40,8 @@ const char *voice_mix(const char *spec);
 const char *voice_shape(const char *spec);
 const char *voice_shape_now(void); /* the shaping, as os-voicefx's arguments ("" none) */
 void voice_tone(const char *name);   /* how the next words are said: happy, sad, whisper... ([[tone:]]) */
+const char *voice_clone(const char *spec); /* "NAME from PATH" or "NAME record": a voice for the PC's card */
+bool voice_pc_available(void);            /* the PC's expressive voice is running */
 void voice_poll(void);                      /* a download finishing */
 /* What the companion is told about choosing a voice. */
 const char *voice_prompt(void);
