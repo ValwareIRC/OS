@@ -642,6 +642,8 @@ static int utf8(uint32_t cp, char *o) {
 
 const char *term_title(void) { return T.title[0] ? T.title : NULL; }
 
+bool term_busy(void) { return T.fd >= 0 && now_ms() - T.last_output < 800; }
+
 void term_draw(rect r, bool focused, color surface, color text, float px) {
     theme_term_colors(&TC, surface, text);
     font *f = font_get(TC.font[0] ? TC.font : "JetBrainsMono", px);

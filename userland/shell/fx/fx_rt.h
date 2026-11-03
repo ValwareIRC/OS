@@ -80,6 +80,9 @@ bool fx_event(fx_rt *rt, fx_out *el, const char *event, fx_val value);
 bool fx_bind(fx_rt *rt, fx_out *el, fx_val value);
 /* Something changed since the last render. */
 bool fx_dirty(fx_rt *rt);
+/* How soon (ms) it wants fx_tick again: 0 when something is waiting (its state changed, a socket is open), the
+ * next timer otherwise (a very large number: nothing due). */
+double fx_wake_in(fx_rt *rt);
 /* The last fault while running, or NULL. */
 const char *fx_fault(fx_rt *rt);
 const char *fx_get(const fx_out *el, const char *name); /* NULL if absent */

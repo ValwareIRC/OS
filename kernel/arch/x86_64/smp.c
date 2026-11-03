@@ -19,13 +19,46 @@ bool arch_msi_setup(const struct pci_dev *d, unsigned irq, uint64_t *addr, uint3
     return true;
 }
 
+void sched_preempt(void);
+void lapic_timer_in(uint64_t ns);
+
+/* The one-shot timer fired: a tick if it is time for one (counted, the scheduler's turn), sleepers that are due
+ * woken; then it is set again for whichever comes first. */
 static void timer_irq(struct regs *r) {
     lapic_eoi();
-    proc_account_tick(r); /* CPU times for /proc */
-    sched_tick();
+    struct cpu *c = this_cpu();
+    const uint64_t tick_ns = 1000000000ULL / HZ;
+    uint64_t now = time_monotonic_ns();
+    if (!time_precise()) {
+        /* Until the counter is measured the clock moves only with ticks, and time_init measures it against them:
+         * exactly one tick every 1/HZ s then (anything else and the clock runs at the wrong speed for good). */
+        int woken;
+        lapic_timer_in(tick_ns);
+        c->arch.next_tick_ns = c->arch.armed_ns = 0;
+        (void)sched_timer(now, &woken);
+        proc_account_tick(r);
+        sched_tick();
+        return;
+    }
+    bool tick = now + 50000 >= c->arch.next_tick_ns;
+    if (tick) {
+        c->arch.next_tick_ns += tick_ns;
+        if (c->arch.next_tick_ns <= now || c->arch.next_tick_ns > now + 2 * tick_ns) /* fell behind, or the clock moved */
+            c->arch.next_tick_ns = now + tick_ns;
+    }
+    int woken = 0;
+    uint64_t next = sched_timer(now, &woken);
+    if (next > c->arch.next_tick_ns)
+        next = c->arch.next_tick_ns;
+    c->arch.armed_ns = next;
+    lapic_timer_in(next > now ? next - now : 1000);
+    if (tick) {
+        proc_account_tick(r); /* CPU times for /proc */
+        sched_tick();
+    } else if (woken && c->current == c->idle) {
+        sched_preempt(); /* a sleeper due now, and nothing else running here: at once, not at the tick */
+    }
 }
-
-void sched_preempt(void);
 
 static void resched_irq(struct regs *r) {
     (void)r;

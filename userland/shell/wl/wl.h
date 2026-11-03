@@ -47,6 +47,7 @@ void wls_dispatch(void);
 int wls_fds(int *fds, int max);
 /* Tells apps a frame was shown (they draw the next one then). */
 void wls_frame_done(uint32_t ms);
+bool wls_frames_waiting(void); /* an app committed and asked to be told when it was shown (it is animating) */
 
 int wls_view_count(void);
 wl_view *wls_view(int i);

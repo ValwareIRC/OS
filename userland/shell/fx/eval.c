@@ -1680,6 +1680,19 @@ bool fx_bind(fx_rt *rt, fx_out *el, fx_val value) {
 }
 
 bool fx_dirty(fx_rt *rt) { return rt->dirty; }
+
+double fx_wake_in(fx_rt *rt) {
+    if (rt->dirty)
+        return 0;
+    for (int i = 0; i < 16; i++)
+        if (rt->socks[i].live)
+            return 0; /* what arrives on a socket is read as it ticks */
+    double now = rt->host.now_ms ? rt->host.now_ms(rt->host.ctx) : 0, best = 1e18;
+    for (int i = 0; i < 32; i++)
+        if (rt->timers[i].live && rt->timers[i].due - now < best)
+            best = rt->timers[i].due - now;
+    return best < 0 ? 0 : best;
+}
 const char *fx_fault(fx_rt *rt) { return rt->fault[0] ? rt->fault : NULL; }
 
 const char *fx_get(const fx_out *el, const char *name) {

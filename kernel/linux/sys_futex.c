@@ -149,14 +149,7 @@ static int64_t futex_wait(struct mm *mm, uint64_t uaddr, uint32_t val, uint32_t 
         spin_unlock_irqrestore(&b->lock, f);
         /* A wake that lands between the unlock and the block marks us
          * wake_pending, so the block returns at once. */
-        uint64_t tick = 0;
-        if (deadline) {
-            uint64_t now = time_monotonic_ns();
-            uint64_t left = deadline > now ? deadline - now : 0;
-            uint64_t ticks = (left + NS_PER_TICK - 1) / NS_PER_TICK;
-            tick = global_ticks + (ticks ? ticks : 1);
-        }
-        thread_block_until(tick);
+        thread_block_until_ns(deadline);
     }
 }
 

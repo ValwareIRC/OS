@@ -143,6 +143,7 @@ struct alive_prefs {
     bool quiet;         /* "be quiet": nothing unless it's urgent */
     bool lights_follow; /* the PC's RGB takes the desktop's colours */
     bool lights_show;   /* the keyboard pulses while it thinks or talks */
+    bool always_draw;   /* (tests: every frame drawn, as before frames were skipped, to compare) */
 };
 extern struct alive_prefs alive_prefs;
 void alive_prefs_save(void);

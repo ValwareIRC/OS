@@ -30,6 +30,20 @@ void waitq_init(struct waitq *wq);
 int waitq_wait_cond(struct waitq *wq, bool (*cond)(void *), void *arg);
 void waitq_wake_all(struct waitq *wq);
 
+/* Waiting on many wait queues at once (poll, select, epoll_wait): each queue a file's poll op names is added once
+ * (with a reference to the file, so neither goes away meanwhile), then the caller looks at everything again and
+ * blocks; whichever queue is woken wakes it. Queues added since the caller last looked mean it looks again first
+ * (something may have changed before it was listening). */
+struct multiwait {
+    struct mw_item *items;
+    bool added;      /* a queue added since the last multiwait_block */
+    bool unwaitable; /* a file with no queue to wait on: looked at again every 4 ms */
+};
+void multiwait_add(struct multiwait *m, struct waitq *wq, struct file *f);
+/* Blocks until a queue is woken or `deadline_ns` (0: none); returns at once if a queue was just added. */
+void multiwait_block(struct multiwait *m, uint64_t deadline_ns);
+void multiwait_end(struct multiwait *m); /* out of every queue, the files let go */
+
 /* User address space. */
 #define USER_TOP        0x0000800000000000ULL
 #define USER_STACK_TOP  0x00007ffffff00000ULL
@@ -123,6 +137,8 @@ bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec);
 void mm_set_name(struct mm *mm, uint64_t start, uint64_t end, struct vma_name *name, uint64_t pgoff);
 /* Pages actually present in the page tables (/proc's RSS). */
 uint64_t mm_rss_pages(struct mm *mm);
+/* Timer ticks spent in user mode and in the kernel: who 0 the process, -1 its waited-for children, 1 this thread. */
+void proc_cpu_ticks(struct process *p, int who, uint64_t *ut, uint64_t *st);
 
 /* Loads the kernel's own page tables on this CPU (no user mm active). */
 void mm_activate_kernel(void);
@@ -212,6 +228,7 @@ struct process {
     struct exec_info *exec;
     uint64_t start_ns;               /* creation, monotonic */
     uint64_t dead_utime, dead_stime; /* timer ticks of threads that have exited */
+    uint64_t child_utime, child_stime; /* of its children once waited for (and theirs), as getrusage tells them */
 };
 
 /* Per-thread user state (lives in struct thread via `user`). */
@@ -330,6 +347,7 @@ void syscall_dispatch(struct regs *r);
 /* Time */
 void time_init(void);
 uint64_t time_monotonic_ns(void);
+bool time_precise(void); /* false until the counter is measured (time_init): the clock moves only with the tick */
 int64_t time_realtime_s(void);
 uint64_t time_realtime_ns(void);
 void time_set_realtime_ns(uint64_t ns); /* clock_settime */

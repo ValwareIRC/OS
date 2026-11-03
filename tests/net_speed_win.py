@@ -58,5 +58,9 @@ text = open(log, encoding="utf-8", errors="replace").read() if os.path.exists(lo
 for l in text.splitlines():
     if "net-speed:" in l or "e1000" in l:
         print(l)
+import re
+speeds = [float(x) for x in re.findall(r"net-speed: [\d.]+ MB in [\d.]+ s = ([\d.]+) MB/s", text)]
+if speeds:  # (for the Performance fixes panel)
+    print(f"PERF net_{'together' if len(speeds) > 1 else 'single'}_mbs={sum(speeds):.1f}")
 if "secs" in served:
     print(f"(this PC sent it in {served['secs']:.1f} s)")

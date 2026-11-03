@@ -28,6 +28,9 @@ void time_init(void) {
     kprintf("time: counter %lu MHz, wall clock %ld\n", tsc_hz / 1000000, boot_epoch);
 }
 
+/* Whether the clock runs on the counter yet (before time_init it counts timer ticks). */
+bool time_precise(void) { return tsc_hz != 0; }
+
 uint64_t time_monotonic_ns(void) {
     if (!tsc_hz)
         return global_ticks * (1000000000ULL / HZ);

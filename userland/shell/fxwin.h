@@ -18,6 +18,8 @@ void fxwin_close(struct fxwin *fw);
 void fxwin_close_path(const char *path);
 /* Frees the apps whose windows went (an app may close itself while it runs: freed after). */
 void fxwin_reap(void);
+/* How soon (ms) an open Facet app wants to be drawn: a timer of its own due, a socket open (a large number: none). */
+double fxwin_wake_in(void);
 /* what="fx:N" from one of its elements (desktop.c's fm_host_action passes these on). */
 bool fxwin_action(struct fm_doc *d, const char *a);
 /* Apps in ~/Apps (*.facet): their names, for the app list. */

@@ -6,5 +6,6 @@
 /* The terminal app: a shell on a pty, drawn into a window body. */
 void term_draw(rect body, bool focused, color surface, color text, float px);
 void term_close(void);
+bool term_busy(void); /* its program wrote something in the last moment (it is drawn at full rate meanwhile) */
 const char *term_title(void); /* set by the program (OSC 0/2), or NULL */
 void term_dump(char *out, size_t len);

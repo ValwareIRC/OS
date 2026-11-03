@@ -23,10 +23,15 @@ static void timer_irq(struct regs *r) {
     __asm__ volatile("msr cntv_cval_el0, %0; isb" ::"r"(cval + timer_period));
     irq_eoi();
     proc_account_tick(r); /* CPU times for /proc */
+    int woken;
+    (void)sched_timer(time_monotonic_ns(), &woken);
     sched_tick();
 }
 
 void sched_preempt(void);
+
+/* (Its timer fires at each tick only, for now: a sleeper wakes at the tick after its time.) */
+void arch_timer_arm(uint64_t deadline_ns) { (void)deadline_ns; }
 
 static void resched_irq(struct regs *r) {
     (void)r;

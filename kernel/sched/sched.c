@@ -18,7 +18,8 @@ void thread_start(void);
 
 static spinlock_t rq_lock = SPINLOCK_INIT;
 static struct thread *rq_head, *rq_tail;
-static struct thread *sleepers;
+static struct thread *sleepers[MAX_CPUS]; /* by the CPU whose timer wakes them */
+#define TIMER_SLACK_NS 20000                 /* due this close: woken now rather than a timer later */
 static uint64_t next_id = 1;
 
 static void rq_push(struct thread *t) {
@@ -125,8 +126,10 @@ static void schedule(enum thread_state new_state) {
             prev->wake_pending = false;
         }
         if (new_state == THREAD_SLEEPING) {
-            prev->next = sleepers;
-            sleepers = prev;
+            prev->sleep_cpu = (int)c->id;
+            prev->next = sleepers[c->id];
+            sleepers[c->id] = prev;
+            arch_timer_arm(prev->wake_ns);
         }
     }
 
@@ -226,13 +229,14 @@ void thread_exit(void) {
     panic("thread_exit: dead thread was scheduled again");
 }
 
-void thread_sleep_ms(uint64_t ms) {
+void thread_sleep_ns(uint64_t ns) {
     uint64_t f = irq_save();
-    uint64_t ticks = (ms * HZ + 999) / 1000;
-    thread_current()->wake_tick = global_ticks + (ticks ? ticks : 1);
+    thread_current()->wake_ns = time_monotonic_ns() + (ns ? ns : 1);
     schedule(THREAD_SLEEPING);
     irq_restore(f);
 }
+
+void thread_sleep_ms(uint64_t ms) { thread_sleep_ns(ms * 1000000ULL); }
 
 void thread_block_current(void) {
     uint64_t f = irq_save();
@@ -240,13 +244,13 @@ void thread_block_current(void) {
     irq_restore(f);
 }
 
-void thread_block_until(uint64_t tick) {
-    if (!tick) {
+void thread_block_until_ns(uint64_t deadline_ns) {
+    if (!deadline_ns) {
         thread_block_current();
         return;
     }
     uint64_t f = irq_save();
-    thread_current()->wake_tick = tick;
+    thread_current()->wake_ns = deadline_ns;
     schedule(THREAD_SLEEPING);
     irq_restore(f);
 }
@@ -257,7 +261,7 @@ void thread_wake(struct thread *t) {
     uint64_t f = spin_lock_irqsave(&rq_lock);
     bool queued = false;
     if (t->state == THREAD_SLEEPING) {
-        for (struct thread **pp = &sleepers; *pp; pp = &(*pp)->next)
+        for (struct thread **pp = &sleepers[t->sleep_cpu]; *pp; pp = &(*pp)->next)
             if (*pp == t) {
                 *pp = t->next;
                 break;
@@ -277,28 +281,37 @@ void thread_wake(struct thread *t) {
         kick_idle_cpu();
 }
 
-/* Timer interrupt on every CPU (interrupts are off). */
+/* This CPU's timer fired (interrupts are off): its sleepers that are due go to the run queue. */
+uint64_t sched_timer(uint64_t now_ns, int *woken) {
+    struct cpu *c = this_cpu();
+    uint64_t next = UINT64_MAX;
+    int n = 0;
+    spin_lock(&rq_lock);
+    for (struct thread **pp = &sleepers[c->id]; *pp;) {
+        struct thread *t = *pp;
+        if (t->wake_ns <= now_ns + TIMER_SLACK_NS) {
+            *pp = t->next;
+            t->state = THREAD_READY;
+            rq_push(t);
+            n++;
+        } else {
+            if (t->wake_ns < next)
+                next = t->wake_ns;
+            pp = &t->next;
+        }
+    }
+    spin_unlock(&rq_lock);
+    if (n > 1 || (n && c->current != c->idle)) /* this CPU takes one at most; share the rest */
+        kick_idle_cpu();
+    *woken = n;
+    return next;
+}
+
+/* The scheduler's tick on every CPU (interrupts are off). */
 void sched_tick(void) {
     struct cpu *c = this_cpu();
     c->ticks++;
-    if (c->id == 0) {
-        uint64_t now = __atomic_add_fetch(&global_ticks, 1, __ATOMIC_RELAXED);
-        int woken = 0;
-        spin_lock(&rq_lock);
-        for (struct thread **pp = &sleepers; *pp;) {
-            struct thread *t = *pp;
-            if (t->wake_tick <= now) {
-                *pp = t->next;
-                t->state = THREAD_READY;
-                rq_push(t);
-                woken++;
-            } else {
-                pp = &t->next;
-            }
-        }
-        spin_unlock(&rq_lock);
-        if (woken > 1) /* this CPU takes one; share the rest */
-            kick_idle_cpu();
-    }
+    if (c->id == 0)
+        __atomic_add_fetch(&global_ticks, 1, __ATOMIC_RELAXED);
     schedule(THREAD_READY);
 }

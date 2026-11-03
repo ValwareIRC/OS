@@ -19,6 +19,15 @@
 #include "appapi.h"
 #include "capture.h"
 #include "models.h"
+#include "caption.h"
+#include "agent.h"
+#include "voice.h"
+#include "launcher.h"
+#include "preview.h"
+#include "body.h"
+#include "alive.h"
+#include "term.h"
+#include "fxwin.h"
 
 #include <dirent.h>
 #include <poll.h>
@@ -227,25 +236,135 @@ static void keep_on_disk(void) {
 /* One frame: input, drawing, presenting, then sleeping until something happens. */
 static void (*modal)(void); /* a question being asked (main_modal) */
 static int frame_fds[2];
+static bool woke_by_app; /* the last sleep ended for an app or a service (the portal, the companion's face, the API) */
+static bool last_animating;
+
+/* Where the desktop's time goes, part by part (PROF around each step of a frame), in the log every half minute. */
+static struct {
+    const char *name;
+    uint64_t us, calls;
+} prof[48];
+
+uint64_t prof_now_us(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000u + (uint64_t)t.tv_nsec / 1000u;
+}
+
+void prof_add(const char *name, uint64_t us) {
+    for (int i = 0; i < 48; i++)
+        if (prof[i].name == name || !prof[i].name) {
+            prof[i].name = name;
+            prof[i].us += us;
+            prof[i].calls++;
+            return;
+        }
+}
+
+static void prof_log(uint64_t span_ms) {
+    char line[800] = "";
+    for (int k = 0; k < 14; k++) { /* the costliest, most first */
+        int best = -1;
+        for (int i = 0; i < 48; i++)
+            if (prof[i].name && prof[i].calls && (best < 0 || prof[i].us > prof[best].us))
+                best = i;
+        if (best < 0 || prof[best].us < 1000)
+            break;
+        snprintf(line + strlen(line), sizeof line - strlen(line), "%s%s %.1f%%", line[0] ? ", " : "", prof[best].name,
+                 span_ms ? prof[best].us / 10.0 / (double)span_ms : 0);
+        prof[best].calls = 0;
+    }
+    LOG("time: %s (of one core)\n", line[0] ? line : "nothing to speak of");
+    for (int i = 0; i < 48; i++)
+        prof[i].us = prof[i].calls = 0;
+}
+
+/* What the apps' windows show, in one number: a new frame from any of them changes it. */
+static uint64_t views_sig(void) {
+    uint64_t h = 1469598103934665603ull;
+    for (int i = 0; i < wls_view_count(); i++) {
+        wl_view *v = wls_view(i);
+        uint64_t parts[4] = {(uint64_t)v->id, v->version, (uint64_t)v->mapped, (uint64_t)v->w << 32 | (uint32_t)v->h};
+        for (int k = 0; k < 4; k++)
+            h = (h ^ parts[k]) * 1099511628211ull;
+    }
+    return h;
+}
+
+/* Drawing is most of what the desktop costs (the whole screen, in software, then copied out): a frame is drawn
+ * when something on it may have changed, and a little after (hovers fading, a popover closing), and otherwise four
+ * times a second (a clock, a blinking cursor, anything that changed without saying so). It used to be thirty
+ * times a second whatever happened: half a processor core with nothing moving. */
+static bool frame_wanted(void) {
+    static uint64_t last_drawn, busy_until, last_views, since, frames, drawn;
+    static unsigned seen; /* which reasons kept it drawing, over the last half minute (for the log) */
+    uint64_t vs = views_sig();
+    bool input = A.in.moved || A.in.down || A.in.clicked || A.in.pressed || A.in.right_clicked || A.in.wheel ||
+                 A.in.nkeys || A.in.nraw;
+    bool why[] = {
+        A.dirty || alive_prefs.always_draw, A.screen != SCR_DESKTOP || modal || lock_active(), input, vs != last_views, woke_by_app,
+        wls_frames_waiting(), last_animating, wallpaper_animated(&A.d), wm_poll_ms(33) < 33,
+        (A.toast[0] && A.now < A.toast_until + 500) || caption_showing(),
+        A.companion.pending || agent_busy() || voice_speaking() || voice_listening() || voice_hearing(),
+        capture_active() || launcher_active() || preview_showing() || portal_modal() || appapi_modal() || body_asking() ||
+            A.confirm_power || actions_confirming(),
+        term_busy(), fxwin_wake_in() <= 34,
+    };
+    static const char *const names[] = {"asked", "screen", "input", "app frame", "app message", "app waiting",
+                                        "animation", "live wallpaper", "window manager", "toast or caption",
+                                        "companion", "panel", "terminal", "Facet app"};
+    bool busy = false;
+    for (unsigned i = 0; i < sizeof why / sizeof why[0]; i++)
+        if (why[i]) {
+            busy = true;
+            seen |= 1u << i;
+        }
+    last_views = vs;
+    woke_by_app = false;
+    if (busy)
+        busy_until = A.now + 600;
+    bool draw = A.now < busy_until || A.now - last_drawn >= 250;
+    if (draw) {
+        last_drawn = A.now;
+        A.dirty = false;
+        drawn++;
+    }
+    frames++;
+    if (!since)
+        since = A.now;
+    if (A.now - since >= 30000 && A.screen == SCR_DESKTOP) { /* how much it drew, and why */
+        char list[256] = "";
+        for (unsigned i = 0; i < sizeof why / sizeof why[0]; i++)
+            if (seen & (1u << i))
+                snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", list[0] ? ", " : "", names[i]);
+        LOG("frames: %llu drawn of %llu in %llu s (kept drawing by: %s)\n", (unsigned long long)drawn,
+            (unsigned long long)frames, (unsigned long long)((A.now - since) / 1000), list[0] ? list : "nothing");
+        prof_log(A.now - since);
+        since = A.now, frames = drawn = 0, seen = 0;
+    }
+    return draw;
+}
 
 void main_frame(void) {
+    uint64_t frame_t0 = prof_now_us();
     A.now = now_ms();
-    wm_frame_begin();
-    wls_dispatch();
-    portal_poll(); /* os-portal: file choosers, notifications */
-    appapi_poll(); /* apps using the companion: its AI, voice, face, memory */
-    models_poll(); /* model downloads, wherever they were started */
-    mind_builtin_tick(); /* the model that comes with it, once it has been read from the disc */
-    presence_poll(); /* its frames, and what it should know */
-    input_poll(&A.in);
+    PROF("wm begin", wm_frame_begin());
+    PROF("wayland", wls_dispatch());
+    PROF("portal", portal_poll()); /* os-portal: file choosers, notifications */
+    PROF("app API", appapi_poll()); /* apps using the companion: its AI, voice, face, memory */
+    PROF("models", models_poll()); /* model downloads, wherever they were started */
+    PROF("built-in model", mind_builtin_tick()); /* the model that comes with it, once it has been read from the disc */
+    PROF("presence", presence_poll()); /* its frames, and what it should know */
+    PROF("input", input_poll(&A.in));
     if (A.in.clicked || A.in.pressed || A.in.nkeys || A.in.wheel)
         nerve_person_touched(); /* what follows from this is theirs (nerve.c) */
-    ui_text_menu_input(); /* a text field's right-click menu, when it is up, has the pointer */
+    PROF("text menu", ui_text_menu_input()); /* a text field's right-click menu, when it is up, has the pointer */
+    PROF("deciding", A.drawing = frame_wanted());
     input_state real = A.in;
     if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
-    clock_frame(); /* the automatic time zone, the network's time (clock.c) */
-    onboard_keep(); /* onboarding's place, kept as it changes (onboard_talk.inc) */
+    PROF("clock", clock_frame()); /* the automatic time zone, the network's time (clock.c) */
+    PROF("onboarding", onboard_keep()); /* onboarding's place, kept as it changes (onboard_talk.inc) */
     if (lock_frame()) /* locked: the lock screen is everything (lock.c) */
         goto drawn;
     switch (A.screen) {
@@ -255,25 +374,28 @@ void main_frame(void) {
     case SCR_CONNECT: connect_draw(); break;
     case SCR_ONBOARD: onboard_draw(); break;
     case SCR_DESIGNING: designing_draw(); break;
-    case SCR_DESKTOP: desktop_draw(); break;
+    case SCR_DESKTOP: PROF("desktop", desktop_draw()); break;
     }
     if (modal) {
         A.in = real;
         modal();
     }
 drawn:
-    ui_text_menu_draw();
-    capture_frame(false); /* a recording without the pointer takes this */
-    ui_cursor(A.frame, A.in.mx, A.in.my);
-    wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
-    capture_frame(true); /* ...with it, this */
-    if (A.screen != SCR_SPLASH) /* (until there is something to show, the boot screen stays) */
-        display_present(A.frame);
-    wm_frame_end();
-    wls_frame_done((uint32_t)A.now); /* apps draw their next frame now */
-    keep_on_disk();
-    keep_home_theirs();
-    keep_account_name();
+    if (A.drawing) {
+        ui_text_menu_draw();
+        capture_frame(false); /* a recording without the pointer takes this */
+        ui_cursor(A.frame, A.in.mx, A.in.my);
+        wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
+        capture_frame(true); /* ...with it, this */
+        if (A.screen != SCR_SPLASH) /* (until there is something to show, the boot screen stays) */
+            PROF("present", display_present(A.frame));
+        last_animating = fm_animating; /* (set while it was styled: @keyframes, transitions) */
+        PROF("wm end", wm_frame_end());
+        PROF("frame done", wls_frame_done((uint32_t)A.now)); /* apps draw their next frame now */
+    }
+    PROF("save", keep_on_disk());
+    PROF("home owner", keep_home_theirs());
+    PROF("account", keep_account_name());
 
     /* Sleep until input arrives, an app has something to say, or the
      * next animation frame (~30 fps). */
@@ -284,7 +406,14 @@ drawn:
     nw += appapi_fds(wfds + nw, 158 - nw);
     for (int i = 0; i < nw; i++)
         p[2 + i] = (struct pollfd){.fd = wfds[i], .events = POLLIN};
-    poll(p, (nfds_t)(2 + nw), wm_poll_ms(33));
+    prof_add("whole frame", prof_now_us() - frame_t0);
+    uint64_t slept = prof_now_us();
+    int woke = poll(p, (nfds_t)(2 + nw), wm_poll_ms(33));
+    prof_add("asleep", prof_now_us() - slept);
+    if (woke > 0)
+        for (int i = 2; i < 2 + nw; i++)
+            if (p[i].revents)
+                woke_by_app = true;
 }
 
 /* Runs frames, with `draw` over everything taking the input, until *done. Code

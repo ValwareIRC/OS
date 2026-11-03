@@ -628,6 +628,22 @@ static bool has_zombie(void *arg) {
     return false;
 }
 
+void proc_cpu_ticks(struct process *p, int who, uint64_t *ut, uint64_t *st) {
+    struct thread *t = thread_current();
+    *ut = *st = 0;
+    uint64_t f = spin_lock_irqsave(&proc_lock);
+    if (who == 0) {
+        *ut = p->dead_utime, *st = p->dead_stime;
+        for (struct user_thread *u = p->threads; u; u = u->next_in_proc)
+            *ut += u->utime, *st += u->stime;
+    } else if (who == -1) {
+        *ut = p->child_utime, *st = p->child_stime;
+    } else if (t && t->user) {
+        *ut = t->user->utime, *st = t->user->stime;
+    }
+    spin_unlock_irqrestore(&proc_lock, f);
+}
+
 int64_t proc_wait(int pid, int *status, int options);
 int64_t proc_wait(int pid, int *status, int options) {
     struct process *self = proc_current();
@@ -655,6 +671,8 @@ int64_t proc_wait(int pid, int *status, int options) {
         spin_unlock_irqrestore(&proc_lock, f);
 
         if (found) {
+            self->child_utime += found->dead_utime + found->child_utime;
+            self->child_stime += found->dead_stime + found->child_stime;
             int st = found->exit_status, rpid = pid_to_user(found->pid); /* as the waiter sees it, while it still has one */
             pid_unregister(found->pid);
             ns_set_put(&found->ns);

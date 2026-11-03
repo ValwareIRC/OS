@@ -26,6 +26,13 @@ try:
     p.wait(timeout=900)
 except subprocess.TimeoutExpired:
     p.kill()
-for l in open(log, encoding="utf-8", errors="replace").read().splitlines():
+import re
+text = open(log, encoding="utf-8", errors="replace").read()
+for l in text.splitlines():
     if "disk-speed:" in l or "os-data" in l or "ahci" in l.lower():
         print(l[:200])
+for name, pat in (("disk_small_synced_per_s", r"each with fsync: [\d.]+ s, (\d+) files/s"),
+                  ("disk_big_write_mbs", r"one 200 MB file: [\d.]+ s, ([\d.]+) MB/s")):
+    m = re.search(pat, text)
+    if m:
+        print(f"PERF {name}={m.group(1)}")  # (for the Performance fixes panel)

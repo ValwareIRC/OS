@@ -221,10 +221,32 @@ void apic_init(void) {
             per_10ms / 10 * 16);
 }
 
+/* The timer is one-shot: each interrupt sets it again, for the next tick or a sleeper due before that, so a 1 ms
+ * sleep is 1 ms and not a 4 ms tick. */
+#define TICK_NS (1000000000ULL / HZ)
+uint64_t time_monotonic_ns(void);
+
+void lapic_timer_in(uint64_t ns) {
+    uint64_t count = ns * ticks_per_period / TICK_NS;
+    lapic_write(LAPIC_TMR_INIT, count < 1 ? 1 : count > 0xffffffffu ? 0xffffffffu : (uint32_t)count);
+}
+
+void arch_timer_arm(uint64_t deadline_ns) {
+    struct cpu *c = this_cpu();
+    if (!c || deadline_ns >= c->arch.armed_ns)
+        return;
+    uint64_t now = time_monotonic_ns();
+    c->arch.armed_ns = deadline_ns;
+    lapic_timer_in(deadline_ns > now ? deadline_ns - now : 1000);
+}
+
 void lapic_init_cpu(void) {
     enable_lapic_mode();
     lapic_write(LAPIC_SVR, 0x100 | VEC_SPURIOUS);
     lapic_write(LAPIC_TMR_DIV, 0x3);
-    lapic_write(LAPIC_LVT_TMR, VEC_TIMER | LVT_PERIODIC);
-    lapic_write(LAPIC_TMR_INIT, ticks_per_period);
+    lapic_write(LAPIC_LVT_TMR, VEC_TIMER); /* one-shot */
+    struct cpu *c = this_cpu();
+    c->arch.next_tick_ns = time_monotonic_ns() + TICK_NS;
+    c->arch.armed_ns = c->arch.next_tick_ns;
+    lapic_timer_in(TICK_NS);
 }

@@ -1153,6 +1153,18 @@ static void answer_frames(wl_obj *o, void *ctx) {
     }
 }
 
+static void any_waiting(wl_obj *o, void *ctx) {
+    struct wl_surf *s = o->data;
+    if (s && s->ndone)
+        *(bool *)ctx = true;
+}
+
+bool wls_frames_waiting(void) {
+    bool any = false;
+    wl_each(&wl_surface_iface, any_waiting, &any);
+    return any;
+}
+
 /* Every surface's committed frame callbacks, not only windows': cursors and
  * subsurfaces ask too, and a toolkit waiting on one would stall. */
 void wls_frame_done(uint32_t ms) {

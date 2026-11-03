@@ -844,9 +844,23 @@ SYSCALL(setrlimit) {
     return 0;
 }
 
+/* getrusage: the time it (RUSAGE_SELF), its waited-for children (RUSAGE_CHILDREN) or this thread (RUSAGE_THREAD)
+ * spent running in user mode and in the kernel, from the timer's per-thread accounting (one tick each 1/HZ s);
+ * the most memory it has held (ru_maxrss, KiB: what it holds now, a lower bound). */
 SYSCALL(getrusage) {
     UNUSED_ARGS();
-    uint8_t ru[144] = {0};
+    int who = (int)a1;
+    if (who != 0 && who != -1 && who != 1)
+        return -EINVAL;
+    struct process *p = proc_current();
+    uint64_t ut = 0, st = 0;
+    proc_cpu_ticks(p, who, &ut, &st);
+    const uint64_t us_per_tick = 1000000ULL / HZ;
+    int64_t ru[18] = {0}; /* utime {sec, usec}, stime {sec, usec}, then 14 counters */
+    ru[0] = (int64_t)(ut * us_per_tick / 1000000), ru[1] = (int64_t)(ut * us_per_tick % 1000000);
+    ru[2] = (int64_t)(st * us_per_tick / 1000000), ru[3] = (int64_t)(st * us_per_tick % 1000000);
+    if (who != -1 && p->mm)
+        ru[4] = (int64_t)(mm_rss_pages(p->mm) * PAGE_SIZE / 1024);
     return copy_to_user(a2, ru, sizeof ru);
 }
 

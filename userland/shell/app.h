@@ -77,7 +77,8 @@ typedef struct app {
     input_state in;
     enum screen screen;
     uint64_t now, screen_since;
-    bool dirty;
+    bool dirty;   /* something changed that the next frame must show (set by anyone) */
+    bool drawing; /* this frame is drawn (main.c: only when something may have changed) */
 
     struct ai_config cfg;
     const struct ai_provider *provider;
@@ -137,6 +138,15 @@ extern app A;
 /* Event log on the console (serial). Used by tests/demo.py to find where
  * things are on screen, and handy when debugging on real hardware. */
 #include <stdio.h>
+/* Times a step of the frame for the log's "time:" line (main.c). */
+uint64_t prof_now_us(void);
+void prof_add(const char *name, uint64_t us);
+#define PROF(name, stmt)                                                                                         \
+    do {                                                                                                         \
+        uint64_t prof_t0_ = prof_now_us();                                                                       \
+        stmt;                                                                                                    \
+        prof_add(name, prof_now_us() - prof_t0_);                                                                \
+    } while (0)
 #define LOG(...) fprintf(stderr, "shell: " __VA_ARGS__)
 #define LOGRECT(name, r) LOG("rect %s %d %d %d %d\n", name, (r).x, (r).y, (r).w, (r).h)
 

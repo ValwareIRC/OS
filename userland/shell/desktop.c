@@ -2541,24 +2541,24 @@ static void waking_note(void) {
 }
 
 void desktop_draw(void) {
-    waking_note();
-    preview_frame();     /* a design being written, or one they applied or dropped */
+    PROF("waking note", waking_note());
+    PROF("preview", preview_frame());     /* a design being written, or one they applied or dropped */
     portal_take_input(); /* a file chooser an app asked for has the pointer and keys */
     appapi_take_input(); /* ...or an app asking to use the AI */
     body_take_input(); /* ...or onboarding's questions, if they came late */
     browsers_take_input();
     capture_input();     /* Print Screen: the capture bar has the pointer and keys while it is up */
-    theme_frame_begin(); /* light/dark: the hotkey, redesigns, a pending switch */
+    PROF("theme", theme_frame_begin()); /* light/dark: the hotkey, redesigns, a pending switch */
     caption_input();     /* a click on the companion's caption is for it alone */
     wm_keys();           /* Alt+Tab, Alt+F4, Super+arrows */
     if (A.companion_at && A.now >= A.companion_at) {
         A.companion_at = 0;
         open_window(WIN_COMPANION);
     }
-    companion_update();
-    alive_tick(); /* senses, ambient lights */
-    nerve_tick(); /* what happened, judged by its reflexes; waking it when one earned it */
-    agent_tick(); /* its body: what it did, back to it as the next step; its plans when they're due */
+    PROF("companion", companion_update());
+    PROF("senses", alive_tick()); /* senses, ambient lights */
+    PROF("nerve", nerve_tick()); /* what happened, judged by its reflexes; waking it when one earned it */
+    PROF("agent", agent_tick()); /* its body: what it did, back to it as the next step; its plans when they're due */
     if (agent_busy())
         for (int i = 0; i < A.in.nkeys; i++)
             if (A.in.keys[i] == K_ESC) {
@@ -2566,8 +2566,8 @@ void desktop_draw(void) {
                 toast("Stopped.");
                 body_feel('p', "stopped what you were doing");
             }
-    voice_poll(); /* a voice it was given, arriving */
-    persona_poll(); /* who it is: written once known, drifting a little */
+    PROF("voice", voice_poll()); /* a voice it was given, arriving */
+    PROF("persona", persona_poll()); /* who it is: written once known, drifting a little */
     static uint64_t desktop_seen;
     if (!desktop_seen)
         desktop_seen = A.now;
@@ -2612,6 +2612,8 @@ void desktop_draw(void) {
         A.in.mx = A.in.my = -1000;
     }
     fxwin_reap(); /* Facet apps that closed themselves */
+    if (!A.drawing) /* nothing on screen changed: the rest draws (and takes input, which there is none of) */
+        return;
     tray_frame_begin(); /* its popovers and toasts take the pointer first */
     bool cached = wm_scene_cached(); /* while a window is moved, the picture below it is kept */
     if (!cached && wallpaper_animated(&D))

@@ -4,10 +4,10 @@
 #include <kernel/vfs.h>
 #include <linux/syscall.h>
 
-/* epoll, built on the files' poll ops. epoll_wait rescans the registered
- * files every tick, as poll() does, instead of hooking callbacks into every
- * wait queue: with the handful of descriptors a Wayland client or event loop
- * watches, a scan costs next to nothing.
+/* epoll, built on the files' poll ops. epoll_wait sleeps on every watched
+ * file's wait queue at once while it waits (as poll() does), so it wakes the
+ * moment one changes; with the handful of descriptors a Wayland client or
+ * event loop watches, joining and leaving the queues costs next to nothing.
  *
  * Level-triggered items report whenever ready. Edge-triggered items report
  * when ready and their file's wait queue has been woken since the last report
@@ -289,20 +289,26 @@ static int64_t do_epoll_wait(int epfd, uint64_t uevents, int maxevents, int64_t 
         file_put(f);
         return -ENOMEM;
     }
-    uint64_t deadline = timeout_ms < 0 ? UINT64_MAX : time_monotonic_ns() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline = timeout_ms < 0 ? 0 : time_monotonic_ns() + (uint64_t)timeout_ms * 1000000ULL;
     int64_t n;
+    struct multiwait mw = {0};
     for (;;) {
         uint64_t fl = spin_lock_irqsave(&ep->lock);
         n = ep_scan(ep, out, cap, true);
+        if (n == 0 && timeout_ms != 0) /* listening on every watched file before sleeping */
+            for (struct ep_item *it = ep->items; it; it = it->next)
+                if (!it->disabled)
+                    multiwait_add(&mw, it->wq, it->file);
         spin_unlock_irqrestore(&ep->lock, fl);
-        if (n > 0 || timeout_ms == 0 || time_monotonic_ns() >= deadline)
+        if (n > 0 || timeout_ms == 0 || (deadline && time_monotonic_ns() >= deadline))
             break;
         if (signal_pending_current()) {
             n = -EINTR;
             break;
         }
-        thread_sleep_ms(4);
+        multiwait_block(&mw, deadline);
     }
+    multiwait_end(&mw); /* (lets go of the files: not under ep->lock, as their last close takes it) */
     if (n > 0 && copy_to_user(uevents, out, (size_t)n * sizeof *out) < 0)
         n = -EFAULT;
     kfree(out);

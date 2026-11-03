@@ -891,6 +891,17 @@ void fxwin_close_path(const char *path) {
             fxwin_close(A.win[w].fx);
 }
 
+double fxwin_wake_in(void) {
+    double best = 1e18;
+    for (int w = WIN_COUNT; w < WIN_MAX; w++)
+        if (A.win[w].open && !A.win[w].minimized && A.win[w].fx && A.win[w].fx->rt) {
+            double d = fx_wake_in(A.win[w].fx->rt);
+            if (d < best)
+                best = d;
+        }
+    return best;
+}
+
 void fxwin_reap(void) {
     for (int w = WIN_COUNT; w < WIN_MAX; w++)
         if (A.win[w].fx && !A.win[w].open && !A.win[w].fx->busy)

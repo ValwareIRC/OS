@@ -1170,7 +1170,7 @@ int64_t user_timeout_ms(uint64_t uts) {
     return ts.tv_sec * 1000 + (ts.tv_nsec + 999999) / 1000000;
 }
 
-static int poll_scan(struct linux_pollfd *fds, uint64_t n) {
+static int poll_scan(struct linux_pollfd *fds, uint64_t n, struct multiwait *mw) {
     int ready = 0;
     for (uint64_t i = 0; i < n; i++) {
         struct linux_pollfd *p = &fds[i];
@@ -1183,28 +1183,37 @@ static int poll_scan(struct linux_pollfd *fds, uint64_t n) {
             ready++;
             continue;
         }
-        int ev = poll_file(f, NULL);
+        struct waitq *wq = NULL;
+        int ev = poll_file(f, mw ? &wq : NULL);
         p->revents = (int16_t)(ev & (p->events | POLLERR | POLLHUP | POLLNVAL));
         if (p->revents)
             ready++;
+        else if (mw)
+            multiwait_add(mw, wq, f);
         file_put(f);
     }
     return ready;
 }
 
-/* Waits until one of `fds` (kernel memory) is ready, the timeout (ms, -1 for
- * none) passes or a signal arrives. Rescans every tick rather than sleeping
- * on every file's wait queue at once: simple, and a tick is 4 ms. */
+/* Waits until one of `fds` (kernel memory) is ready, the timeout (ms, -1 for none) passes or a signal arrives:
+ * asleep on every file's wait queue at once, woken the moment one of them changes (it used to look again every
+ * 4 ms, and every message between two programs waited for that). */
 static int64_t poll_kernel(struct linux_pollfd *fds, uint64_t n, int64_t timeout_ms) {
-    uint64_t deadline = timeout_ms < 0 ? UINT64_MAX : time_monotonic_ns() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline = timeout_ms < 0 ? 0 : time_monotonic_ns() + (uint64_t)timeout_ms * 1000000ULL;
+    struct multiwait mw = {0};
+    int64_t r;
     for (;;) {
-        int64_t r = poll_scan(fds, n);
-        if (r > 0 || timeout_ms == 0 || time_monotonic_ns() >= deadline)
-            return r;
-        if (signal_pending_current())
-            return -EINTR;
-        thread_sleep_ms(4);
+        r = poll_scan(fds, n, timeout_ms == 0 ? NULL : &mw);
+        if (r > 0 || timeout_ms == 0 || (deadline && time_monotonic_ns() >= deadline))
+            break;
+        if (signal_pending_current()) {
+            r = -EINTR;
+            break;
+        }
+        multiwait_block(&mw, deadline);
     }
+    multiwait_end(&mw);
+    return r;
 }
 
 static int64_t do_poll(uint64_t ufds, uint64_t n, int64_t timeout_ms) {

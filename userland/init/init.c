@@ -714,6 +714,75 @@ static void disk_tests(void) {
 }
 
 static void sleep_ms(long ms);
+/* The time this process has spent in the kernel, in seconds (for the speed modes). */
+static double kernel_cpu_s(void) {
+    struct rusage r;
+    getrusage(RUSAGE_SELF, &r);
+    return (double)r.ru_stime.tv_sec + (double)r.ru_stime.tv_usec / 1e6;
+}
+/* OS_MODE=wake-latency (tests/wake_latency_win.py): how long a program waiting for something takes to notice
+ * it. Two processes pass a byte back and forth over pipes, each waiting in poll (as D-Bus, Wayland apps and
+ * browsers wait), then in epoll; and a 1 ms sleep, timed. Printed as PERF lines (the Performance fixes panel). */
+static double now_us(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec * 1e6 + (double)t.tv_nsec / 1e3;
+}
+static void wake_latency_mode(void) {
+    for (int how = 0; how < 2; how++) { /* 0: poll, 1: epoll */
+        int ab[2], ba[2];
+        if (pipe(ab) < 0 || pipe(ba) < 0)
+            return;
+        const int rounds = 200;
+        pid_t c = fork();
+        if (c == 0) {
+            int ep = how ? epoll_create1(0) : -1;
+            struct epoll_event ev = {.events = EPOLLIN};
+            if (how)
+                epoll_ctl(ep, EPOLL_CTL_ADD, ab[0], &ev);
+            char b;
+            for (int i = 0; i < rounds; i++) {
+                if (how) {
+                    struct epoll_event got;
+                    epoll_wait(ep, &got, 1, -1);
+                } else {
+                    struct pollfd p = {ab[0], POLLIN, 0};
+                    poll(&p, 1, -1);
+                }
+                if (read(ab[0], &b, 1) != 1 || write(ba[1], &b, 1) != 1)
+                    _exit(1);
+            }
+            _exit(0);
+        }
+        char b = 'x';
+        double t0 = now_us();
+        for (int i = 0; i < rounds; i++) {
+            struct pollfd p = {ba[0], POLLIN, 0};
+            if (write(ab[1], &b, 1) != 1)
+                break;
+            poll(&p, 1, -1);
+            if (read(ba[0], &b, 1) != 1)
+                break;
+        }
+        double per = (now_us() - t0) / rounds;
+        waitpid(c, NULL, 0);
+        printf("PERF %s_round_trip_us=%.0f\n", how ? "epoll" : "poll", per);
+        close(ab[0]), close(ab[1]), close(ba[0]), close(ba[1]);
+    }
+    double t0 = now_us();
+    for (int i = 0; i < 50; i++) {
+        struct timespec ms = {0, 1000000};
+        nanosleep(&ms, NULL);
+    }
+    printf("PERF sleep_1ms_us=%.0f\n", (now_us() - t0) / 50);
+    for (volatile long i = 0; i < 300000000; i++) /* some time of its own to report (a few hundred ms) */
+        ;
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
+    printf("PERF getrusage_works=%d\n", ru.ru_utime.tv_sec || ru.ru_utime.tv_usec || ru.ru_stime.tv_sec || ru.ru_stime.tv_usec);
+    fflush(stdout);
+}
+
 /* OS_MODE=net-speed:PORT (tests/net_speed_win.py): a plain HTTP GET of /big from the PC (10.0.2.2:PORT), timed,
  * nothing else in the way: how fast our network card driver and TCP are, apart from Flatpak and the disk. */
 static void net_speed_mode(int port, const char *host, const char *path) {
@@ -746,7 +815,8 @@ static void net_speed_mode(int port, const char *host, const char *path) {
     long long got = 0;
     ssize_t n;
     bool first = true;
-    while ((n = read(s, buf, sizeof buf)) > 0) {
+    double k0 = kernel_cpu_s();
+    while ((n = read(s, buf, 16384)) > 0) { /* (as curl reads) */
         if (first) { /* the answer's first line, to tell a redirect or a refusal from a download */
             clock_gettime(CLOCK_MONOTONIC, &tf), first = false;
             printf("net-speed: the answer begins: %.*s\n", (int)strcspn(buf, "\r\n") < 120 ? (int)strcspn(buf, "\r\n") : 120,
@@ -757,8 +827,9 @@ static void net_speed_mode(int port, const char *host, const char *path) {
     clock_gettime(CLOCK_MONOTONIC, &t1);
     close(s);
     double secs = (double)(t1.tv_sec - tf.tv_sec) + (double)(t1.tv_nsec - tf.tv_nsec) / 1e9;
-    printf("net-speed: %.1f MB in %.2f s = %.1f MB/s (first byte after %ld ms)\n", (double)got / 1e6, secs,
-           secs > 0 ? (double)got / 1e6 / secs : 0, ms_since(&t0) - (long)(secs * 1000));
+    printf("net-speed: %.1f MB in %.2f s = %.1f MB/s (first byte after %ld ms), %.2f s of kernel time\n",
+           (double)got / 1e6, secs, secs > 0 ? (double)got / 1e6 / secs : 0, ms_since(&t0) - (long)(secs * 1000),
+           kernel_cpu_s() - k0);
 }
 
 /* OS_MODE=persist-write:TOKEN, then persist-check:TOKEN on the next boot
@@ -2526,6 +2597,18 @@ static void disk_speed_mode(void) {
         fsync(fd), close(fd);
     double s = secs_since(&t0);
     printf("disk-speed: one 200 MB file: %.2f s, %.1f MB/s\n", s, 200 * 1.048576 / s);
+    /* as curl writes a download: 16 KB at a time, appended, and what that costs the kernel */
+    double k0 = kernel_cpu_s();
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    fd = open(DATA_DIR "/speed/big16", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    for (int i = 0; fd >= 0 && i < 200 * 64; i++)
+        if (write(fd, buf, 16384) != 16384)
+            break;
+    if (fd >= 0)
+        close(fd);
+    s = secs_since(&t0);
+    printf("disk-speed: 200 MB in 16 KB writes: %.2f s, %.1f MB/s, %.2f s of kernel time\n", s, 200 * 1.048576 / s,
+           kernel_cpu_s() - k0);
     clock_gettime(CLOCK_MONOTONIC, &t0);
     sync();
     printf("disk-speed: sync %.2f s\n", secs_since(&t0));
@@ -2588,6 +2671,11 @@ int main(void) {
             waitpid(dl, NULL, 0);
         }
         fflush(stdout);
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
+    if (mode && !strcmp(mode, "wake-latency")) {
+        wake_latency_mode();
         reboot(RB_POWER_OFF);
         return 1;
     }

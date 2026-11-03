@@ -135,8 +135,7 @@ static int64_t sleep_until(uint64_t deadline_ns) {
     while (time_monotonic_ns() < deadline_ns) {
         if (signal_pending_current())
             return -EINTR;
-        uint64_t left_ms = (deadline_ns - time_monotonic_ns()) / 1000000ULL;
-        thread_sleep_ms(left_ms ? (left_ms < 50 ? left_ms : 50) : 1);
+        thread_block_until_ns(deadline_ns);
     }
     return 0;
 }

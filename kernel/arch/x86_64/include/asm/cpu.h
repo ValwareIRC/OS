@@ -30,6 +30,8 @@ struct arch_cpu {
     struct tss tss;
     uint8_t *df_stack;
     volatile int tlb_flush_pending; /* set by tlb_shootdown, cleared by the flush */
+    uint64_t next_tick_ns; /* the scheduler's next tick on this CPU */
+    uint64_t armed_ns;     /* what its one-shot timer is set to fire at */
 };
 
 struct cpu;

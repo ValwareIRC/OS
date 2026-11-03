@@ -115,6 +115,16 @@ void strip_markdown(char *s) {
             line_start = false;
             continue;
         }
+        /* and a tag is an instruction, not prose: [[sh: ls *.txt]] keeps its stars, its backticks, its __ */
+        if (r[0] == '[' && r[1] == '[') {
+            char *end = strstr(r + 2, "]]");
+            size_t n = end ? (size_t)(end + 2 - r) : strlen(r);
+            memmove(w, r, n);
+            w += n;
+            r += n - 1;
+            line_start = false;
+            continue;
+        }
         if (*r == '*' || *r == '`' || (*r == '_' && r[1] == '_')) {
             if (*r == '_')
                 r++;
