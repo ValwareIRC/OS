@@ -33,8 +33,7 @@ open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://1
                                   "model": "fake"}) + "\n")
 desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes", "starlit.xml")
 disk = os.path.join(out, "disk.img")
-with open(disk, "wb") as f:  # a new, empty disk for the store
-    f.truncate(512 << 20)
+vmkit.Vm.new_disk(disk, 512 << 20)  # new, empty, sparse
 
 
 def fw(name, path):

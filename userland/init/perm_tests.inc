@@ -84,6 +84,25 @@ static int child_userns_root(void) {
     return 0;
 }
 
+/* As Flatpak's sandbox: the person's own uid mapped and no root at all, but every capability there; bubblewrap
+ * locks it down by writing user.max_user_namespaces (it was refused, so no browser started). Outside a sandbox the
+ * person still can't change it. */
+static int child_userns_flatpak(void) {
+    STEP(1, pt_become_user() == 0);
+    errno = 0;
+    STEP(2, open("/proc/sys/user/max_user_namespaces", O_WRONLY) < 0 && errno == EACCES); /* not theirs to change */
+    STEP(3, unshare(CLONE_NEWUSER) == 0);
+    STEP(4, ns_write_text("/proc/self/setgroups", "deny") == 0);
+    STEP(5, ns_write_text("/proc/self/uid_map", "1000 1000 1") == 0 && ns_write_text("/proc/self/gid_map", "1000 1000 1") == 0);
+    STEP(6, getuid() == 1000);
+    STEP(7, ns_write_text("/proc/sys/user/max_user_namespaces", "1") == 0); /* its own namespace's */
+    char b[16] = "";
+    int fd = open("/proc/sys/user/max_user_namespaces", O_RDONLY);
+    STEP(8, fd >= 0 && read(fd, b, sizeof b - 1) > 0 && atoi(b) == 1);
+    close(fd);
+    return 0;
+}
+
 static void perm_tests(void) {
     /* the fixtures, as root */
     mkdir("/tmp/pt", 0755);
@@ -107,6 +126,8 @@ static void perm_tests(void) {
     if (r)
         printf("utest: (ordinary user: step %d)\n", r);
     CHECK((r = in_child(child_userns_root)) == 0, "permissions: a sandbox's root is nobody to the system's files");
+    CHECK((r = in_child(child_userns_flatpak)) == 0,
+          "permissions: a Flatpak-style sandbox (no root, every capability) locks itself down; the person can't");
     if (r)
         printf("utest: (sandbox root: step %d)\n", r);
     unlink("/tmp/rootfile");

@@ -9,6 +9,9 @@ QEMU (Hyper-V) and silent sound. tests/fake_ai.py plays the companion:
 
   python tests\\name_reset_vm_win.py [OUTDIR]"""
 import json, os, re, socket, subprocess, sys, time
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import vmkit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
@@ -49,8 +52,7 @@ open(mind, "w").write(json.dumps({"provider": "llamacpp", "base_url": f"http://1
                                   "model": "fake"}) + "\n")
 desk = os.path.join(ROOT, "userland", "rootfs", "usr", "share", "os", "themes", "starlit.xml")
 disk = os.path.join(out, "disk.img")
-with open(disk, "wb") as f:  # a new, empty disk
-    f.truncate(512 << 20)
+vmkit.Vm.new_disk(disk, 512 << 20)  # a new, empty disk
 
 
 def fw(name, path):

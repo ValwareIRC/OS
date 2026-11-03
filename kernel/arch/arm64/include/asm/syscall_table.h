@@ -18,7 +18,7 @@
     X(90, capget) X(91, capset) X(92, personality) X(93, exit) X(94, exit_group) X(96, set_tid_address)   \
     X(97, unshare) X(98, futex) X(99, set_robust_list) X(101, nanosleep) X(112, clock_settime) X(113, clock_gettime) X(170, settimeofday)            \
     X(114, clock_getres) X(115, clock_nanosleep) X(116, syslog) X(118, sched_setparam)                     \
-    X(119, sched_setscheduler) X(120, sched_getscheduler) X(121, sched_getparam)                           \
+    X(119, sched_setscheduler) X(120, sched_getscheduler) X(121, sched_getparam) X(125, sched_get_priority_max) X(126, sched_get_priority_min)                           \
     X(122, sched_setaffinity) X(123, sched_getaffinity) X(124, sched_yield) X(129, kill) X(130, tkill)    \
     X(131, tgkill) X(132, sigaltstack) X(133, rt_sigsuspend) X(134, rt_sigaction) X(135, rt_sigprocmask) \
     X(136, rt_sigpending) X(139, rt_sigreturn) X(140, setpriority) X(141, getpriority) X(142, reboot)     \

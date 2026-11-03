@@ -3,6 +3,9 @@ on Windows QEMU with hardware acceleration, as tests/boot_test.sh runs them in W
 makes an emulated boot impractically slow). Silent sound, a fresh scratch disk.
   python tests\\selftest_win.py [ISO]"""
 import os, re, subprocess, sys, time
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import vmkit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
@@ -11,8 +14,7 @@ out = os.path.join(ROOT, "build", "selftest")
 os.makedirs(out, exist_ok=True)
 log = os.path.join(out, "serial.log")
 disk = os.path.join(out, "test-disk.img")
-with open(disk, "wb") as f:
-    f.truncate(1 << 30)
+vmkit.Vm.new_disk(disk, 1 << 30)
 if os.path.exists(log):
     os.remove(log)
 args = [QEMU, "-M", "q35", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg", "-cpu", "Skylake-Client-noTSX-IBRS",

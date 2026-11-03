@@ -23,6 +23,9 @@ void arch_set_kernel_stack(struct cpu *c, uint64_t top) {
 
 void arch_load_tls(uint64_t tls) { wrmsr(MSR_FS_BASE, tls); }
 
+/* In the kernel GS is the per-CPU block, and the user's GS base waits in KERNEL_GS_BASE for swapgs. */
+void arch_load_user_gs(uint64_t base) { wrmsr(MSR_KERNEL_GS_BASE, base); }
+
 void arch_exec_init_regs(struct regs *r, uint64_t entry, uint64_t sp) {
     memset(r, 0, sizeof *r);
     r->rip = entry;

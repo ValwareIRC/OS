@@ -31,6 +31,7 @@ void arch_selftest_breakpoint(void);
 uint64_t arch_thread_initial_sp(uint64_t stack_top);
 void arch_set_kernel_stack(struct cpu *c, uint64_t top);
 void arch_load_tls(uint64_t tls);
+void arch_load_user_gs(uint64_t base); /* the GS base the thread sees when it is back in user mode */
 void arch_exec_init_regs(struct regs *r, uint64_t entry, uint64_t sp);
 void arch_fork_child_regs(struct regs *r, uint64_t new_sp);
 

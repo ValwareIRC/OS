@@ -88,6 +88,7 @@ static void sched_finish(void) {
     struct mm *mm = NULL;
     if (cur->user) {
         arch_load_tls(cur->user->tls);
+        arch_load_user_gs(cur->user->gsbase);
         fpu_restore(cur->user->fpu);
         /* An exiting thread has let go of the mm: the last thread of its
          * process may already be freeing it. */

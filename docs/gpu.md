@@ -1,6 +1,6 @@
 # The graphics card: a plan
 
-Status: proposed (2026-11-02), for review. Nothing here is built yet.
+Status: proposed (2026-11-02), for review. Nothing here is built yet: the OS itself doesn't use the card. In the meantime, in the VM, the voice can (the launcher's "Expressive voice" box runs Chatterbox on the card under Windows: `scripts/voice-gpu-server.py`), and the VM's network and TCP have to become fast before any of this matters on real hardware (TCP has no window scaling yet).
 
 ## Why
 

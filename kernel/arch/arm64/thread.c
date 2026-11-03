@@ -21,6 +21,9 @@ void arch_set_kernel_stack(struct cpu *c, uint64_t top) { (void)c, (void)top; }
 
 void arch_load_tls(uint64_t tls) { __asm__ volatile("msr tpidr_el0, %0" ::"r"(tls)); }
 
+/* (x86's GS base: nothing like it here; ARCH_SET_GS is x86-only) */
+void arch_load_user_gs(uint64_t base) { (void)base; }
+
 void arch_exec_init_regs(struct regs *r, uint64_t entry, uint64_t sp) {
     memset(r, 0, sizeof *r);
     r->pc = entry;

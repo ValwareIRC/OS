@@ -19,7 +19,7 @@
     X(99, sysinfo) X(100, times) X(102, getuid) X(103, syslog) X(104, getgid) X(105, setuid)              \
     X(106, setgid) X(107, geteuid) X(108, getegid) X(109, setpgid) X(110, getppid) X(111, getpgrp)       \
     X(112, setsid) X(115, getgroups) X(116, setgroups) X(113, setreuid) X(114, setregid) X(117, setresuid) X(118, getresuid) X(119, setresgid) X(120, getresgid) X(121, getpgid) X(122, setfsuid) X(123, setfsgid) X(124, getsid) X(125, capget) X(126, capset) X(127, rt_sigpending)               \
-    X(130, rt_sigsuspend) X(131, sigaltstack) X(137, statfs) X(138, fstatfs) X(140, getpriority) X(141, setpriority) X(142, sched_setparam) X(143, sched_getparam) X(144, sched_setscheduler) X(145, sched_getscheduler) X(157, prctl)                \
+    X(130, rt_sigsuspend) X(131, sigaltstack) X(137, statfs) X(138, fstatfs) X(140, getpriority) X(141, setpriority) X(142, sched_setparam) X(143, sched_getparam) X(144, sched_setscheduler) X(145, sched_getscheduler) X(146, sched_get_priority_max) X(147, sched_get_priority_min) X(157, prctl)                \
     X(158, arch_prctl) X(160, setrlimit) X(162, sync) X(169, reboot) X(170, sethostname) X(155, pivot_root) X(161, chroot) X(165, mount) X(166, umount2) X(272, unshare) X(308, setns) X(317, seccomp)                \
     X(186, gettid) X(200, tkill) X(201, time) X(202, futex) X(203, sched_setaffinity) X(204, sched_getaffinity)                    \
     X(217, getdents64) X(218, set_tid_address) X(227, clock_settime) X(228, clock_gettime) X(164, settimeofday) X(229, clock_getres)               \

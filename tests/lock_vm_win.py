@@ -12,8 +12,7 @@ import vmkit
 out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(vmkit.ROOT, "build", "lock-vm"))
 os.makedirs(out, exist_ok=True)
 disk = os.path.join(out, "disk.img")
-with open(disk, "wb") as f:  # a new, empty disk: what the first boot keeps, the second finds
-    f.truncate(1 << 30)
+vmkit.Vm.new_disk(disk, 1 << 30)  # new, empty, sparse
 os.environ["DISK_RW"] = "1"
 PW = "Correct horse 7"
 results = {}

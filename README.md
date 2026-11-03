@@ -73,58 +73,54 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
 | Path | What |
 |---|---|
 | `boot/` | bootloader config (Limine loads us; everything after that is ours) |
-| `kernel/arch/x86_64/` | GDT/TSS, IDT, interrupt and syscall entry, APIC, ACPI, SMP, FPU/XSAVE |
-| `kernel/mm/` | physical frame allocator (with per-page refcounts), kernel page tables, heap, user address spaces, page objects (paged storage behind ramfs/memfd that MAP_SHARED maps directly) |
-| `kernel/sched/` | scheduler, wait queues |
-| `kernel/fs/` | VFS, ramfs, initramfs unpacker, pipes |
-| `kernel/proc/` | processes, signals, exit/wait, ELF loader |
-| `kernel/linux/` | the Linux system call table and implementations |
-| `kernel/drivers/` | serial, framebuffer console, tty, time (RTC/TSC), QEMU fw_cfg, PCI, e1000, AHCI and virtio-blk disks (block layer: /dev/sdX) |
-| `userland/` | PID 1 (musl) and the initramfs root files |
-| `kernel/third_party/` | `limine.h` (BSD-0), `font8x8_basic.h` (public domain) |
-| `tests/` | QEMU boot tests |
+| `kernel/arch/` | x86_64 (GDT/TSS, IDT, interrupt and syscall entry, APIC, SMP, FPU/XSAVE) and arm64 |
+| `kernel/mm/` | physical frames (refcounted), page tables, heap, address spaces, page objects behind ramfs, memfd and MAP_SHARED |
+| `kernel/sched/` | the preemptive SMP scheduler, wait queues |
+| `kernel/fs/` | VFS and mounts, ramfs, the initramfs unpacker, ext2 (the apps' area on the disk), procfs and sysfs, memfd, pipes, locks |
+| `kernel/proc/` | processes and threads, signals, exit/wait, the ELF loader, namespaces (user, mount, pid, net, uts) |
+| `kernel/linux/` | the Linux system call table (about 200 calls) and their implementations |
+| `kernel/net/` | IPv4, ARP, ICMP, UDP, TCP, DHCP, the socket API |
+| `kernel/drivers/` | ACPI, PCI, AHCI and virtio-blk disks, the e1000 network card, Intel HD Audio, evdev input (PS/2, vmmouse, virtio), fbdev and the boot screen, ptys and ttys, time, QEMU fw_cfg |
+| `userland/init/` | PID 1: the self-tests, the disk, the person's session and the few things it does as root for the desktop |
+| `userland/shell/` | `os-shell`: the desktop, Facet, the companion, the apps, the Wayland compositor (`wl/`) |
+| `userland/tools/` | os-audio (os-play, os-rec), os-voicefx (voice shaping), os-speak (Kokoro), os-boot, os-ai |
+| `userland/figure/` | os-figure: the companion's 3D body, drawn in software |
+| `userland/portal/` | os-portal: the desktop portal Flatpak apps talk to |
+| `scripts/` | builds of the base system and ports, the Windows launcher (`launcher.ps1`, `os-win.ps1`) and its helpers |
+| `tests/` | the self-tests' runners, VM tests driven through QEMU's monitor, and host tests of single parts |
+| `docs/` | Facet 2, the companion API, the GPU plan, arm64, the list of what still feels unfinished (`toy-audit.md`) |
 
 ## Status
 
-- [x] Milestone 1 (kernel core): boot, serial and framebuffer log, GDT/TSS/IDT, exceptions, PMM, own page tables (W^X), heap. `make test` passes under UEFI and BIOS
-- [x] Milestone 2 (core): ACPI/MADT, x2APIC/xAPIC + I/O APIC, APIC timer, SMP (all cores), preemptive
-      scheduler, wait queues; user mode with SYSCALL entry and XSAVE (AVX) state; demand-paged address
-      spaces; VFS + ramfs + initramfs (cpio) + /dev (console tty, null, zero, urandom) + pipes; ELF loader
-      (static, static-pie, dynamic via PT_INTERP) and `#!` scripts; fork/vfork/execve/wait4, signals with
-      handlers, ~130 Linux system calls. A musl-built PID 1 and Ubuntu's glibc busybox run unmodified;
-      `make test` runs the userland suite under UEFI and BIOS.
-- [x] Networking: PCI, Intel e1000 driver, IPv4/ARP/ICMP/UDP/TCP/DHCP in the kernel, Linux socket API;
-      mbed TLS in user space with certificate verification; AI providers (Anthropic, OpenAI-compatible,
-      Gemini, Azure) reached over HTTPS from inside the OS
-- [x] Graphics and input: /dev/fb0 (fbdev, write-combining mmap), PS/2 keyboard and the vmmouse absolute
-      pointer as evdev devices, SMP reschedule IPIs
-- [x] The experience: first boot, onboarding conversation with AI-invented picks, the AI designing the
-      entire desktop (Facet), living wallpapers, glass, vector icons, live redesign by conversation
-- [x] Threads: clone/clone3 with CLONE_THREAD (musl and glibc pthreads run unmodified), futex
-      (wait/wake, bitsets, timeouts, requeue, wake-op), per-thread signals (tkill/tgkill), exit vs
-      exit_group, TLB shootdown IPIs, user copies with an exception fixup table
-- [x] Storage: AHCI (SATA) and legacy virtio-blk drivers; disks are Linux block devices /dev/sda, /dev/sdb...
-      (byte-granular read/write, lseek/fstat size, BLKGETSIZE64/BLKSSZGET, fsync flushes the drive cache).
-      `make run` and the launchers attach `build/os-disk.img` (1 GiB, sparse; `make clean` keeps it)
-- [x] Linux apps: ptys and a terminal app; AF_UNIX sockets with SCM_RIGHTS, epoll, eventfd, timerfd,
-      signalfd, memfd, real MAP_SHARED (page objects), copy-on-write fork; /proc and /sys. The base system is the
-      Freedesktop Platform runtime (`scripts/build-base.sh`) with Flatpak, the portals and PulseAudio:
-      Flathub apps install from the launcher and run unmodified (Prism, Chromium, MarkText, AbiWord, DOSBox)
-- [x] the OS's own Wayland compositor in the shell (`userland/shell/wl`): apps' windows are framed by
-      the person's design; `tests/wl_os_test.py` checks a live app inside the OS
-- [x] Memory: `/etc/os` (design, portrait, conversation) and `/root` are kept on the disk
-      (`shell/store.c`, crash-safe two-slot archive), restored at boot; the companion welcomes them back
-- [x] Sound and voice: Intel HDA driver (`/dev/dsp`, `/dev/mixer`); the companion speaks (Piper) and
-      listens (whisper.cpp, Ctrl+Space), on this computer
-- [x] Minds on this computer: a built-in model (Qwen3 8B, works offline, calls tools) and others to download,
-      run by llama.cpp's server
-- [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face,
-      voice and memory, with the person's consent and without ever seeing their keys
-- [x] The companion's look is theirs to choose: a gem (the default), a light, an 8-ball, the Earth, a planet,
-      a heart, the moon, a picture (theirs, a link, or one it finds online), a drawing it makes of itself, any
-      3D model (.glb), an anime figure, or their own VRM; each shows what it is doing (`shell/emblem.c`)
-- [x] The companion looks things up on the web ([[search:]], [[read:]]); onboarding offers a browser
-- [ ] Next: Wi-Fi, USB, NVMe and more network cards
+- [x] Kernel: its own, booting with UEFI and BIOS; SMP, a preemptive scheduler, demand-paged address spaces with
+      copy-on-write, about 200 Linux system calls (threads, futexes, signals, epoll, eventfd, timerfd, signalfd,
+      memfd, AF_UNIX with SCM_RIGHTS, ptys, /proc and /sys, namespaces and seccomp for sandboxes); musl and glibc
+      programs, and Flatpak apps, run unmodified. 205 self-tests (`tests/selftest_win.py`)
+- [x] Storage: AHCI and virtio-blk; the person's state and home kept on the disk in a crash-safe two-slot store
+      (`shell/store.c`), apps in an ext2 area beside it, checked and repaired at every start
+- [x] Networking: e1000, IPv4/TCP/UDP/DHCP in the kernel, mbed TLS in user space; the clock set from the network
+- [x] Apps: the base system is the Freedesktop Platform with Flatpak, the portals and PulseAudio; Flathub apps
+      install from the launcher and run in their sandbox (Firefox, Chromium, Prism, MarkText, AbiWord, DOSBox);
+      the OS's own Wayland compositor frames their windows in the person's design
+- [x] The experience: an onboarding conversation that gets to know them (and keeps its place if the desktop
+      restarts), the AI designing the whole desktop in Facet, live redesign and edits by conversation
+- [x] Facet 2 (`docs/facet2.md`): the companion writes whole apps (state, logic, live system data, web requests
+      and TCP/TLS sockets), checked before they run and kept in `~/Apps`
+- [x] A computer, not a demo: an account named after them (`/home/<name>`), an optional password and a lock
+      screen, Settings (Appearance, Display, Sound, Keyboard, Mouse, Date & time, AI, Users, Notifications, Apps,
+      Power, Storage, Security, Privacy, About), Files, Notes, a Terminal, time zones and network time
+- [x] The companion: a character of its own, plain spoken; it sees the screen and pictures, acts on the desktop
+      and the system with tags (and is told when they fail), remembers, and can be renamed; its look is theirs to
+      choose (a light, a gem, a picture, a 3D model, an anime figure, their own VRM)
+- [x] Voice, on this computer: Kokoro's voices, mixed into new ones and shaped (pitch, formants, warmth, effects),
+      with tones per reply; listening with whisper.cpp. With the launcher's "Expressive voice" box, a voice with
+      real feeling and cloning from the PC's graphics card (Chatterbox, `scripts/voice-gpu-server.py`)
+- [x] Minds on this computer: a built-in model (Qwen3 8B, offline) and others to download, run by llama.cpp; or a
+      network or cloud one; or Claude through this PC's Claude Code sign-in (the launcher)
+- [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face, voice
+      and memory, with the person's consent and without ever seeing their keys
+- [ ] Next: the graphics card driven by the OS itself (`docs/gpu.md`), NVMe, USB, more network cards and Wi-Fi,
+      installing to the disk and updates; what still feels unfinished is listed in `docs/toy-audit.md`
 
 ## The experience (userland/shell)
 
@@ -155,34 +151,30 @@ QEMU against a local model and saves screenshots.
 
 ## Running it
 
-`make` produces `build/os.iso`, which boots on UEFI and BIOS machines, real or virtual. How you run it is
-up to you:
+`make` produces `build/os.iso`, which boots on UEFI and BIOS machines, real or virtual. The computer it is made
+for has 32 GB of memory and a graphics card with 16 GB of its own; less runs, more slowly (the built-in model alone
+takes 5 GB).
 
-- **A virtual machine** (QEMU, VirtualBox, VMware, Hyper-V...): 64-bit, 12 GB of memory or more (16 is better: the
-  built-in model alone is 5 GB), 4 CPUs,
-  the ISO as its CD, an empty disk on SATA/AHCI or virtio if you want it to remember you, and an Intel
-  PRO/1000 (e1000) network adapter. `make run` starts it in QEMU.
-- **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD mode, balenaEtcher, `dd`), or
-  copy the ISO's files onto a FAT32 stick for UEFI. Turn off Secure Boot. It only ever writes to a disk
-  that is blank or already its own; any other drive is left untouched.
+- **On Windows, the way it is developed:** `Operating System.cmd` opens a small window first (your disk or a fresh
+  one, the AI saved on the disk or Claude on this PC, a design to try, full screen, the expressive voice), remembers
+  what you chose, and starts it in Windows QEMU.
+- **Another virtual machine** (QEMU, VirtualBox, VMware, Hyper-V...): 64-bit, 20 GB of memory, 8 CPUs, the ISO as
+  its CD, an empty disk on SATA/AHCI or virtio so it remembers you (32 GB, sparse), and an Intel PRO/1000 (e1000)
+  network adapter. `make run` starts it in QEMU.
+- **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD mode, balenaEtcher, `dd`), or copy its
+  files onto a FAT32 stick for UEFI. Turn off Secure Boot. It only ever writes to a disk that is blank or already
+  its own; any other drive is left untouched. Hardware support is still narrow (e1000, AHCI and virtio disks, Intel
+  HD Audio, PS/2 keyboard and mouse): no NVMe, USB, other network cards or Wi-Fi yet, and the graphics card isn't
+  used.
 
-The first screen asks for a mind: the small model that comes with the system (works offline), a bigger
-one downloaded onto this computer, a model on your network (Ollama, LM Studio), or a cloud provider with
-your key. To start already connected on a real PC, add `cmdline: os.provider=... os.key=...` to
-`boot/limine/limine.conf` (an example is in that file).
+The first screen asks for a mind: the model that comes with the system (works offline), a bigger one downloaded
+onto this computer, a model on your network (Ollama, LM Studio), or a cloud provider with your key. To start
+already connected on a real PC, add `cmdline: os.provider=... os.key=...` to `boot/limine/limine.conf` (an example
+is in that file).
 
-Hardware support is still narrow: Intel e1000 networking, AHCI and virtio disks, Intel HD Audio, PS/2
-keyboard and mouse (and the VMware/QEMU pointer). USB, NVMe, other network cards and Wi-Fi are not
-there yet.
-
-`scripts/` holds the helpers used while developing it, for example `scripts/os-vm.sh` (QEMU with KVM, in
-Linux or WSL) and `scripts/os-win.ps1` (Windows QEMU), which can pass AI settings from an `os.conf`
-(see `os.conf.example`).
-
-## Trying it
-
-`make run` boots into a busybox shell on the serial console (your terminal). `tests/shell_demo.sh` types
-a few commands into it automatically; `tests/debug_boot.sh` boots once with system-call tracing.
+`tests/` holds how it is checked: `tests/selftest_win.py` (the kernel and userland self-tests), and the
+`*_vm_win.py` tests, which boot it in Windows QEMU and use it as a person would (keys and clicks through QEMU's
+monitor, never the real mouse), each with a stand-in AI (`tests/fake_ai.py`) or the real one.
 
 ## Bundled apps
 

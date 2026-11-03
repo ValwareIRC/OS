@@ -389,6 +389,8 @@ static int execve_depth(const char *path, char *const argv[], char *const envp[]
 
     t->user->tls = 0;
     arch_load_tls(0);
+    t->user->gsbase = 0;
+    arch_load_user_gs(0);
     fpu_reset(t->user->fpu);
     fpu_restore(t->user->fpu);
 

@@ -32,6 +32,25 @@ class Vm:
             os.remove(self.log)
         self.qemu = self.server = self.s = None
 
+    @staticmethod
+    def new_disk(path, size):
+        """A new, empty disk image of `size` bytes that takes only what is written to it: NTFS is told it is sparse
+        before it grows (a plain truncate reserved the whole size: a 32 GB test disk once filled the drive)."""
+        if os.path.exists(path):
+            os.remove(path)
+        open(path, "wb").close()
+        if os.name == "nt":
+            # (Python's truncate on Windows grows a file by writing zeros into it, sparse or not: every test disk
+            # was written whole, and one filled the drive. fsutil sets the end without writing anything.)
+            r = subprocess.run(["fsutil", "sparse", "setflag", path], capture_output=True, text=True)
+            r2 = subprocess.run(["fsutil", "file", "seteof", path, str(size)], capture_output=True, text=True)
+            if r.returncode or r2.returncode:
+                raise OSError(f"couldn't make a sparse disk at {path}: {r.stdout}{r.stderr}{r2.stdout}{r2.stderr}")
+        else:
+            with open(path, "r+b") as f:
+                f.truncate(size)
+        return path
+
     def start(self):
         self.server = subprocess.Popen([sys.executable, os.path.join(ROOT, "tests", "fake_ai.py"), str(self.aiport),
                                         self.script, self.ailog])

@@ -115,11 +115,20 @@ static struct vnode *make_node(const struct sent *e, const int id[3], struct vno
     } else if (pn && pn->owned && pn->id[0] == id[0]) {
         n->owned = true, n->uid = pn->uid, n->gid = pn->gid;
     } else if (e->ns_root_owned) {
+        /* As Linux decides for a namespace's own sysctls: whoever has the capability in that user namespace may
+         * write it, root or not. (Flatpak's sandbox maps the person's own uid and no root at all: bubblewrap,
+         * fully capable there, writes max_user_namespaces to lock it down, and was refused, so no browser could
+         * start.) Else its root, if it has one. */
         uint32_t k;
-        if (uid_from_user(0, &k))
-            n->uid = k;
-        if (gid_from_user(0, &k))
-            n->gid = k;
+        struct process *p = proc_current();
+        if (ns_capable() && p)
+            n->uid = p->euid, n->gid = p->egid;
+        else {
+            if (uid_from_user(0, &k))
+                n->uid = k;
+            if (gid_from_user(0, &k))
+                n->gid = k;
+        }
     }
     v->uid = n->uid, v->gid = n->gid;
     v->data = n;

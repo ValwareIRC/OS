@@ -10,7 +10,7 @@ large ones can write it: GLM-5.3, GLM-4.5-Air, Mistral-Nemo 12B, Qwen3 14B, Clau
 the draft (Files, Notes, Todo, App Launcher, Stopwatch) and named everything it had to guess. The final
 version folds in every condition they raised, and all six agreed to it.
 
-It is a spec. The interpreter that runs it in the OS is not built yet.
+The interpreter runs it in the OS (`userland/shell/fx/`): the companion writes Facet 2 apps, which are checked before they run (problems go back to it with their fixes) and kept in `~/Apps`; `tests/facet2/` has the council's apps, and `fx_reference()` is the summary the companion is given (also in `/run/user/1000/facet-reference.txt` while the desktop runs).
 
 ```
 Facet is the language the OS's AI writes whole apps in. One file is one app. Code lives in keyword sections closed by `end`; markup lives only inside `view` and always closes with `</tag>` or `/>`. There is exactly one way to write each thing.

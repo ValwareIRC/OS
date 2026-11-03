@@ -713,6 +713,54 @@ static void disk_tests(void) {
     free(r);
 }
 
+static void sleep_ms(long ms);
+/* OS_MODE=net-speed:PORT (tests/net_speed_win.py): a plain HTTP GET of /big from the PC (10.0.2.2:PORT), timed,
+ * nothing else in the way: how fast our network card driver and TCP are, apart from Flatpak and the disk. */
+static void net_speed_mode(int port, const char *host, const char *path) {
+    for (int i = 0; i < 100 && access("/etc/resolv.conf", F_OK) != 0; i++)
+        sleep_ms(100);
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in a = {.sin_family = AF_INET, .sin_port = htons((uint16_t)port)};
+    inet_pton(AF_INET, "10.0.2.2", &a.sin_addr);
+    if (host && host[0]) { /* a server on the internet, by name */
+        struct addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM}, *ai = NULL;
+        if (getaddrinfo(host, NULL, &hints, &ai) != 0 || !ai) {
+            printf("net-speed: %s not found\n", host);
+            return;
+        }
+        a.sin_addr = ((struct sockaddr_in *)ai->ai_addr)->sin_addr;
+        freeaddrinfo(ai);
+    }
+    struct timespec t0, t1, tf;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    if (s < 0 || connect(s, (struct sockaddr *)&a, sizeof a) != 0) {
+        printf("net-speed: can't connect (%s)\n", strerror(errno));
+        return;
+    }
+    char req[600];
+    int rl = snprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: os-net-speed\r\n\r\n",
+                      path && path[0] ? path : "/big", host && host[0] ? host : "10.0.2.2");
+    if (write(s, req, (size_t)rl) != rl)
+        printf("net-speed: couldn't ask\n");
+    static char buf[1 << 16];
+    long long got = 0;
+    ssize_t n;
+    bool first = true;
+    while ((n = read(s, buf, sizeof buf)) > 0) {
+        if (first) { /* the answer's first line, to tell a redirect or a refusal from a download */
+            clock_gettime(CLOCK_MONOTONIC, &tf), first = false;
+            printf("net-speed: the answer begins: %.*s\n", (int)strcspn(buf, "\r\n") < 120 ? (int)strcspn(buf, "\r\n") : 120,
+                   buf);
+        }
+        got += n;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    close(s);
+    double secs = (double)(t1.tv_sec - tf.tv_sec) + (double)(t1.tv_nsec - tf.tv_nsec) / 1e9;
+    printf("net-speed: %.1f MB in %.2f s = %.1f MB/s (first byte after %ld ms)\n", (double)got / 1e6, secs,
+           secs > 0 ? (double)got / 1e6 / secs : 0, ms_since(&t0) - (long)(secs * 1000));
+}
+
 /* OS_MODE=persist-write:TOKEN, then persist-check:TOKEN on the next boot
  * (tests/disk_persist_test.sh): the first boot leaves TOKEN on the disk and
  * powers off; the second must find it. */
@@ -1317,7 +1365,39 @@ static void thread_teardown_tests(void) {
     CHECK(status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0, "execve from a threaded process");
 }
 
+#ifdef __x86_64__
+/* A program's own GS base (arch_prctl ARCH_SET_GS): Firefox's wasm sandbox keeps its memory there, and aborted
+ * when it was refused. It must survive the kernel's own use of GS and every switch to another thread. */
+static long gs_cell = 0x5a5a1234;
+static bool gs_reads(void) {
+    long v;
+    __asm__ volatile("movq %%gs:0, %0" : "=r"(v));
+    return v == 0x5a5a1234;
+}
+static void gs_test(void) {
+    uint64_t back = 0;
+    bool set = syscall(SYS_arch_prctl, 0x1001 /* ARCH_SET_GS */, (unsigned long)&gs_cell) == 0;
+    bool got = set && syscall(SYS_arch_prctl, 0x1004 /* ARCH_GET_GS */, &back) == 0 && back == (uint64_t)&gs_cell;
+    bool ok = got && gs_reads();
+    for (int i = 0; ok && i < 20; i++) { /* other threads and the kernel run in between */
+        sched_yield();
+        usleep(2000);
+        ok = gs_reads();
+    }
+    pid_t pid = fork(); /* a child starts with it too */
+    if (pid == 0)
+        _exit(gs_reads() ? 0 : 1);
+    int st = 1;
+    bool child = pid > 0 && waitpid(pid, &st, 0) == pid && WIFEXITED(st) && WEXITSTATUS(st) == 0;
+    syscall(SYS_arch_prctl, 0x1001, 0UL);
+    CHECK(set && got && ok && child, "threads: a program's own GS base, kept across switches and into a child");
+}
+#endif
+
 static void thread_tests(void) {
+#ifdef __x86_64__
+    gs_test();
+#endif
     pthread_t t[COUNTER_THREADS];
     void *tid[COUNTER_THREADS];
     int created = 0;
@@ -2400,6 +2480,55 @@ static pid_t spawn_console_shell(void) {
 
 #include "session.inc"
 
+/* OS_MODE=disk-speed (tests/disk_speed_win.py): how fast the apps' area takes what Flatpak writes: many small files,
+ * each made sure of (as ostree does), then one big one. */
+static double secs_since(const struct timespec *t0) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)(t.tv_sec - t0->tv_sec) + (double)(t.tv_nsec - t0->tv_nsec) / 1e9;
+}
+
+static void disk_speed_mode(void) {
+    setup_data_disk();
+    char dir[] = DATA_DIR "/speed";
+    mkdir(dir, 0755);
+    static char buf[1 << 20];
+    for (size_t i = 0; i < sizeof buf; i++)
+        buf[i] = (char)(i * 2654435761u >> 13);
+    struct timespec t0;
+    for (int pass = 0; pass < 2; pass++) { /* with fsync, then without */
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        int n = 2000;
+        for (int i = 0; i < n; i++) {
+            char p[96];
+            snprintf(p, sizeof p, "%s/%c%04d", dir, pass ? 'n' : 's', i);
+            int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0 || write(fd, buf, 20000) != 20000) {
+                printf("disk-speed: couldn't write %s: %s\n", p, strerror(errno));
+                return;
+            }
+            if (!pass)
+                fsync(fd);
+            close(fd);
+        }
+        double s = secs_since(&t0);
+        printf("disk-speed: %d files of 20 KB %s: %.2f s, %.0f files/s, %.1f MB/s\n", n,
+               pass ? "without fsync" : "each with fsync", s, n / s, n * 20000 / 1e6 / s);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    int fd = open(DATA_DIR "/speed/big", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    for (int i = 0; fd >= 0 && i < 200; i++)
+        if (write(fd, buf, sizeof buf) != (ssize_t)sizeof buf)
+            break;
+    if (fd >= 0)
+        fsync(fd), close(fd);
+    double s = secs_since(&t0);
+    printf("disk-speed: one 200 MB file: %.2f s, %.1f MB/s\n", s, 200 * 1.048576 / s);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    sync();
+    printf("disk-speed: sync %.2f s\n", secs_since(&t0));
+}
+
 int main(void) {
     printf("init: user space is alive (pid %d)\n", getpid());
     const char *mode = getenv("OS_MODE");
@@ -2415,6 +2544,47 @@ int main(void) {
     }
     if (mode && !strncmp(mode, "persist-", 8)) {
         persist_mode(mode);
+        fflush(stdout);
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
+    if (mode && !strncmp(mode, "flatpak-install:", 16)) { /* an install from Flathub, as the system does it, told */
+        setup_data_disk();
+        for (int i = 0; i < 100 && access("/etc/resolv.conf", F_OK) != 0; i++)
+            sleep_ms(100);
+        struct timespec t0;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        pid_t pid = fork();
+        if (pid == 0) { /* its whole account to the console: what it fetches, how (a delta or object by object) */
+            setenv("FLATPAK_FANCY_OUTPUT", "0", 1);
+            execl("/usr/bin/flatpak", "flatpak", "install", "--installation=os-data", "-y", "--noninteractive",
+                  "--verbose", "--ostree-verbose", "flathub", mode + 16, (char *)NULL);
+            _exit(127);
+        }
+        int st = 0;
+        waitpid(pid, &st, 0);
+        printf("flatpak-install: %s exited %d after %.1f s\n", mode + 16, WIFEXITED(st) ? WEXITSTATUS(st) : -1,
+               secs_since(&t0));
+        fflush(stdout);
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
+    if (mode && !strcmp(mode, "disk-speed")) {
+        disk_speed_mode();
+        fflush(stdout);
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
+    if (mode && !strncmp(mode, "net-speed:", 10)) { /* OS_MODE=net-speed:PORT: how fast a download from the PC is */
+        /* net-speed:PORT (this PC), or net-speed:PORT:HOST:/PATH (a server on the internet) */
+        char host[200] = "", path[400] = "";
+        const char *c1 = strchr(mode + 10, ':');
+        if (c1) {
+            const char *c2 = strchr(c1 + 1, ':');
+            snprintf(host, sizeof host, "%.*s", c2 ? (int)(c2 - c1 - 1) : 0, c1 + 1);
+            snprintf(path, sizeof path, "%s", c2 ? c2 + 1 : "/");
+        }
+        net_speed_mode(atoi(mode + 10), host, path);
         fflush(stdout);
         reboot(RB_POWER_OFF);
         return 1;

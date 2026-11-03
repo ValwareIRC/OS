@@ -5,13 +5,14 @@ desktop come up and save, and checks the disk is byte for byte the same.
   python3 tests/foreign_disk_check.py OUT_DIR"""
 import hashlib, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vmkit
 import demo
 
 out = os.path.abspath(sys.argv[1])
 os.makedirs(out, exist_ok=True)
 disk = os.path.join(out, "foreign.img")
-with open(disk, "wb") as f:
-    f.truncate(2 << 30)
+vmkit.Vm.new_disk(disk, 2 << 30)
+with open(disk, "r+b") as f:
     f.seek(0)
     mbr = bytearray(512)
     mbr[446:462] = bytes([0x80, 0, 2, 0, 0x07, 0xfe, 0xff, 0xff, 0x00, 0x08, 0, 0, 0x00, 0xf8, 0x3f, 0])  # NTFS

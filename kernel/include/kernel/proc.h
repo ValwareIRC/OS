@@ -224,6 +224,7 @@ struct user_thread {
     bool exiting;         /* past the point of no return in thread exit: no mm */
     void *fpu;     /* xsave area */
     uint64_t tls;
+    uint64_t gsbase; /* its own GS base (arch_prctl ARCH_SET_GS): Firefox's wasm sandbox keeps its memory there */
     uint64_t clear_child_tid;
     uint64_t sigmask;
     uint64_t pending_signals; /* directed at this thread (tgkill, faults) */

@@ -28,3 +28,5 @@ static inline void invlpg(uint64_t va) { __asm__ volatile("invlpg (%0)" ::"r"(va
 #define MSR_EFER 0xC0000080
 #define EFER_NXE (1ULL << 11)
 #define MSR_FS_BASE 0xC0000100
+/* while in the kernel (after swapgs) this holds the user's GS base: swapgs gives it back on the way out */
+#define MSR_KERNEL_GS_BASE 0xC0000102

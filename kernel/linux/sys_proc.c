@@ -47,6 +47,7 @@ static int64_t clone_thread(uint64_t flags, uint64_t newsp, uint64_t ptid, uint6
     pid_register(p->ns.pid, ut->tid);
     ut->sigmask = cur->user->sigmask;
     ut->tls = (flags & CLONE_SETTLS) ? tls : cur->user->tls;
+    ut->gsbase = cur->user->gsbase; /* (as Linux: a new thread or process starts with its parent's) */
     fpu_save(cur->user->fpu);
     fpu_copy(ut->fpu, cur->user->fpu);
     if (flags & CLONE_CHILD_CLEARTID)
@@ -146,6 +147,7 @@ static int64_t do_clone(uint64_t flags, uint64_t newsp, uint64_t ptid, uint64_t 
     ut->tid = child->pid;
     ut->sigmask = cur->user->sigmask;
     ut->tls = (flags & CLONE_SETTLS) ? tls : cur->user->tls;
+    ut->gsbase = cur->user->gsbase; /* (as Linux: a new thread or process starts with its parent's) */
     fpu_save(cur->user->fpu);
     fpu_copy(ut->fpu, cur->user->fpu);
     if (flags & CLONE_CHILD_CLEARTID)
@@ -792,10 +794,25 @@ SYSCALL(arch_prctl) {
     case ARCH_GET_FS:
         return copy_to_user(a2, &u->tls, 8);
     case ARCH_SET_GS:
+        if (a2 >= USER_TOP)
+            return -EPERM;
+        u->gsbase = a2;
+        arch_load_user_gs(a2);
+        return 0;
     case ARCH_GET_GS:
-        return -EINVAL;
+        return copy_to_user(a2, &u->gsbase, 8);
     }
     return -EINVAL;
+}
+
+SYSCALL(sched_get_priority_max) {
+    UNUSED_ARGS();
+    return a1 == 1 || a1 == 2 ? 99 : a1 == 0 || a1 == 3 || a1 == 5 || a1 == 6 ? 0 : -EINVAL; /* FIFO, RR: 99 */
+}
+
+SYSCALL(sched_get_priority_min) {
+    UNUSED_ARGS();
+    return a1 == 1 || a1 == 2 ? 1 : a1 == 0 || a1 == 3 || a1 == 5 || a1 == 6 ? 0 : -EINVAL;
 }
 
 SYSCALL(set_tid_address) {
