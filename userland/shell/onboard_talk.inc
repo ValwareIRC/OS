@@ -576,6 +576,8 @@ static char *apply_tags(const char *text) {
                     set_room(kind, cs);
                 }
             }
+        } else if (!strcasecmp(tag, "tone")) { /* how this reply is said */
+            voice_tone(arg);
         } else if (!strcasecmp(tag, "voice")) { /* hear NAME | use NAME | speed X */
             char verb[16] = "", what[80] = "", note[300];
             sscanf(arg, "%15s %79s", verb, what);

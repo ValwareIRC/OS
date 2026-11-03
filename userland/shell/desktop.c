@@ -1037,6 +1037,14 @@ static void companion_update(void) {
                 take_app(name, src);
             free(src);
         }
+        while ((o = strstr(m->text, "[[tone:"))) { /* how this reply is said (voice.c): any reply, not only theirs */
+            char *e = strstr(o, "]]");
+            char arg[32];
+            snprintf(arg, sizeof arg, "%.*s", e ? (int)(e - o - 7) < 31 ? (int)(e - o - 7) : 31 : 0, o + 7);
+            char *after = e ? e + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            voice_tone(arg);
+        }
         while ((o = strstr(m->text, "[[voice:"))) { /* its voice: hear, use, speed, mix, shape */
             char *e = strstr(o, "]]");
             char arg[300];

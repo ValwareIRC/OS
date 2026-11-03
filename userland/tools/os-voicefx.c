@@ -8,6 +8,8 @@
  *   formant   semitones, -6..6: the body alone: lower is bigger and deeper, higher is smaller and younger
  *   warmth    -1..1: warmer (more low, softer top) or brighter
  *   breath    0..1: air in the voice
+ *   range     0.3..2: how far its melody moves: under 1 flatter (calm, sad, sleepy), over 1 livelier (excited)
+ *   gain      0.2..2: louder or softer (a whisper is softer)
  *   effect    none, robot, whisper, radio, phone, room, hall
  * Pitch, formants, robot and whisper are done on the spectrum (a phase vocoder with the spectral envelope kept
  * apart from the harmonics); the rest are filters, a little distortion and a reverb. */
@@ -24,7 +26,7 @@
 #define LIFTER 40   /* cepstral coefficients kept for the envelope */
 
 static float rate = 24000;
-static float pitch_r = 1, formant_r = 1, warmth, breath;
+static float pitch_r = 1, formant_r = 1, warmth, breath, range = 1, gain_set = 1;
 static enum { FX_NONE, FX_ROBOT, FX_WHISPER, FX_RADIO, FX_PHONE, FX_ROOM, FX_HALL } effect;
 
 /* ---- FFT (complex, radix 2, in place) ---- */
@@ -72,8 +74,9 @@ static float frand(void) { /* 0..1 */
     return (float)(rnd & 0xffffff) / 16777216.0f;
 }
 
+static bool psola_on(void);
 static bool spectral(void) {
-    return fabsf(pitch_r - 1) > 1e-3f || fabsf(formant_r - 1) > 1e-3f || effect == FX_ROBOT || effect == FX_WHISPER;
+    return effect == FX_WHISPER; /* (pitch, formants and the robot are PSOLA's, below; a whisper comes after them) */
 }
 
 /* the spectral envelope of a magnitude spectrum: its log, smoothed through the cepstrum */
@@ -232,6 +235,7 @@ static float held; /* the phone's lower sample rate */
 static int hold_n;
 
 static float post(float x) {
+    x *= gain_set;
     if (warmth != 0) {
         x = bq(&lo_shelf, x);
         x = bq(&hi_shelf, x);
@@ -266,6 +270,10 @@ static float post(float x) {
 
 static void out_samples(const float *x, int n) {
     static int16_t o[HOP * 4];
+    while (n > HOP * 4) { /* (a whole phrase at a time from PSOLA: in pieces) */
+        out_samples(x, HOP * 4);
+        x += HOP * 4, n -= HOP * 4;
+    }
     for (int i = 0; i < n; i++) {
         float v = post(x[i]);
         if (fabsf(v) > 0.9f) /* a soft knee instead of a hard edge */
@@ -304,12 +312,162 @@ static void level(float *hop, int n) {
         hop[i] *= gain;
 }
 
-/* one sample of input */
-static void in_sample(float x) {
-    if (!spectral()) {
-        out_samples(&x, 1);
-        return;
+/* ---- pitch and formants for speech: resampling and PSOLA ----
+ * (Done first on the spectrum, by the phase vocoder above: it smeared the voice's phases and gave it a metallic,
+ * "Dalek" edge. This is the way made for speech: the formants are moved by resampling, which shifts pitch, formants
+ * and length together and nothing else; then pitch-synchronous overlap-add (PSOLA) takes the voice apart into
+ * grains of two pitch periods each, at its own glottal pulses, and puts them back closer together or further apart
+ * for the pitch it should have, at the length it had. Each grain is a real piece of the voice, so it keeps its
+ * texture; the robot is the same grains at one steady pitch.) It works on whole phrases, which Kokoro sends
+ * separated by silence, so nothing waits longer than the phrase already being made. */
+
+static bool psola_on(void) {
+    return fabsf(pitch_r - 1) > 1e-3f || fabsf(formant_r - 1) > 1e-3f || fabsf(range - 1) > 1e-3f || effect == FX_ROBOT;
+}
+
+/* in, at position x (fractional), through a windowed sinc low-passed at `cut` (0..1 of Nyquist) */
+static float sinc_at(const float *in, int n, double x, float cut) {
+    const int HALF = 12;
+    int c = (int)floor(x);
+    float acc = 0, wsum = 0;
+    for (int i = c - HALF + 1; i <= c + HALF; i++) {
+        double d = x - i;
+        float w = 0.5f + 0.5f * cosf((float)(M_PI * d / HALF)); /* Hann over the taps */
+        float s = fabs(d) < 1e-9 ? cut : sinf((float)(M_PI * d * cut)) / (float)(M_PI * d);
+        float v = i >= 0 && i < n ? in[i] : 0;
+        acc += v * s * w, wsum += s * w;
     }
+    return wsum != 0 ? acc / wsum : acc; /* (a gain of 1 for a steady level) */
+}
+
+/* the period (in samples) of each 5 ms of y, 0 where it isn't voiced: normalised autocorrelation, then a median */
+static int *pitch_track(const float *y, int m, int hop, int *nf) {
+    int W = (int)(rate * 0.032f), lmin = (int)(rate / 500), lmax = (int)(rate / 65);
+    int frames = m / hop + 1;
+    int *lag = calloc((size_t)frames, sizeof(int)), *sm = calloc((size_t)frames, sizeof(int));
+    for (int f = 0; f < frames; f++) {
+        int s = f * hop - W / 2;
+        float e0 = 0;
+        for (int i = 0; i < W; i++) {
+            int k = s + i;
+            float v = k >= 0 && k < m ? y[k] : 0;
+            e0 += v * v;
+        }
+        if (e0 / (float)W < 1e-5f) /* quiet: no pitch */
+            continue;
+        float best = 0;
+        int bl = 0;
+        for (int L = lmin; L <= lmax; L++) {
+            float num = 0, e1 = 0, e2 = 0;
+            for (int i = 0; i < W - L; i += 2) {
+                int a = s + i, b = s + i + L;
+                float va = a >= 0 && a < m ? y[a] : 0, vb = b >= 0 && b < m ? y[b] : 0;
+                num += va * vb, e1 += va * va, e2 += vb * vb;
+            }
+            float r = e1 > 0 && e2 > 0 ? num / sqrtf(e1 * e2) : 0;
+            if (r > best + 0.01f) /* the first strong peak wins over its multiples */
+                best = r, bl = L;
+        }
+        lag[f] = best > 0.55f ? bl : 0;
+    }
+    for (int f = 0; f < frames; f++) { /* a median of five: single wrong frames go */
+        int v[5], k = 0;
+        for (int d = -2; d <= 2; d++)
+            if (f + d >= 0 && f + d < frames)
+                v[k++] = lag[f + d];
+        for (int i = 0; i < k; i++)
+            for (int j = i + 1; j < k; j++)
+                if (v[j] < v[i]) {
+                    int t = v[i];
+                    v[i] = v[j], v[j] = t;
+                }
+        sm[f] = v[k / 2];
+    }
+    free(lag);
+    *nf = frames;
+    return sm;
+}
+
+static float *psola(const float *in, int n, int *outn) {
+    /* 1. the formants: resampled by formant_r (pitch and length move with them; both are put back below) */
+    float rf = formant_r;
+    int m = (int)((float)n / rf);
+    float *y = malloc(sizeof(float) * (size_t)(m > 0 ? m : 1));
+    float cut = rf > 1 ? 1 / rf : 1;
+    for (int i = 0; i < m; i++)
+        y[i] = sinc_at(in, n, (double)i * rf, cut);
+    /* 2. its pitch, and its glottal pulses: a mark every period, at the waveform's peak */
+    int hop = (int)(rate * 0.005f), nf;
+    int *lag = pitch_track(y, m, hop, &nf);
+    int cap = m / 20 + 16, nm = 0;
+    int *mk = malloc(sizeof(int) * (size_t)cap), *mt = malloc(sizeof(int) * (size_t)cap);
+    bool *mv = malloc(sizeof(bool) * (size_t)cap);
+    long long voiced_sum = 0;
+    int voiced_n = 0;
+    for (int pos = 0; pos < m;) {
+        int f = pos / hop < nf ? pos / hop : nf - 1, T = lag[f];
+        bool v = T > 0;
+        if (!v)
+            T = hop;
+        else
+            voiced_sum += T, voiced_n++;
+        if (nm == cap) {
+            cap *= 2;
+            mk = realloc(mk, sizeof(int) * (size_t)cap), mt = realloc(mt, sizeof(int) * (size_t)cap);
+            mv = realloc(mv, sizeof(bool) * (size_t)cap);
+        }
+        int at = pos;
+        if (v) { /* on the pulse: the highest point near where the period says */
+            int lo = pos - T / 4, hi = pos + T / 4, b = pos;
+            for (int i = lo < 0 ? 0 : lo; i <= hi && i < m; i++)
+                if (y[i] > y[b < m ? b : m - 1])
+                    b = i;
+            at = b;
+        }
+        mk[nm] = at, mt[nm] = T, mv[nm] = v, nm++;
+        pos = at + T > pos ? at + T : pos + 1;
+    }
+    /* 3. put back together: at the pitch asked for, at the length it had */
+    float rp = pitch_r / rf; /* the resampling already moved the pitch by rf */
+    int robot_T = voiced_n ? (int)((float)(voiced_sum / voiced_n) / pitch_r) : (int)(rate / 140);
+    int L = n;
+    float *out = calloc((size_t)L + 1, sizeof(float)), *ws = calloc((size_t)L + 1, sizeof(float));
+    int j = 0;
+    for (float t = 0; t < (float)L && nm;) {
+        float yt = t / rf; /* where in y this moment of the output comes from */
+        while (j + 1 < nm && fabsf((float)mk[j + 1] - yt) <= fabsf((float)mk[j] - yt))
+            j++;
+        int Ta = mt[j], c = mk[j];
+        /* its melody, widened or flattened around the phrase's own middle: each pulse's pitch relative to the mean,
+         * raised to `range` (1 keeps it as spoken) */
+        float rl = rp;
+        if (mv[j] && voiced_n && range != 1) {
+            float rel = (float)(voiced_sum / voiced_n) / (float)Ta; /* this pulse's pitch over the mean */
+            rl = rp * powf(rel, range - 1);
+            rl = rl < rp * 0.6f ? rp * 0.6f : rl > rp * 1.7f ? rp * 1.7f : rl;
+        }
+        float Ts = mv[j] ? (effect == FX_ROBOT ? (float)robot_T : (float)Ta / rl) : (float)Ta;
+        int tc = (int)lrintf(t);
+        for (int i = -Ta; i <= Ta; i++) {
+            int k = c + i, o = tc + i;
+            if (k < 0 || k >= m || o < 0 || o >= L)
+                continue;
+            float w = 0.5f + 0.5f * cosf((float)M_PI * (float)i / (float)(Ta + 1));
+            out[o] += y[k] * w, ws[o] += w;
+        }
+        t += Ts < 1 ? 1 : Ts;
+    }
+    for (int i = 0; i < L; i++) /* the grains' windows add up unevenly when re-spaced: evened out */
+        out[i] = ws[i] > 0.25f ? out[i] / ws[i] : out[i] * 4 * (ws[i] > 0 ? 1 : 0);
+    free(y), free(lag), free(mk), free(mt), free(mv), free(ws);
+    *outn = L;
+    return out;
+}
+
+static void level(float *hop, int n);
+static float pow_in;
+/* the whisper's stage, a sample at a time */
+static void spectral_push(float x) {
     pow_in += (x * x - pow_in) * (0.05f / HOP);
     inbuf[N - HOP + filled] = x;
     if (++filled == HOP) {
@@ -320,6 +478,57 @@ static void in_sample(float x) {
         memmove(inbuf, inbuf + HOP, sizeof(float) * (N - HOP));
         filled = 0;
     }
+}
+
+static void phrase_out(const float *x, int n) {
+    if (spectral()) /* pitched first, then whispered */
+        for (int i = 0; i < n; i++)
+            spectral_push(x[i]);
+    else
+        out_samples(x, n);
+}
+
+/* phrases: gathered until a pause, then done whole */
+static float *chunk;
+static int chunk_n, chunk_cap, quiet_run;
+static bool heard;
+
+static void chunk_flush(void) {
+    if (!chunk_n)
+        return;
+    if (heard) {
+        int on;
+        float *o = psola(chunk, chunk_n, &on);
+        phrase_out(o, on);
+        free(o);
+    } else {
+        phrase_out(chunk, chunk_n); /* silence stays silence, at once */
+    }
+    chunk_n = 0, quiet_run = 0, heard = false;
+}
+
+static void chunk_add(float x) {
+    if (chunk_n == chunk_cap) {
+        chunk_cap = chunk_cap ? chunk_cap * 2 : 1 << 16;
+        chunk = realloc(chunk, sizeof(float) * (size_t)chunk_cap);
+    }
+    chunk[chunk_n++] = x;
+    if (fabsf(x) < 0.003f)
+        quiet_run++;
+    else
+        quiet_run = 0, heard = true;
+    if ((heard && quiet_run > (int)(rate * 0.12f)) || chunk_n > (int)(rate * 20) ||
+        (!heard && chunk_n > (int)(rate * 0.05f)))
+        chunk_flush();
+}
+
+/* one sample of input */
+static void in_sample(float x) {
+    if (psola_on()) {
+        chunk_add(x);
+        return;
+    }
+    phrase_out(&x, 1);
 }
 
 int main(int argc, char **argv) {
@@ -339,6 +548,10 @@ int main(int argc, char **argv) {
             formant_r = powf(2, (v < -6 ? -6 : v > 6 ? 6 : v) / 12);
         else if (!strncmp(a, "warmth=", 7))
             warmth = v < -1 ? -1 : v > 1 ? 1 : v;
+        else if (!strncmp(a, "range=", 6))
+            range = v < 0.3f ? 0.3f : v > 2 ? 2 : v;
+        else if (!strncmp(a, "gain=", 5))
+            gain_set = v < 0.2f ? 0.2f : v > 2 ? 2 : v;
         else if (!strncmp(a, "breath=", 7))
             breath = v < 0 ? 0 : v > 1 ? 1 : v;
         else if (!strncmp(a, "effect=", 7)) {
@@ -375,10 +588,15 @@ int main(int argc, char **argv) {
         if (carry)
             memmove(buf, (char *)buf + whole * 2, carry);
     }
-    /* the end: the last frames, and the reverb's tail */
-    int tail = spectral() ? N : 0;
-    tail += effect == FX_HALL ? (int)(rate * 1.2f) : effect == FX_ROOM ? (int)(rate * 0.4f) : 0;
-    for (int i = 0; i < tail; i++)
-        in_sample(0);
+    /* the end: the last phrase, the last frames, and the reverb's tail */
+    if (psola_on())
+        chunk_flush();
+    if (spectral())
+        for (int i = 0; i < N; i++)
+            spectral_push(0);
+    int tail = effect == FX_HALL ? (int)(rate * 1.2f) : effect == FX_ROOM ? (int)(rate * 0.4f) : 0;
+    static float zero[HOP];
+    for (int i = 0; i < tail; i += HOP)
+        out_samples(zero, HOP);
     return 0;
 }

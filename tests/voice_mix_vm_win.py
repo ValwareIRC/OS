@@ -20,6 +20,8 @@ replies = [
     {"when": "mix it", "reply": "A mix, then. [[voice:mix af_heart 60, bm_george 40]]"},
     {"when": "shape it", "reply": "Lower, in a small room. [[voice:shape pitch -2 formant -1 effect room]]"},
     {"when": "say something", "reply": "This is how I sound now, after all that. Is it right?"},
+    {"when": "whisper", "reply": "[[tone:whisper]] Come closer. I'll tell you a secret."},
+    {"when": "be excited", "reply": "[[tone:excited]] It actually works! Let's try it now!"},
 ] + ["Okay."] * 10
 results = {}
 vm = vmkit.Vm(out, replies, memory=os.environ.get("MEM", "8G"), qport=4482, aiport=8926)
@@ -47,6 +49,13 @@ try:
     vm.say("say something", r"shell: ai This is how I sound", 60)
     said = vm.wait_for(r"voice: said \((amix_[0-9a-f]{8})\) in [0-9.]+s(.*)", 60, m)
     results["spoken in the mix, through the shaping, without an error"] = bool(said) and not said.group(2).strip()
+    for ask, tone in (("be excited", "excited"), ("whisper", "whisper")):
+        time.sleep(3)
+        m = len(vm.log_text())
+        vm.focus_companion()
+        vm.say(ask, r"shell: ai ", 60)
+        results[f"said {tone}"] = bool(vm.wait_for(rf"voice: speaking \(amix_[0-9a-f]{{8}}, {tone}\)", 20, m)) and bool(
+            vm.wait_for(r"voice: said \(amix_[0-9a-f]{8}, \w+\) in [0-9.]+s\n", 40, m))
     time.sleep(3)
 finally:
     vm.stop()

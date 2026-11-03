@@ -66,16 +66,57 @@ static bool kokoro_ready(const char *name) {
 #define VOICEFX "/bin/os-voicefx"
 static const char *const effects[] = {"none", "robot", "whisper", "radio", "phone", "room", "hall", NULL};
 
+/* How one reply is said ([[tone:...]]), on top of its voice: pitch (semitones), how far the melody moves (range),
+ * speed, warmth, breath and loudness; a whisper is its voice with some of af_nicole's (a breathy voice) in it, and
+ * hushed is a voiceless whisper. For that reply only, then its own voice again. */
+static const struct tone {
+    const char *name;
+    float pitch, range, speed, warmth, breath, gain;
+    const char *effect;  /* NULL: its own */
+    float nicole;        /* how much of af_nicole goes in */
+} tones[] = {
+    {"happy", 1.0f, 1.25f, 1.05f, -0.1f, 0, 1, NULL, 0},
+    {"excited", 2.0f, 1.5f, 1.12f, -0.15f, 0, 1.05f, NULL, 0},
+    {"playful", 1.2f, 1.35f, 1.06f, 0, 0.05f, 1, NULL, 0},
+    {"tender", -0.5f, 0.85f, 0.92f, 0.3f, 0.2f, 0.85f, NULL, 0},
+    {"calm", -0.5f, 0.8f, 0.93f, 0.2f, 0.05f, 0.95f, NULL, 0},
+    {"sad", -1.5f, 0.65f, 0.86f, 0.25f, 0.2f, 0.8f, NULL, 0},
+    {"serious", -1.0f, 0.75f, 0.97f, 0.1f, 0, 1, NULL, 0},
+    {"worried", 0.6f, 1.1f, 1.06f, 0, 0.15f, 0.9f, NULL, 0},
+    {"surprised", 2.5f, 1.6f, 1.04f, -0.1f, 0, 1.05f, NULL, 0},
+    {"sleepy", -1.2f, 0.6f, 0.82f, 0.3f, 0.35f, 0.8f, NULL, 0},
+    {"whisper", -0.3f, 0.8f, 0.94f, 0.1f, 0.45f, 0.7f, NULL, 0.35f},
+    {"hushed", 0, 1, 0.95f, 0, 0, 0.8f, "whisper", 0},
+};
+static const struct tone *tone_next; /* for the next words said, then gone */
+static bool whisper_voice(const char *v, float share, char *name, size_t n);
+
+static const struct tone *tone_named(const char *name) {
+    for (size_t i = 0; i < sizeof tones / sizeof tones[0]; i++)
+        if (!strcasecmp(name, tones[i].name))
+            return &tones[i];
+    return NULL;
+}
+
 static float shape_get(const char *key, float lo, float hi) {
     float v = (float)atof(settings_get(key, "0"));
     return v < lo ? lo : v > hi ? hi : v;
 }
 
-/* " pitch=-2 formant=1 ..." for os-voicefx (numbers and a known name only: it goes into a command) */
-static void shape_args(char *out, size_t n) {
+/* " pitch=-2 formant=1 ..." for os-voicefx (numbers and a known name only: it goes into a command), with the
+ * tone of the line (NULL: none) on top */
+static void shape_args_tone(char *out, size_t n, const struct tone *t) {
     float pitch = shape_get("voice.pitch", -12, 12), formant = shape_get("voice.formant", -6, 6);
     float warmth = shape_get("voice.warmth", -1, 1), breath = shape_get("voice.breath", 0, 1);
     const char *fx = settings_get("voice.effect", "none");
+    float range = 1, gain = 1;
+    if (t) {
+        pitch += t->pitch, warmth += t->warmth, breath += t->breath, range = t->range, gain = t->gain;
+        warmth = warmth > 1 ? 1 : warmth < -1 ? -1 : warmth;
+        breath = breath > 1 ? 1 : breath;
+        if (t->effect)
+            fx = t->effect;
+    }
     int e = 0;
     for (int i = 0; effects[i]; i++)
         if (!strcmp(fx, effects[i]))
@@ -90,14 +131,21 @@ static void shape_args(char *out, size_t n) {
         o += (size_t)snprintf(out + o, n - o, " warmth=%.2f", (double)warmth);
     if (breath != 0 && o < n)
         o += (size_t)snprintf(out + o, n - o, " breath=%.2f", (double)breath);
+    if (range != 1 && o < n)
+        o += (size_t)snprintf(out + o, n - o, " range=%.2f", (double)range);
+    if (gain != 1 && o < n)
+        o += (size_t)snprintf(out + o, n - o, " gain=%.2f", (double)gain);
     if (e && o < n)
         snprintf(out + o, n - o, " effect=%s", effects[e]);
 }
 
-/* "| os-voicefx RATE ... " when its voice is shaped, else nothing */
+static void shape_args(char *out, size_t n) { shape_args_tone(out, n, NULL); }
+
+/* "| os-voicefx RATE ... " when its voice is shaped (or the line has a tone), else nothing */
+static const struct tone *tone_now; /* the tone of the line being started */
 static void shape_stage(int rate, char *out, size_t n) {
-    char a[160];
-    shape_args(a, sizeof a);
+    char a[200];
+    shape_args_tone(a, sizeof a, tone_now);
     if (a[0] && access(VOICEFX, X_OK) == 0)
         snprintf(out, n, " | " VOICEFX " %d%s", rate, a);
     else
@@ -152,6 +200,8 @@ bool voice_speaking(void) {
 }
 
 void voice_say(const char *text) {
+    tone_now = tone_next; /* this line's tone, and only this line's */
+    tone_next = NULL;
     if (!enabled || !text || !*text || !voice_can_speak())
         return;
     voice_hush(); /* the newest words win */
@@ -172,7 +222,13 @@ void voice_say(const char *text) {
         /* a number, whatever the settings file holds (it goes into a command) */
         char speed[16];
         float sp = (float)atof(settings_get("voice.speed", "1.0"));
-        snprintf(speed, sizeof speed, "%.2f", (double)(sp < 0.7f || sp > 1.4f ? 1.0f : sp));
+        sp = sp < 0.7f || sp > 1.4f ? 1.0f : sp;
+        if (tone_now)
+            sp *= tone_now->speed;
+        snprintf(speed, sizeof speed, "%.2f", (double)sp);
+        char hushed[80];
+        if (tone_now && tone_now->nicole > 0 && whisper_voice(v, tone_now->nicole, hushed, sizeof hushed))
+            v = hushed; /* its own voice with some breathiness in it */
         if (!strncmp(v, "openai:", 7) || !strncmp(v, "elevenlabs:", 11))
             _exit(cloud_speak(v, 0) ? 0 : 1); /* (the text is on stdin) */
         char fx[220], cmd[900];
@@ -195,7 +251,8 @@ void voice_say(const char *text) {
         setpgid(pid, pid);
         spoke_at = now_ms();
         const char *v = voice_current();
-        snprintf(spoke_with, sizeof spoke_with, "%s", strchr(v, ':') ? v : kokoro_ready(v) ? v : "the stand-in");
+        snprintf(spoke_with, sizeof spoke_with, "%s%s%s", strchr(v, ':') ? v : kokoro_ready(v) ? v : "the stand-in",
+                 tone_now ? ", " : "", tone_now ? tone_now->name : "");
         LOG("voice: speaking (%s)\n", spoke_with);
         /* one line per sentence: Kokoro starts on the first while the rest are made */
         sbuf lines;
@@ -273,6 +330,7 @@ void voice_set_speed(float s) {
 static job *downloading;
 static char want[300];    /* the voices being fetched, space-separated */
 static char mix_next[300]; /* a mix waiting for them, its recipe */
+static bool whisper_fetch;  /* af_nicole fetched for whispering: not a voice to switch to */
 
 #define VOICE_FLOATS (510 * 256) /* a Kokoro voice */
 
@@ -392,6 +450,57 @@ static bool mix_make(const char *spec, char *name, size_t nn, char *why, size_t 
                               (int)lrintf(p[i].w * 100));
     settings_set("voice.mix", recipe);
     return true;
+}
+
+/* its voice v with `share` of af_nicole in it, as a voice file (made once): false (and fetched for next time)
+ * when af_nicole isn't here yet */
+static bool whisper_voice(const char *v, float share, char *name, size_t n) {
+    if (!kokoro_ready(v))
+        return false;
+    if (!kokoro_ready("af_nicole")) {
+        if (!downloading) {
+            mkdir(VOICES, 0755);
+            snprintf(want, sizeof want, "af_nicole");
+            mix_next[0] = 0;
+            whisper_fetch = true;
+            downloading = job_start(download_child, want);
+        }
+        return false;
+    }
+    snprintf(name, n, "%c%.40s-hush%02d", v[0], v, (int)lrintf(share * 100));
+    if (kokoro_ready(name))
+        return true;
+    static float a[VOICE_FLOATS], b[VOICE_FLOATS];
+    char pa[256], pb[256], pc[256];
+    snprintf(pa, sizeof pa, VOICES "/%s.bin", v);
+    snprintf(pb, sizeof pb, VOICES "/af_nicole.bin");
+    snprintf(pc, sizeof pc, VOICES "/%s.bin", name);
+    FILE *fa = fopen(pa, "rb"), *fb = fopen(pb, "rb");
+    bool ok = fa && fb && fread(a, sizeof(float), VOICE_FLOATS, fa) == VOICE_FLOATS &&
+              fread(b, sizeof(float), VOICE_FLOATS, fb) == VOICE_FLOATS;
+    if (fa)
+        fclose(fa);
+    if (fb)
+        fclose(fb);
+    if (!ok)
+        return false;
+    for (int k = 0; k < VOICE_FLOATS; k++)
+        a[k] = a[k] * (1 - share) + b[k] * share;
+    FILE *f = fopen(pc, "wb");
+    ok = f && fwrite(a, sizeof(float), VOICE_FLOATS, f) == VOICE_FLOATS;
+    if (f && fclose(f) != 0)
+        ok = false;
+    if (!ok)
+        unlink(pc);
+    return ok;
+}
+
+void voice_tone(const char *name) {
+    char w[24] = "";
+    sscanf(name, " %23[a-zA-Z]", w);
+    tone_next = tone_named(w);
+    if (tone_next)
+        LOG("voice: the next words %s\n", tone_next->name);
 }
 
 const char *voice_mix(const char *spec) {
@@ -533,7 +642,9 @@ void voice_poll(void) {
         bool ok = res && !strcmp(res, "ok");
         free(res);
         LOG("voice: %s %s\n", want, ok ? "arrived" : "couldn't be fetched");
-        if (ok && mix_next[0]) {
+        if (whisper_fetch) { /* (for whispering: its own voice stays) */
+            whisper_fetch = false;
+        } else if (ok && mix_next[0]) {
             char spec[300];
             snprintf(spec, sizeof spec, "%s", mix_next);
             mix_next[0] = 0;
@@ -612,7 +723,11 @@ const char *voice_prompt(void) {
                   "(-12 to 12, the same speed), formant (-6 to 6: lower is a bigger, deeper body, higher a smaller, "
                   "younger one, the pitch kept), warmth (-1 brighter to 1 warmer), breath (0 to 1: air), effect (none, "
                   "robot, whisper, radio, phone, room, hall); any of them, [[voice:shape reset]] for none. Your next "
-                  "words are heard in it: make one change at a time and ask how it sounds. Its make-up now: %s%s%s%s. "
+                  "words are heard in it: make one change at a time and ask how it sounds. How you say a reply is "
+                  "yours to choose each time, like a person's: [[tone:happy]] (or excited, playful, tender, calm, "
+                  "sad, serious, worried, surprised, sleepy; whisper, close and soft; hushed, a voiceless whisper) "
+                  "says that one reply that way, then you are yourself again. Use it when it fits what you say, not "
+                  "every time. Its make-up now: %s%s%s%s. "
                   "Voices: ",
               cur[0] ? cur : "a temporary stand-in voice (none chosen yet)",
               settings_get("voice.mix", "")[0] ? "a mix of " : "unmixed", settings_get("voice.mix", ""),
