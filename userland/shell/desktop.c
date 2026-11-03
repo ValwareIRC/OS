@@ -216,6 +216,20 @@ static bool claims_change(const char *text) {
     return has_any(text, claims);
 }
 
+/* Does a reply say it is doing something now ("Fixing it now", "I'm replacing both", "Opening it")? Said with no tag,
+ * nothing happened: it narrated the next step as done, and they only found out by asking. */
+static bool promises_action(const char *text) {
+    static const char *const says[] = {"fixing it",  "fixing that", "fixing both", "fixing them", "doing it",
+                                       "doing the fix", "doing that", "on it",    "replacing",  "opening it",
+                                       "opening that", "bringing it", "bringing up", "rewriting", "writing it",
+                                       "changing it", "i'll do",    "i'll fix",    "i'll change", "i'll write",
+                                       "i'll make",   "i'll open",   "i'll add",    "i'll remove", "i'm going to",
+                                       "let me fix", "let me open", "let me change", "let me do", "let me try", "working on it", "starting now", "doing it now", "making it",
+                                       "adding it",   "removing it", "putting it",  "fixing now", "trying again",
+                                       NULL};
+    return has_any(text, says);
+}
+
 /* The designer's reasons, from <meta><why for="#id" said="...">...</why>. */
 static void collect_whys(char *out, size_t len) {
     size_t o = 0;
@@ -904,6 +918,7 @@ static void companion_update(void) {
         convo_send(c, companion_system(), 1600); /* one quiet retry */
     if (convo_poll(c) && !c->error[0]) {
         struct msg *m = &c->msgs[c->n - 1];
+        bool had_tags = m->text && strstr(m->text, "[[") != NULL; /* (before they are taken out) */
         /* Act on tags only when they answer something the person said, not
          * our own prompts (e.g. "tell them what you changed"). */
         bool person_said = c->n >= 2 && !strcmp(c->msgs[c->n - 2].role, "user");
@@ -1167,6 +1182,19 @@ static void companion_update(void) {
             LOG("companion: told what the screen said: %s", toast_heard);
             tell_now = from_person && !told_screen && !tag_failed;
             told_screen |= tell_now;
+        }
+        static bool told_untagged; /* once for each thing they said: never a loop of it */
+        if (person_said)
+            told_untagged = false;
+        if (from_person && !had_tags && !told_untagged && !A.design_job && promises_action(m->text)) {
+            told_untagged = true;
+            char note[700];
+            snprintf(note, sizeof note,
+                     "(Your last reply said you were doing something (\"%.200s\") but it had no tag, so nothing "
+                     "happened. Do it now, with the tags it takes, in this reply; or, if you won't or can't, say so "
+                     "plainly. Never say you are doing something without the tag that does it.)", m->text);
+            LOG("companion: said it was doing something with no tag: told\n");
+            companion_note(note, true);
         }
         if ((ui_ran || tag_failed || toast_heard[0]) && tag_report[0]) {
             /* What its tags did, for it to read from now on: without this it
