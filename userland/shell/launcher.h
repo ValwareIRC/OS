@@ -50,4 +50,7 @@ void launcher_flathub_poll(void);
 bool launcher_flathub_ready(void);
 bool launcher_flathub_offer(const char *id, const char **name, const char **dev, bool *verified);
 bool launcher_installed(const char *id);
+/* An app is being installed (from the launcher or by the companion): the desktop's own downloads and copies wait,
+ * so what the person asked for gets the network and the disk to itself. */
+bool apps_installing(void);
 void launcher_install_quietly(const char *id, const char *name);

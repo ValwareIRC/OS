@@ -16,6 +16,7 @@
  * panel in the middle of the screen or as a list growing from the design's
  * own <search> field. */
 #include "launcher.h"
+#include "agent.h"
 #include "app.h"
 #include "priv.h"
 #include "files.h"
@@ -1819,6 +1820,8 @@ bool launcher_flathub_offer(const char *id, const char **name, const char **dev,
 bool launcher_flathub_ready(void) { return fh.n > 0; }
 
 bool launcher_installed(const char *id) { return offer_installed(id); }
+
+bool apps_installing(void) { return fh.install || fh.install_priv > 0 || agent_installing(); }
 
 void launcher_install_quietly(const char *id, const char *name) {
     if (fh.install)

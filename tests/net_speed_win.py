@@ -42,7 +42,8 @@ srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 args = [QEMU, "-M", "q35", "-accel", "whpx,kernel-irqchip=on", "-accel", "tcg", "-cpu", "Skylake-Client-noTSX-IBRS",
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-m", "8G", "-smp", "4", "-no-reboot", "-display", "none",
-        "-fw_cfg", "name=opt/os/mode,string=net-speed:" + (f"80:{os.environ['TARGET']}" if os.environ.get("TARGET") else str(PORT)), "-netdev", "user,id=n0", "-device",
+        "-fw_cfg", "name=opt/os/mode,string=net-speed:" + (f"80:{os.environ['TARGET']}" if os.environ.get("TARGET") else str(PORT)) +
+        (f"*{os.environ['MANY']}" if os.environ.get("MANY") else ""), "-netdev", "user,id=n0", "-device",
         os.environ.get("NIC", "e1000") + ",netdev=n0", "-audiodev", "none,id=snd0",
         "-serial", "file:" + log.replace(os.sep, "/"), "-cdrom", iso.replace(os.sep, "/")]
 if os.path.basename(iso) == "dev.iso":

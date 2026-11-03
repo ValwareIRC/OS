@@ -722,9 +722,9 @@ static void init_entry(void *arg) {
     struct regs *frame = current_user_frame();
     char *argv[] = {(char *)init_path, NULL};
     /* The QEMU test harness asks for test mode through fw_cfg. */
-    static char mode[64] = "OS_MODE=";
-    char value[32];
-    bool test = fwcfg_read_file("opt/os/mode", value, sizeof value) > 0;
+    static char mode[232] = "OS_MODE=";
+    char value[200] = {0}; /* (room for a test's arguments: an app's ID, an address) */
+    bool test = fwcfg_read_file("opt/os/mode", value, sizeof value - 1) > 0;
     char trace[24];
     int tn = fwcfg_read_file("opt/os/strace", trace, sizeof trace - 1);
     if (tn > 0 && trace[0] == '1') {

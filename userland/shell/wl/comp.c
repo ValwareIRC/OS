@@ -10,11 +10,12 @@
 #include <unistd.h>
 
 /* The interfaces apps use to show windows: surfaces with shared-memory
- * buffers, xdg-shell toplevels and popups, the seat (pointer and keyboard)
- * and one output. Each committed frame is copied into the view's pixels
- * (cropped to the window geometry, so client-drawn shadows don't count),
- * and the buffer goes straight back to the app. Decorations are always the
- * shell's: the person's design frames every window. */
+ * buffers, subsurfaces, xdg-shell toplevels and popups, the seat (pointer and
+ * keyboard) and one output. Each committed frame is copied (so the buffer
+ * goes straight back to the app), and a window's view is its surface with
+ * its subsurfaces drawn in, in their order, cropped to the window geometry
+ * (so client-drawn shadows don't count). Decorations are the shell's unless
+ * the app draws its own: the person's design frames every window. */
 
 void wl_flush_all(void);
 
@@ -137,6 +138,20 @@ struct wl_surf {
     uint32_t last_serial;
     int gx, gy, gw, gh; /* window geometry inside the buffer; gw 0: whole buffer */
     wl_view *view;
+    /* what it shows: a copy of its last buffer (premultiplied ARGB) */
+    uint32_t *px;
+    int pw, ph;
+    /* as a subsurface (Firefox and GTK draw a window's content into one, video players their picture): its
+     * parent, where it sits on it, and whether its commits wait for the parent's (synchronized, the default) */
+    struct wl_surf *parent;
+    wl_obj *sub;
+    int sx, sy, pend_sx, pend_sy;
+    bool pend_pos, desync, under; /* under: placed below its parent */
+    uint32_t *cache_px;           /* synchronized: committed, shown at the parent's next commit */
+    int cache_w, cache_h;
+    bool cached;
+    struct wl_surf *kids[16]; /* its subsurfaces, bottom first */
+    int nkids;
 };
 
 static wl_view *views[MAX_VIEWS];
@@ -175,6 +190,7 @@ static void view_free(wl_view *v) {
 }
 
 static wl_obj *pointer_focus, *keyboard_focus; /* wl_surface objects */
+static void unlink_sub(struct wl_surf *k);
 
 static void surface_destroy(wl_obj *o) {
     struct wl_surf *s = o->data;
@@ -200,7 +216,30 @@ static void surface_destroy(wl_obj *o) {
         s->popup->data = NULL;
     if (s->deco)
         s->deco->data = NULL;
+    if (s->sub)
+        s->sub->data = NULL;
+    unlink_sub(s);
+    for (int i = 0; i < s->nkids; i++)
+        s->kids[i]->parent = NULL;
+    free(s->px);
+    free(s->cache_px);
     free(s);
+}
+
+/* A surface's xdg-surface, toplevel, popup or decoration object freed (asked for, or its app gone, when objects
+ * go in any order): the surface no longer points at it. */
+static void role_obj_gone(wl_obj *o) {
+    struct wl_surf *s = o->data;
+    if (!s)
+        return;
+    if (s->xdg == o)
+        s->xdg = NULL;
+    if (s->toplevel == o)
+        s->toplevel = NULL;
+    if (s->popup == o)
+        s->popup = NULL;
+    if (s->deco == o)
+        s->deco = NULL;
 }
 
 static void callback_destroy(wl_obj *o) {
@@ -219,41 +258,156 @@ static void callback_destroy(wl_obj *o) {
         }
 }
 
-/* Copies the committed buffer into the view (only the window geometry). */
-static void take_frame(struct wl_surf *s, struct buffer *b) {
-    wl_view *v = s->view;
-    if (!v || !b || !b->pool->map)
+/* A copy of the committed buffer: XRGB made opaque, ARGB kept as it is (premultiplied). */
+static bool copy_buffer(struct buffer *b, uint32_t **px, int *w, int *h) {
+    if (!b || !b->pool->map)
+        return false;
+    if (b->w != *w || b->h != *h || !*px) {
+        free(*px);
+        *px = malloc((size_t)b->w * (size_t)b->h * 4);
+        *w = b->w, *h = b->h;
+        if (!*px) {
+            *w = *h = 0;
+            return false;
+        }
+    }
+    bool opaque = b->format == WL_SHM_FORMAT_XRGB8888;
+    for (int y = 0; y < b->h; y++) {
+        const uint32_t *src = (const uint32_t *)(b->pool->map + b->offset + (size_t)y * (size_t)b->stride);
+        uint32_t *dst = *px + (size_t)y * (size_t)b->w;
+        if (opaque)
+            for (int x = 0; x < b->w; x++)
+                dst[x] = src[x] | 0xff000000u;
+        else
+            memcpy(dst, src, (size_t)b->w * 4);
+    }
+    return true;
+}
+
+static struct wl_surf *surf_root(struct wl_surf *s) {
+    for (int i = 0; s && s->parent && i < 32; i++)
+        s = s->parent;
+    return s;
+}
+
+/* Draws `s` and its subsurfaces (those below it first) into `dst`, its top-left at (ox, oy). */
+static void draw_tree(struct wl_surf *s, uint32_t *dst, int dw, int dh, int ox, int oy, int depth) {
+    if (depth > 8)
         return;
-    int x0 = 0, y0 = 0, w = b->w, h = b->h;
-    if (s->gw > 0 && s->gh > 0) {
-        x0 = s->gx, y0 = s->gy, w = s->gw, h = s->gh;
+    for (int pass = 0; pass < 3; pass++) {
+        if (pass == 1) { /* the surface itself, between those below and those above */
+            for (int y = 0; s->px && y < s->ph; y++) {
+                int ty = oy + y;
+                if (ty < 0 || ty >= dh)
+                    continue;
+                const uint32_t *src = s->px + (size_t)y * (size_t)s->pw;
+                uint32_t *row = dst + (size_t)ty * (size_t)dw;
+                for (int x = 0; x < s->pw; x++) {
+                    int tx = ox + x;
+                    if (tx < 0 || tx >= dw)
+                        continue;
+                    uint32_t c = src[x], al = c >> 24;
+                    if (al == 255) {
+                        row[tx] = c;
+                    } else if (al) { /* premultiplied: c + d * (1 - a) */
+                        uint32_t d = row[tx], k = 255 - al;
+                        uint32_t rb = ((d & 0x00ff00ffu) * k >> 8) & 0x00ff00ffu;
+                        uint32_t ag = (((d >> 8) & 0x00ff00ffu) * k) & 0xff00ff00u;
+                        row[tx] = c + rb + ag;
+                    }
+                }
+            }
+            continue;
+        }
+        for (int i = 0; i < s->nkids; i++)
+            if (s->kids[i]->under == (pass == 0))
+                draw_tree(s->kids[i], dst, dw, dh, ox + s->kids[i]->sx, oy + s->kids[i]->sy, depth + 1);
+    }
+}
+
+/* The window's view made again from its surfaces: only the window geometry. */
+static void compose(struct wl_surf *root) {
+    wl_view *v = root ? root->view : NULL;
+    if (!v || !root->px)
+        return;
+    int x0 = 0, y0 = 0, w = root->pw, h = root->ph;
+    if (root->gw > 0 && root->gh > 0) {
+        x0 = root->gx, y0 = root->gy, w = root->gw, h = root->gh;
         if (x0 < 0) x0 = 0;
         if (y0 < 0) y0 = 0;
-        if (x0 + w > b->w) w = b->w - x0;
-        if (y0 + h > b->h) h = b->h - y0;
+        if (x0 + w > root->pw) w = root->pw - x0;
+        if (y0 + h > root->ph) h = root->ph - y0;
         if (w <= 0 || h <= 0)
-            x0 = y0 = 0, w = b->w, h = b->h;
+            x0 = y0 = 0, w = root->pw, h = root->ph;
     }
-    if (w != v->w || h != v->h) {
+    if (w != v->w || h != v->h || !v->px) {
         free(v->px);
         v->px = malloc((size_t)w * (size_t)h * 4);
         v->w = w, v->h = h;
+        if (!v->px) {
+            v->w = v->h = 0;
+            return;
+        }
     }
-    bool opaque = b->format == WL_SHM_FORMAT_XRGB8888;
-    for (int y = 0; y < h; y++) {
-        const uint32_t *src = (const uint32_t *)(b->pool->map + b->offset + (size_t)(y + y0) * (size_t)b->stride) + x0;
-        uint32_t *dst = v->px + (size_t)y * (size_t)w;
-        if (opaque)
-            for (int x = 0; x < w; x++)
-                dst[x] = src[x] | 0xff000000u;
-        else
-            memcpy(dst, src, (size_t)w * 4);
+    if (!root->nkids) { /* the usual window: its buffer, cropped */
+        for (int y = 0; y < h; y++)
+            memcpy(v->px + (size_t)y * (size_t)w, root->px + (size_t)(y + y0) * (size_t)root->pw + x0, (size_t)w * 4);
+    } else {
+        memset(v->px, 0, (size_t)w * (size_t)h * 4);
+        draw_tree(root, v->px, w, h, -x0, -y0, 0);
     }
     v->version++;
     if (!v->mapped) {
         v->mapped = true;
         wl_host_view_mapped(v);
     }
+}
+
+/* A subsurface is synchronized when it or any parent above it is. */
+static bool sub_synced(struct wl_surf *s) {
+    for (int i = 0; s && s->parent && i < 32; i++, s = s->parent)
+        if (!s->desync)
+            return true;
+    return false;
+}
+
+static void show_cached(struct wl_surf *k) {
+    uint32_t *t = k->px;
+    k->px = k->cache_px, k->pw = k->cache_w, k->ph = k->cache_h;
+    k->cache_px = t, k->cached = false;
+    if (!k->px)
+        k->pw = k->ph = 0;
+    k->cache_w = k->cache_h = 0;
+    free(k->cache_px);
+    k->cache_px = NULL;
+}
+
+/* The parent committed: its subsurfaces' new positions and synchronized states take effect. */
+static void apply_kids(struct wl_surf *s, int depth) {
+    if (depth > 8)
+        return;
+    for (int i = 0; i < s->nkids; i++) {
+        struct wl_surf *k = s->kids[i];
+        if (k->pend_pos)
+            k->sx = k->pend_sx, k->sy = k->pend_sy, k->pend_pos = false;
+        if (k->cached)
+            show_cached(k);
+        apply_kids(k, depth + 1);
+    }
+}
+
+static void unlink_sub(struct wl_surf *k) {
+    struct wl_surf *p = k->parent;
+    if (!p)
+        return;
+    for (int i = 0; i < p->nkids; i++)
+        if (p->kids[i] == k) {
+            memmove(p->kids + i, p->kids + i + 1, sizeof p->kids[0] * (size_t)(p->nkids - i - 1));
+            p->nkids--;
+            break;
+        }
+    k->parent = NULL;
+    compose(surf_root(p));
 }
 
 static void send_configure(struct wl_surf *s, int w, int h, bool activated) {
@@ -307,19 +461,36 @@ static void surface_req(wl_obj *o, int op, union wl_arg *a) {
             send_configure(s, 0, 0, true);
             break;
         }
-        if (s->attached) {
+        bool synced = s->role == ROLE_SUB && sub_synced(s);
+        if (s->attached && synced) { /* synchronized: kept until the parent commits */
+            free(s->cache_px), s->cache_px = NULL, s->cache_w = s->cache_h = 0;
+            if (s->pending_buffer && s->pending_buffer->data)
+                copy_buffer(s->pending_buffer->data, &s->cache_px, &s->cache_w, &s->cache_h);
+            if (s->pending_buffer)
+                wl_send(s->pending_buffer, WL_BUFFER_EV_RELEASE);
+            s->cached = true;
+            s->attached = false;
+            s->pending_buffer = NULL;
+        } else if (s->attached) {
             if (s->pending_buffer && s->pending_buffer->data) {
                 if (s->toplevel && s->view && !s->view->mapped)
                     wl_host_log("wayland: client %p window: first buffer", (void *)o->client);
-                take_frame(s, s->pending_buffer->data);
+                copy_buffer(s->pending_buffer->data, &s->px, &s->pw, &s->ph);
                 wl_send(s->pending_buffer, WL_BUFFER_EV_RELEASE);
-            } else if (s->view && s->view->mapped) {
-                s->view->mapped = false; /* a NULL buffer hides the window */
-                wl_host_view_unmapped(s->view);
+            } else {
+                free(s->px), s->px = NULL, s->pw = s->ph = 0;
+                if (s->view && s->view->mapped) {
+                    s->view->mapped = false; /* a NULL buffer hides the window */
+                    wl_host_view_unmapped(s->view);
+                }
             }
             s->attached = false;
             s->pending_buffer = NULL;
         }
+        if (s->nkids)
+            apply_kids(s, 0);
+        if (!synced)
+            compose(surf_root(s));
         for (int i = 0; i < s->nframes && s->ndone < 16; i++)
             s->done_frames[s->ndone++] = s->frames[i];
         s->nframes = 0;
@@ -352,18 +523,92 @@ static void compositor_req(wl_obj *o, int op, union wl_arg *a) {
 
 static void bind_compositor(wl_client *c, uint32_t id, int v) { wl_obj_new(c, id, &wl_compositor_iface, v, NULL); }
 
-/* Subsurfaces are accepted (toolkits ask for them) but not yet composited. */
-static void subsurface_req(wl_obj *o, int op, union wl_arg *a) {
-    (void)a;
-    if (op == WL_SUBSURFACE_DESTROY)
-        wl_obj_destroy(o);
+/* Moves subsurface `k` right above or below `sib`: a sibling, or the parent itself. */
+static void sub_place(struct wl_surf *k, struct wl_surf *sib, bool above) {
+    struct wl_surf *p = k->parent;
+    if (!p || sib == k)
+        return;
+    int at = -1;
+    for (int i = 0; i < p->nkids; i++)
+        if (p->kids[i] == k)
+            at = i;
+    if (at < 0)
+        return;
+    memmove(p->kids + at, p->kids + at + 1, sizeof p->kids[0] * (size_t)(p->nkids - at - 1));
+    p->nkids--;
+    int to = p->nkids;
+    if (sib == p) { /* the parent sits between those under it and those over it */
+        to = 0;
+        while (to < p->nkids && p->kids[to]->under)
+            to++;
+        k->under = !above;
+    } else {
+        for (int i = 0; i < p->nkids; i++)
+            if (p->kids[i] == sib)
+                to = above ? i + 1 : i;
+        k->under = sib->under;
+    }
+    memmove(p->kids + to + 1, p->kids + to, sizeof p->kids[0] * (size_t)(p->nkids - to));
+    p->kids[to] = k;
+    p->nkids++;
 }
+
+static void subsurface_destroyed(wl_obj *o) {
+    struct wl_surf *k = o->data;
+    if (k) {
+        k->sub = NULL;
+        unlink_sub(k);
+        k->role = ROLE_NONE;
+    }
+}
+
+static void subsurface_req(wl_obj *o, int op, union wl_arg *a) {
+    struct wl_surf *k = o->data;
+    if (op == WL_SUBSURFACE_DESTROY) {
+        wl_obj_destroy(o);
+        return;
+    }
+    if (!k)
+        return;
+    switch (op) {
+    case WL_SUBSURFACE_SET_POSITION: /* takes effect at the parent's next commit */
+        k->pend_sx = a[0].i, k->pend_sy = a[1].i, k->pend_pos = true;
+        break;
+    case WL_SUBSURFACE_PLACE_ABOVE:
+    case WL_SUBSURFACE_PLACE_BELOW: {
+        wl_obj *so = wl_obj_get(o->client, a[0].u);
+        struct wl_surf *sib = so ? so->data : NULL;
+        if (sib && (sib == k->parent || sib->parent == k->parent))
+            sub_place(k, sib, op == WL_SUBSURFACE_PLACE_ABOVE);
+        break;
+    }
+    case WL_SUBSURFACE_SET_SYNC: k->desync = false; break;
+    case WL_SUBSURFACE_SET_DESYNC:
+        k->desync = true;
+        if (!sub_synced(k) && k->cached) { /* what was waiting is shown now */
+            show_cached(k);
+            compose(surf_root(k));
+        }
+        break;
+    default: break;
+    }
+}
+
 static void subcompositor_req(wl_obj *o, int op, union wl_arg *a) {
     if (op == WL_SUBCOMPOSITOR_GET_SUBSURFACE) {
-        wl_obj *surf = wl_obj_get(o->client, a[1].u);
-        if (surf && surf->data)
-            ((struct wl_surf *)surf->data)->role = ROLE_SUB;
-        wl_obj_new(o->client, a[0].u, &wl_subsurface_iface, 1, NULL);
+        wl_obj *surf = wl_obj_get(o->client, a[1].u), *par = wl_obj_get(o->client, a[2].u);
+        struct wl_surf *k = surf ? surf->data : NULL, *p = par ? par->data : NULL;
+        if (!k || !p || k == p || k->parent || k->role != ROLE_NONE || surf_root(p) == k || p->nkids >= 16) {
+            wl_post_error(o, WL_SUBCOMPOSITOR_ERROR_BAD_SURFACE, "that surface can't be a subsurface there");
+            return;
+        }
+        wl_obj *so = wl_obj_new(o->client, a[0].u, &wl_subsurface_iface, 1, k);
+        if (!so)
+            return;
+        so->destroy = subsurface_destroyed;
+        k->role = ROLE_SUB, k->sub = so, k->parent = p, k->desync = false, k->under = false;
+        k->sx = k->sy = 0;
+        p->kids[p->nkids++] = k; /* a new one goes on top */
     } else if (op == WL_SUBCOMPOSITOR_DESTROY) {
         wl_obj_destroy(o);
     }
@@ -452,6 +697,8 @@ static void xdg_surface_req(wl_obj *o, int op, union wl_arg *a) {
     case XDG_SURFACE_GET_TOPLEVEL: {
         s->role = ROLE_TOPLEVEL;
         s->toplevel = wl_obj_new(o->client, a[0].u, &xdg_toplevel_iface, o->version, s);
+        if (s->toplevel)
+            s->toplevel->destroy = role_obj_gone;
         s->view = view_new(s);
         wl_host_log("wayland: client %p window: toplevel created", (void *)o->client);
         if (s->toplevel && o->version >= 5) {
@@ -463,6 +710,8 @@ static void xdg_surface_req(wl_obj *o, int op, union wl_arg *a) {
     case XDG_SURFACE_GET_POPUP: {
         s->role = ROLE_POPUP;
         s->popup = wl_obj_new(o->client, a[0].u, &xdg_popup_iface, o->version, s);
+        if (s->popup)
+            s->popup->destroy = role_obj_gone;
         wl_obj *po = wl_obj_get(o->client, a[2].u);
         struct positioner *p = po ? po->data : NULL;
         s->view = view_new(s);
@@ -511,6 +760,8 @@ static void wm_base_req(wl_obj *o, int op, union wl_arg *a) {
         wl_obj *x = wl_obj_new(o->client, a[0].u, &xdg_surface_iface, o->version, s);
         if (s)
             s->xdg = x;
+        if (x)
+            x->destroy = role_obj_gone;
         break;
     }
     default: break; /* pong */
@@ -544,6 +795,8 @@ static void deco_manager_req(wl_obj *o, int op, union wl_arg *a) {
         wl_obj *d = wl_obj_new(o->client, a[0].u, &zxdg_toplevel_decoration_v1_iface, 1, s);
         if (d && s)
             s->deco = d;
+        if (d)
+            d->destroy = role_obj_gone;
         if (d)
             wl_send(d, ZXDG_TOPLEVEL_DECORATION_V1_EV_CONFIGURE, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
     } else if (op == ZXDG_DECORATION_MANAGER_V1_DESTROY) {

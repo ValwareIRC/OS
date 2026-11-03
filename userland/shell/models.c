@@ -3,6 +3,7 @@
 #include "app.h"
 #include "mind.h"
 #include "settings.h"
+#include "launcher.h"
 #include "tray.h"
 
 #include <fcntl.h>
@@ -376,6 +377,8 @@ static void release_poll(void) {
         read_specs();
     bool kept = stat(BUILTIN_KEPT, &st) == 0 && (uint64_t)st.st_size == catalog[0].bytes;
     if (!kept && spec.disk && catalog[0].bytes / (1024 * 1024) + 1024 < spec.free_disk_mb) {
+        if (apps_installing()) /* the disk is the install's first: looked at again in a minute */
+            return;
         mkdir("/var/lib/os-data", 0755);
         mkdir(MODELS_DIR, 0755);
         rel.copying = job_start(keep_child, NULL);

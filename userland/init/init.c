@@ -2554,17 +2554,37 @@ int main(void) {
             sleep_ms(100);
         struct timespec t0;
         clock_gettime(CLOCK_MONOTONIC, &t0);
+        /* APP+URL: with a download of URL onto the disk at the same time (as the desktop's own downloads do) */
+        static char app[200];
+        snprintf(app, sizeof app, "%s", mode + 16);
+        char *with = strchr(app, '+');
+        pid_t dl = 0;
+        if (with) {
+            *with++ = 0;
+            dl = fork();
+            if (dl == 0) {
+                execl("/usr/bin/curl", "curl", "-fL", "-sS", "-o", "/var/lib/os-data/with.part", with, (char *)NULL);
+                _exit(127);
+            }
+        }
         pid_t pid = fork();
         if (pid == 0) { /* its whole account to the console: what it fetches, how (a delta or object by object) */
             setenv("FLATPAK_FANCY_OUTPUT", "0", 1);
             execl("/usr/bin/flatpak", "flatpak", "install", "--installation=os-data", "-y", "--noninteractive",
-                  "--verbose", "--ostree-verbose", "flathub", mode + 16, (char *)NULL);
+                  "--verbose", "--ostree-verbose", "flathub", app, (char *)NULL);
             _exit(127);
         }
         int st = 0;
         waitpid(pid, &st, 0);
-        printf("flatpak-install: %s exited %d after %.1f s\n", mode + 16, WIFEXITED(st) ? WEXITSTATUS(st) : -1,
+        printf("flatpak-install: %s exited %d after %.1f s\n", app, WIFEXITED(st) ? WEXITSTATUS(st) : -1,
                secs_since(&t0));
+        if (dl > 0) {
+            struct stat ws;
+            long long had = stat("/var/lib/os-data/with.part", &ws) == 0 ? (long long)ws.st_size : -1;
+            printf("flatpak-install: meanwhile the other download got %.1f MB\n", (double)had / 1e6);
+            kill(dl, SIGKILL);
+            waitpid(dl, NULL, 0);
+        }
         fflush(stdout);
         reboot(RB_POWER_OFF);
         return 1;
@@ -2584,7 +2604,19 @@ int main(void) {
             snprintf(host, sizeof host, "%.*s", c2 ? (int)(c2 - c1 - 1) : 0, c1 + 1);
             snprintf(path, sizeof path, "%s", c2 ? c2 + 1 : "/");
         }
+        /* PORT*N: N downloads at once (what two downloads together do to each other) */
+        const char *star = strchr(mode + 10, '*');
+        int many = star ? atoi(star + 1) : 1;
+        fflush(stdout);
+        for (int i = 1; i < many && i < 8; i++)
+            if (fork() == 0) {
+                net_speed_mode(atoi(mode + 10), host, path);
+                fflush(stdout);
+                _exit(0);
+            }
         net_speed_mode(atoi(mode + 10), host, path);
+        while (wait(NULL) > 0)
+            ;
         fflush(stdout);
         reboot(RB_POWER_OFF);
         return 1;

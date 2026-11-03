@@ -621,6 +621,13 @@ static struct {
     char what[200];
 } installing[8];
 
+bool agent_installing(void) {
+    for (int k = 0; k < 8; k++)
+        if (installing[k].id)
+            return true;
+    return false;
+}
+
 /* one queued tool for the child */
 #define QMAX 16
 static struct {

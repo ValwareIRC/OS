@@ -40,17 +40,27 @@ struct ip_hdr {
     uint32_t src, dst;
 } __attribute__((packed));
 
-/* ---- ARP cache with one parked packet per unresolved entry ---- */
+/* ---- ARP cache, with the packets waiting for each unresolved entry ---- */
 
 #define ARP_ENTRIES 32
+/* Several connections opened at once (a browser, or two downloads) each send their SYN before the router's address
+ * is known: with one packet kept, all but the last were lost and waited a whole second to be sent again. */
+#define ARP_PENDING 8
 static struct arp_entry {
     uint32_t ip;
     uint8_t mac[6];
     bool valid;
     uint64_t requested_ms;
-    uint8_t *pending; /* IP packet waiting for resolution */
-    size_t pending_len;
+    uint8_t *pending[ARP_PENDING]; /* IP packets waiting for resolution, oldest first */
+    size_t pending_len[ARP_PENDING];
+    int n_pending;
 } arp[ARP_ENTRIES];
+
+static void arp_drop_pending(struct arp_entry *e) {
+    for (int i = 0; i < e->n_pending; i++)
+        kfree(e->pending[i]);
+    e->n_pending = 0;
+}
 
 static const uint8_t broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
@@ -198,7 +208,7 @@ static struct arp_entry *arp_lookup(uint32_t ip, bool create) {
         return NULL;
     if (!free_slot)
         free_slot = &arp[ip % ARP_ENTRIES]; /* evict */
-    kfree(free_slot->pending);
+    arp_drop_pending(free_slot);
     memset(free_slot, 0, sizeof *free_slot);
     free_slot->ip = ip;
     return free_slot;
@@ -213,11 +223,9 @@ static void arp_input(struct netif *nif, const uint8_t *p, size_t len) {
     if (e) {
         memcpy(e->mac, a->sha, 6);
         e->valid = true;
-        if (e->pending) {
-            eth_send(nif, e->mac, ETH_IPV4, e->pending, e->pending_len);
-            kfree(e->pending);
-            e->pending = NULL;
-        }
+        for (int i = 0; i < e->n_pending; i++)
+            eth_send(nif, e->mac, ETH_IPV4, e->pending[i], e->pending_len[i]);
+        arp_drop_pending(e);
     }
     if (ntohs(a->op) == 1 && nif->configured && tpa == nif->ip)
         arp_send(nif, 2, a->sha, spa);
@@ -269,12 +277,18 @@ int ip_send(uint32_t src, uint32_t dst, uint8_t proto, const void *payload, size
     struct arp_entry *e = arp_lookup(hop, true);
     if (e->valid)
         return eth_send(nif, e->mac, ETH_IPV4, pkt, total);
-    /* Park the packet (latest wins) and ask who has `hop`. */
-    kfree(e->pending);
-    e->pending = kmalloc(total);
-    if (e->pending) {
-        memcpy(e->pending, pkt, total);
-        e->pending_len = total;
+    /* Park the packet (when full, the oldest gives way) and ask who has `hop`. */
+    if (e->n_pending == ARP_PENDING) {
+        kfree(e->pending[0]);
+        memmove(&e->pending[0], &e->pending[1], sizeof e->pending[0] * (ARP_PENDING - 1));
+        memmove(&e->pending_len[0], &e->pending_len[1], sizeof e->pending_len[0] * (ARP_PENDING - 1));
+        e->n_pending--;
+    }
+    uint8_t *keep = kmalloc(total);
+    if (keep) {
+        memcpy(keep, pkt, total);
+        e->pending[e->n_pending] = keep;
+        e->pending_len[e->n_pending++] = total;
     }
     if (!e->requested_ms || now_ms() - e->requested_ms > 500) {
         e->requested_ms = now_ms();

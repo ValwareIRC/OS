@@ -13,6 +13,7 @@
 #include "nerve.h"
 #include "app.h"
 #include "settings.h"
+#include "launcher.h"
 #include "../lib/http.h"
 #include "../lib/json.h"
 
@@ -70,8 +71,8 @@ static struct {
     pid_t pid;
     int i;
     char part[256];
-    bool failed;
-} dl = {0, -1, "", false};
+    bool failed, paused; /* paused: stopped for an app being installed, to go on from where it was */
+} dl = {0, -1, "", false, false};
 
 /* every folder on the way (without a data disk, /var/lib/os-data itself is not there yet) */
 static void make_dirs(const char *path) {
@@ -89,9 +90,17 @@ static void make_dirs(const char *path) {
 static void download_tick(void) {
     if (dl.pid > 0) {
         int st;
-        if (waitpid(dl.pid, &st, WNOHANG) != dl.pid)
+        if (waitpid(dl.pid, &st, WNOHANG) != dl.pid) {
+            if (apps_installing() && !dl.paused) {
+                dl.paused = true;
+                kill(dl.pid, SIGTERM); /* the part downloaded so far stays; curl -C - goes on from it */
+                LOG("reflex: download stopped while an app installs\n");
+            }
             return;
+        }
         dl.pid = 0;
+        if (dl.paused)
+            return; /* not a failure: started again once the install is done */
         struct stat s;
         char p[256];
         model_path(dl.i, p, sizeof p);
@@ -116,7 +125,10 @@ static void download_tick(void) {
         return;
     }
     int i = model_index();
-    if (strcmp(reflex_engine(), "rules") && !model_here(i) && !dl.failed && A.now > 60000) {
+    if (strcmp(reflex_engine(), "rules") && !model_here(i) && !dl.failed && A.now > 60000 && !apps_installing()) {
+        if (dl.paused)
+            LOG("reflex: the install is done; the download goes on\n");
+        dl.paused = false;
         make_dirs(DIR_);
         dl.i = i;
         snprintf(dl.part, sizeof dl.part, DIR_ "/reflex-%s.gguf.part", models[i].id);
