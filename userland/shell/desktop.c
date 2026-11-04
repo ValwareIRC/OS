@@ -922,8 +922,13 @@ static void companion_update(void) {
         owed = false;
         convo_send(c, companion_system(), 1600);
     }
-    if (c->error[0] && !c->pending && c->errors <= 1 && A.now - c->pending_since > 2500)
+    /* their mind can't be reached (or failed twice): may the one here stand in? (asked; they say) */
+    if (c->error[0] && !c->pending && (c->errors >= 2 || mind_unreachable(c->error)))
+        mind_fallback_offer(c->error);
+    if (c->error[0] && !c->pending && c->errors <= 1 && A.now - c->pending_since > 2500 && !mind_fallback_pending())
         convo_send(c, companion_system(), 1600); /* one quiet retry */
+    if (mind_fallback_tick() && c->error[0] && !c->pending)
+        convo_send(c, companion_system(), 1600); /* it stands in: what went unanswered, asked again */
     if (convo_poll(c) && !c->error[0]) {
         struct msg *m = &c->msgs[c->n - 1];
         bool had_tags = m->text && strstr(m->text, "[[") != NULL; /* (before they are taken out) */

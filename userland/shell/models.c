@@ -187,6 +187,8 @@ static long avail_mb(void) {
 /* The conversation it can hold, sized when it starts from what is free then: its weights (unless they are
  * the model that came with the system, in memory already), the conversation and its working memory, with a
  * margin left for the desktop. Never fewer tokens than the companion's instructions need. */
+static bool repack = true;
+
 int models_context(void) {
     if (!spec.read)
         read_specs();
@@ -198,17 +200,31 @@ int models_context(void) {
     path_of(i, p, sizeof p);
     bool resident = !strncmp(p, "/usr/share/", 11); /* in memory from the boot (or read from the disc into it) */
     long weights = resident ? 0 : (long)((catalog[i].bytes >> 20) * 110 / 100);
+    /* llama.cpp's processor code rearranges most weights into a copy as it loads (faster on AVX2): for a model
+     * already in memory that copy is extra, the model's size again (uncounted, the built-in model ran out of
+     * memory on a 12 GB computer while loading). With room for it, it is made; else the weights are used as
+     * they are (a little slower) rather than the server dying half loaded. */
+    long copy = resident ? (long)(catalog[i].bytes >> 20) : 0;
     static const int sizes[] = {32768, 24576, 16384, MIN_CONTEXT};
-    for (int k = 0; k < 4; k++) {
-        long need = weights + (long)((uint64_t)sizes[k] * kv_kb_per_token(i) / 1024) + 900;
-        if (need <= avail - 1024) {
-            LOG("models: %s gets %d tokens (%ld MB free, %ld MB needed)\n", catalog[i].name, sizes[k], avail, need);
-            return sizes[k];
+    for (int pass = 0; pass < 2; pass++) {
+        repack = pass == 0;
+        for (int k = 0; k < 4; k++) {
+            if (repack && copy && sizes[k] < 16384) /* (a short conversation isn't worth the speed) */
+                break;
+            long need = weights + (repack ? copy : 0) + (long)((uint64_t)sizes[k] * kv_kb_per_token(i) / 1024) + 900;
+            if (need <= avail - 1024) {
+                LOG("models: %s gets %d tokens (%ld MB free, %ld MB needed%s)\n", catalog[i].name, sizes[k], avail, need,
+                    copy && !repack ? "; its weights used in place, no faster copy: no room for one" : "");
+                return sizes[k];
+            }
         }
     }
+    repack = false;
     LOG("models: %s gets %d tokens, though only %ld MB are free\n", catalog[i].name, MIN_CONTEXT, avail);
     return MIN_CONTEXT; /* less couldn't hold the instructions: the request would only be refused */
 }
+
+bool models_repack(void) { return repack; }
 
 /* Rough words a second on the processors (each word reads the whole model). */
 static float words_per_s(int i) {

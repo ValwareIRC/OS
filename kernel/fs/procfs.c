@@ -1555,6 +1555,30 @@ static const struct sent sys_kernel_random[] = {
     {.name = "uuid", .type = VN_REG, .mode = 0444, .show = show_uuid},
     {0},
 };
+/* The big files left on the disc (main.c): what each is doing; a path written asks for it to be read. Anyone
+ * may ask (the desktop runs as the person): it only brings a file the system came with into memory. */
+int medium_request(const char *dest);
+int medium_status(char *out, size_t n);
+static int show_from_disc(struct snode *n, struct sbuf *b) {
+    (void)n;
+    char s[1024];
+    int len = medium_status(s, sizeof s);
+    sb_put(b, s, (size_t)len);
+    return 0;
+}
+static int64_t store_from_disc(struct snode *n, const char *buf, size_t len) {
+    (void)n;
+    char path[200];
+    size_t k = 0;
+    for (; k < len && k + 1 < sizeof path && buf[k] != '\n' && buf[k] != ' '; k++)
+        path[k] = buf[k];
+    path[k] = 0;
+    if (!k)
+        return -EINVAL;
+    int r = medium_request(path);
+    return r < 0 ? r : (int64_t)len;
+}
+
 static const struct sent sys_kernel[] = {
     CONST("cap_last_cap", cap_last_cap),
     CONST("core_pattern", core_pattern),
@@ -1567,6 +1591,7 @@ static const struct sent sys_kernel[] = {
     CONST("overflowuid", overflow_id),
     CONST("osrelease", release),
     CONST("ostype", linux),
+    {.name = "os_from_disc", .type = VN_REG, .mode = 0666, .show = show_from_disc, .store = store_from_disc},
     CONST("perf_event_paranoid", two),
     CONST("pid_max", pid_max),
     {.name = "random", .type = VN_DIR, .mode = 0555, .children = sys_kernel_random},

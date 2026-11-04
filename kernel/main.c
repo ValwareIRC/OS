@@ -204,7 +204,17 @@ struct lazy_file {
     int parts;
     char path[LAZY_PARTS][128];
     uint64_t size[LAZY_PARTS];
+    int state; /* LAZY_ON_DISC, LAZY_READING, LAZY_HERE */
 };
+enum { LAZY_ON_DISC, LAZY_READING, LAZY_HERE };
+
+/* The big files left on the disc (the built-in model, 5 GB): read when something asks for one
+ * (/proc/sys/kernel/os_from_disc: the desktop does, when the mind it uses is that model), not at every boot:
+ * a person whose mind is elsewhere never waits for it, nor gives it the memory. PATH.ondisc says one is there. */
+#define LAZY_MAX 4
+static struct lazy_file *lazies[LAZY_MAX];
+static int nlazies;
+static spinlock_t lazy_lock;
 
 static void unlink_path(const char *p) {
     struct vnode *dir;
@@ -216,11 +226,20 @@ static void unlink_path(const char *p) {
     }
 }
 
+static void touch_path(const char *p) {
+    struct file *f;
+    if (vfs_open(NULL, p, O_WRONLY | O_CREAT | O_TRUNC, 0444, &f) == 0)
+        file_put(f);
+}
+
 /* Reads a file's parts from the medium into memory and places it, read-only, at its path. */
 static void lazy_loader(void *arg) {
     struct lazy_file *lf = arg;
-    char coming[200];
+    char coming[200], ondisc[200];
     ksnprintf(coming, sizeof coming, "%s.coming", lf->dest);
+    ksnprintf(ondisc, sizeof ondisc, "%s.ondisc", lf->dest);
+    touch_path(coming); /* (first: the file is never neither coming nor on the disc) */
+    unlink_path(ondisc);
     uint64_t t0 = time_monotonic_ns(), total = 0;
     struct pageobj *o = pageobj_create();
     enum { CHUNK = 4u << 20 };
@@ -247,6 +266,7 @@ static void lazy_loader(void *arg) {
     }
     if (phys)
         pmm_free(phys, CHUNK / PAGE_SIZE);
+    int state = LAZY_ON_DISC;
     if (ok && ramfs_add_object_file(lf->dest, o, 0444) == 0) {
         uint64_t ms = (time_monotonic_ns() - t0) / 1000000;
         kprintf("medium: %s read (%lu MiB in %lu ms, %lu MiB/s)\n", lf->dest, (unsigned long)(total >> 20),
@@ -254,14 +274,62 @@ static void lazy_loader(void *arg) {
         char sz[24];
         size_words(total, sz, sizeof sz);
         boot_step_done("model", sz);
+        state = LAZY_HERE;
     } else {
         kprintf("medium: %s couldn't be read; it isn't there this time\n", lf->dest);
         boot_step_failed("model", "couldn't be read from the disc");
         if (o)
             pageobj_put(o);
+        touch_path(ondisc); /* (still on the disc: it can be asked for again) */
     }
     unlink_path(coming);
-    kfree(lf);
+    uint64_t f = spin_lock_irqsave(&lazy_lock);
+    lf->state = state;
+    spin_unlock_irqrestore(&lazy_lock, f);
+}
+
+/* Asks for a file left on the disc (by its path, or "all"): read in the background, PATH.coming meanwhile.
+ * 0 when it is being read or already here; -ENOENT when no such file is on the disc. */
+int medium_request(const char *dest);
+int medium_request(const char *dest) {
+    int r = -ENOENT;
+    for (int i = 0; i < nlazies; i++) {
+        struct lazy_file *lf = lazies[i];
+        if (strcmp(dest, "all") && strcmp(dest, lf->dest))
+            continue;
+        uint64_t f = spin_lock_irqsave(&lazy_lock);
+        bool start = lf->state == LAZY_ON_DISC;
+        if (start)
+            lf->state = LAZY_READING;
+        spin_unlock_irqrestore(&lazy_lock, f);
+        r = 0;
+        if (start) {
+            kprintf("medium: %s asked for: reading it from the disc\n", lf->dest);
+            if (!thread_create("medium", lazy_loader, lf)) {
+                f = spin_lock_irqsave(&lazy_lock);
+                lf->state = LAZY_ON_DISC;
+                spin_unlock_irqrestore(&lazy_lock, f);
+                r = -ENOMEM;
+            }
+        }
+    }
+    return r;
+}
+
+/* "PATH on-disc|reading|here BYTES" a line each (/proc/sys/kernel/os_from_disc). */
+int medium_status(char *out, size_t n);
+int medium_status(char *out, size_t n) {
+    size_t o = 0;
+    out[0] = 0;
+    for (int i = 0; i < nlazies && o < n; i++) {
+        struct lazy_file *lf = lazies[i];
+        uint64_t all = 0;
+        for (int k = 0; k < lf->parts; k++)
+            all += lf->size[k];
+        static const char *const names[] = {"on-disc", "reading", "here"};
+        o += (size_t)ksnprintf(out + o, n - o, "%s %s %lu\n", lf->dest, names[lf->state], (unsigned long)all);
+    }
+    return (int)(o < n ? o : n);
 }
 
 /* Modules whose string names an absolute path (limine.conf: module_string:
@@ -280,8 +348,8 @@ static void files_from_modules(void) {
             continue;
         char lpath[128];
         uint64_t lsize;
-        if (lazy_stub(r->modules[i], lpath, sizeof lpath, &lsize)) { /* the kernel reads it, in the background */
-            struct lazy_file *lf = kzalloc(sizeof *lf);
+        if (lazy_stub(r->modules[i], lpath, sizeof lpath, &lsize)) { /* left on the disc until asked for */
+            struct lazy_file *lf = nlazies < LAZY_MAX ? kzalloc(sizeof *lf) : NULL;
             if (!lf)
                 continue;
             ksnprintf(lf->dest, sizeof lf->dest, "%s", dest);
@@ -297,14 +365,14 @@ static void files_from_modules(void) {
             *slash = 0;
             if (coming[0])
                 vfs_mkdir_p(coming, 0755);
-            ksnprintf(coming, sizeof coming, "%s.coming", dest);
-            struct file *cf;
-            if (vfs_open(NULL, coming, O_WRONLY | O_CREAT | O_TRUNC, 0444, &cf) == 0)
-                file_put(cf);
-            if (!thread_create("medium", lazy_loader, lf)) {
-                unlink_path(coming);
-                kfree(lf);
-            }
+            ksnprintf(coming, sizeof coming, "%s.ondisc", dest);
+            touch_path(coming);
+            lf->state = LAZY_ON_DISC;
+            lazies[nlazies++] = lf;
+            uint64_t all = 0;
+            for (int k = 0; k < lf->parts; k++)
+                all += lf->size[k];
+            kprintf("medium: %s left on the disc until it is asked for (%lu MiB)\n", dest, (unsigned long)(all >> 20));
             continue;
         }
         /* A file too big for the boot medium's file system comes in parts

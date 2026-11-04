@@ -378,10 +378,12 @@ static void draw_steps(void) {
     int x = W > 900 ? (W - 760) / 2 : 40;
     ring(x + 6, 82, 7, 2, accent);
     text(&title, x + 30, 92, "Operating System", ink);
-    for (int i = 0; i < nsteps; i++) {
+    for (int i = 0, row = 0; i < nsteps; i++) {
         struct step *s = &steps[i];
-        int y = 150 + i * 34;
         bool done = !strcmp(s->state, "done"), active = !strcmp(s->state, "active"), bad = !strcmp(s->state, "failed");
+        if (!s->weight && !done && !active && !bad)
+            continue; /* a background step not started (the built-in mind, left on the disc): not shown */
+        int y = 150 + row++ * 34;
         if (done) {
             line(x, y - 6, x + 4, y - 2, 2, accent);
             line(x + 4, y - 2, x + 12, y - 11, 2, accent);

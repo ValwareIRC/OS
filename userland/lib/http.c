@@ -2,6 +2,7 @@
 #include "json.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
 #include <stdbool.h>
@@ -173,8 +174,33 @@ static int dial(const char *host, const char *port, int timeout_ms, char *err, s
         snprintf(err, errlen, "could not find %s (%s)", host, gai_strerror(g));
         return -1;
     }
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
+    /* Connected within the timeout, and never more than 15 s: a server that hasn't taken the connection by then
+     * isn't answering (left to TCP's own retries, a mind that was gone took 80 s to say so). How long it then
+     * takes to answer is waited for with the whole timeout. */
+    int fd = socket(AF_INET, SOCK_STREAM, 0), r = -1;
+    int fl = fd >= 0 ? fcntl(fd, F_GETFL) : -1;
+    if (fl >= 0 && fcntl(fd, F_SETFL, fl | O_NONBLOCK) == 0) {
+        r = connect(fd, res->ai_addr, res->ai_addrlen);
+        if (r < 0 && errno == EINPROGRESS) {
+            int ms = timeout_ms > 0 && timeout_ms < 15000 ? timeout_ms : 15000;
+            struct pollfd p = {fd, POLLOUT, 0};
+            int pr;
+            do
+                pr = poll(&p, 1, ms);
+            while (pr < 0 && errno == EINTR);
+            int e = 0;
+            socklen_t el = sizeof e;
+            if (pr == 0)
+                errno = ETIMEDOUT;
+            else if (pr > 0 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &e, &el) == 0 && e)
+                errno = e;
+            else if (pr > 0)
+                r = 0;
+        }
+        if (r == 0)
+            fcntl(fd, F_SETFL, fl); /* (blocking again: reads wait with poll, as before) */
+    }
+    if (r < 0) {
         snprintf(err, errlen, "could not connect to %s:%s (%s)", host, port, strerror(errno));
         if (fd >= 0)
             close(fd);
@@ -182,7 +208,6 @@ static int dial(const char *host, const char *port, int timeout_ms, char *err, s
         return -1;
     }
     freeaddrinfo(res);
-    (void)timeout_ms;
     return fd;
 }
 

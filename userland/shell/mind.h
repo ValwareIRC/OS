@@ -18,3 +18,15 @@ int mind_builtin_waking_for(void);
 void mind_builtin_tick(void);
 /* It ended by itself (crashed, or killed for memory): true once, with why in plain words. */
 bool mind_builtin_died(char *why, int n);
+
+/* Standing in: their mind is elsewhere and stopped answering (`why`): they are asked whether the one on this
+ * computer may think instead until it's back (never switched without their yes). */
+void mind_fallback_offer(const char *why);
+void mind_fallback_draw(void); /* the question, over everything, while it is asked */
+/* From the main loop: true once, when the stand-in is ready and what went unanswered should be asked again. */
+bool mind_fallback_tick(void);
+void mind_fallback_forget(void); /* they chose a mind themselves (Settings): no stand-in, nothing to go back to */
+bool mind_fallback_pending(void); /* asking them, or the stand-in still starting: nothing else is sent meanwhile */
+bool mind_fallback_asking(void);  /* the question is on screen (it holds the pointer and keys) */
+/* An error that says their mind couldn't be reached (no connection, no answer), not that it refused. */
+bool mind_unreachable(const char *error);

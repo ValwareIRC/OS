@@ -1607,6 +1607,7 @@ static void mind_use(const char *model) {
     snprintf(c.model, sizeof c.model, "%s", model && *model ? model : mind.p->default_model ? mind.p->default_model : "");
     A.cfg = c;
     A.provider = mind.p;
+    mind_fallback_forget(); /* (their choice: no stand-in to go back from) */
     ai_config_save(&A.cfg);
     LOG("mind %s (%s), chosen in Settings\n", A.provider->id, A.cfg.model);
     char b[200];

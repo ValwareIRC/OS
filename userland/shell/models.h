@@ -24,6 +24,7 @@ const char *models_selected_path(void);
 const model_info *models_selected(void);
 /* How long a conversation (tokens) the selected model can keep in this computer's memory. */
 int models_context(void);
+bool models_repack(void); /* (after models_context) whether llama.cpp may make its faster copy of the weights */
 /* Choose a model (by catalog index); the mind restarts with it if running. */
 void models_select(int i);
 

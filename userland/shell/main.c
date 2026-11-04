@@ -317,7 +317,7 @@ static bool frame_wanted(void) {
         (A.toast[0] && A.now < A.toast_until + 500) || caption_showing(),
         A.companion.pending || agent_busy() || voice_speaking() || voice_listening() || voice_hearing(),
         capture_active() || launcher_active() || preview_showing() || portal_modal() || appapi_modal() || body_asking() ||
-            A.confirm_power || actions_confirming(),
+            A.confirm_power || actions_confirming() || mind_fallback_asking(),
         term_busy(), fxwin_wake_in() <= 34,
     };
     static const char *const names[] = {"asked", "screen", "input", "app frame", "app message", "app waiting",

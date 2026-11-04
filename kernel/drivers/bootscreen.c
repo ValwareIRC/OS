@@ -220,10 +220,21 @@ static void splash(void) {
 /* ---- the steps, one line each ---- */
 
 static int list_x(void) { return (int)W > 900 ? ((int)W - 760) / 2 : 40; }
-static int row_y(int i) { return 150 + i * 34; }
+/* A background step not started isn't shown (the built-in mind, left on the disc while the mind is elsewhere):
+ * a row waiting all through the start would look like something the start waits for. */
+static bool shown(const struct step *s) { return s->weight || s->state != PENDING; }
+
+static int row_y(int i) {
+    int row = 0;
+    for (int k = 0; k < i; k++)
+        row += shown(&steps[k]);
+    return 150 + row * 34;
+}
 
 static void step_row(int i, int frame) {
     struct step *s = &steps[i];
+    if (!shown(s))
+        return;
     int x = list_x(), y = row_y(i);
     fill(x - 4, y - 22, 780, 32, C_BG);
     if (s->state == DONE)
@@ -318,10 +329,11 @@ void boot_step(const char *id, int state, const char *detail) {
         s->t0 = now;
     if (state == DONE || state == FAILED_STEP)
         s->t1 = now ? now : 1; /* (1: before the clock ran: no time shown) */
+    bool was_shown = shown(s);
     s->state = state;
     if (detail)
         ksnprintf(s->detail, sizeof s->detail, "%s", detail);
-    redraw(false, (int)(s - steps));
+    redraw(!was_shown && log_view, (int)(s - steps)); /* (a row appearing moves the ones below it) */
 }
 
 void boot_step_start(const char *id) { boot_step(id, ACTIVE, NULL); }

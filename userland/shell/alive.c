@@ -12,6 +12,7 @@
  * while they type, watch something full screen, talk to it, or asked it to
  * be quiet. The words come from the model, so they sound like it. */
 #include "alive.h"
+#include "mind.h"
 #include "nerve.h"
 #include "voice.h"
 #include "fm/fm.h"
@@ -594,7 +595,7 @@ void alive_tick(void) {
     }
     /* An open panel or a question on screen holds the pointer and keys:
      * nothing underneath reacts until it's answered. */
-    if (panel_open || actions_confirming()) {
+    if (panel_open || actions_confirming() || mind_fallback_asking()) {
         held = A.in;
         holding = true;
         A.in.clicked = A.in.pressed = A.in.right_clicked = A.in.down = false;
@@ -643,6 +644,7 @@ void alive_draw(void) {
         }
     }
     actions_draw();
+    mind_fallback_draw();
     A.in = rest;
     A.in.mx = held.mx, A.in.my = held.my; /* the pointer stays where it really is */
     holding = false;
