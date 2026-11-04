@@ -104,12 +104,18 @@ static bool vmmouse_init(void) {
     backdoor(10 /* GETVERSION */, 0, r);
     if (r[1] != VMW_MAGIC)
         return false;
+    /* ENABLE puts its answer ("JUB4") at the end of the queue: asked a second time (platform_pointer_early asked
+     * first), the pointer's moves since come before it. Read through them to it. */
     backdoor(41 /* ABSPOINTER_COMMAND */, 0x45414552 /* ENABLE */, r);
-    backdoor(40 /* ABSPOINTER_STATUS */, 0, r);
-    if ((r[0] & 0x0000ffff) == 0)
-        return false;
-    backdoor(39 /* ABSPOINTER_DATA */, 1, r);
-    if (r[0] != 0x3442554a) /* "JUB4": version ack */
+    bool acked = false;
+    for (int i = 0; i < 1024 && !acked; i++) {
+        backdoor(40 /* ABSPOINTER_STATUS */, 0, r);
+        if ((r[0] & 0x0000ffff) == 0 || r[0] == 0xffff0000)
+            break;
+        backdoor(39 /* ABSPOINTER_DATA */, 1, r);
+        acked = r[0] == 0x3442554a;
+    }
+    if (!acked)
         return false;
     backdoor(41, 0x53424152 /* REQUEST_ABSOLUTE */, r);
     return true;
@@ -176,16 +182,16 @@ static void mouse_byte(uint8_t b) {
 #define VEC_KBD 0x25
 #define VEC_MOUSE 0x26
 
-/* A controller that never answers is waited for 50 ms at most, whatever each port access costs (under a busy
- * QEMU, a millisecond: 100000 of them were minutes). */
+/* A controller that never answers is waited for 2 s at most, whatever each port access costs (under a busy QEMU,
+ * milliseconds: 100000 of them were minutes). A much shorter wait cut a slow one's answers off: no keyboard. */
 static void i8042_wait_write(void) {
-    uint64_t end = time_monotonic_ns() + 50000000;
+    uint64_t end = time_monotonic_ns() + 2000000000ULL;
     for (int i = 0; i < 100000 && (inb(0x64) & 2) && time_monotonic_ns() < end; i++)
         ;
 }
 
 static void i8042_wait_read(void) {
-    uint64_t end = time_monotonic_ns() + 50000000;
+    uint64_t end = time_monotonic_ns() + 2000000000ULL;
     for (int i = 0; i < 100000 && !(inb(0x64) & 1) && time_monotonic_ns() < end; i++)
         ;
 }

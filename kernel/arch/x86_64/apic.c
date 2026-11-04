@@ -224,6 +224,73 @@ static uint64_t calibrate_tsc(void) {
     return best_hz;
 }
 
+/* The counter's rate against the ACPI power-management timer (3.579545 MHz), where the machine has one: unlike
+ * the PIT's "ended yet?", a read of it says what time it is, however long the read itself took. QEMU in full
+ * screen on Windows answered port reads in 10-20 ms (its own drawing keeps its main thread busy): against the PIT
+ * that left the rate unsure to 79%, so seconds lasted anything from half a second to two. Here every read is
+ * pinned between two counter readings, and of the many made over 300 ms (longer while unsure, to 3 s) only the
+ * quickest near each end count: a few always come back in microseconds. 0 if there is no such timer. */
+static uint32_t pm_port;
+static bool pm_32bit;
+
+static void find_pm_timer(void) {
+    const uint8_t *fadt = acpi_find_table("FACP", 0);
+    uint32_t len = 0;
+    if (fadt)
+        memcpy(&len, fadt + 4, 4);
+    if (!fadt || len < 116)
+        return;
+    uint32_t port = 0, flags = 0;
+    memcpy(&port, fadt + 76, 4); /* PM_TMR_BLK */
+    memcpy(&flags, fadt + 112, 4);
+    if (port && port < 0x10000) {
+        pm_port = port;
+        pm_32bit = flags & (1u << 8); /* TMR_VAL_EXT */
+    }
+}
+
+static uint64_t calibrate_tsc_pm(uint32_t *ppm_out) {
+    const uint64_t pm_hz = 3579545;
+    if (!pm_port)
+        return 0;
+    uint32_t mask = pm_32bit ? 0xffffffffu : 0xffffffu;
+    struct mark { uint64_t mid, pm, width; } first = {0, 0, UINT64_MAX}, last = {0, 0, UINT64_MAX};
+    uint64_t pm = 0, window = pm_hz * 3 / 10; /* 300 ms, then longer while unsure */
+    uint32_t prev = inl((uint16_t)pm_port) & mask, same = 0;
+    for (uint64_t reads = 0; reads < 2000000; reads++) {
+        uint64_t t0 = arch_counter();
+        uint32_t v = inl((uint16_t)pm_port) & mask;
+        uint64_t t1 = arch_counter();
+        if (v == prev && ++same > 100000)
+            return 0; /* it doesn't move: not a timer */
+        if (v != prev)
+            same = 0;
+        pm += (v - prev) & mask;
+        prev = v;
+        struct mark m = {(t0 + t1) / 2, pm, t1 - t0};
+        if (pm < pm_hz / 20) { /* the first 50 ms: the quickest read is the start */
+            if (m.width < first.width)
+                first = m;
+            continue;
+        }
+        if (first.width == UINT64_MAX)
+            return 0;
+        if (pm >= window - pm_hz / 20 && m.width < last.width) /* the last 50 ms: the quickest is the end */
+            last = m;
+        if (pm >= window && last.width != UINT64_MAX) {
+            uint64_t span = last.mid - first.mid, ticks = last.pm - first.pm;
+            uint64_t ppm = span ? (first.width + last.width) / 2 * 1000000 / span : UINT64_MAX;
+            if (ppm <= 200 || window >= pm_hz * 3) {
+                *ppm_out = (uint32_t)(ppm < 1000000 ? ppm : 999999);
+                return ticks ? span * pm_hz / ticks : 0;
+            }
+            window += pm_hz / 2; /* unsure: half a second more */
+            last.width = UINT64_MAX;
+        }
+    }
+    return 0;
+}
+
 /* The APIC timer's ticks in 10 ms, against the counter (read inside the processor: no trip to the emulator). */
 static uint32_t calibrate_timer(uint64_t tsc_hz) {
     lapic_write(LAPIC_TMR_DIV, 0x3); /* divide by 16 */
@@ -259,7 +326,14 @@ void apic_init(void) {
     pic_disable();
     parse_madt();
     lapic_write(LAPIC_SVR, 0x100 | VEC_SPURIOUS);
-    tsc_hz_measured = calibrate_tsc();
+    find_pm_timer();
+    uint32_t pm_ppm = 0;
+    uint64_t pm_hz = calibrate_tsc_pm(&pm_ppm);
+    if (pm_hz) {
+        tsc_hz_measured = pm_hz, tsc_unc_ppm = pm_ppm, tsc_tries = 0; /* (try 0: the power-management timer) */
+    } else {
+        tsc_hz_measured = calibrate_tsc();
+    }
     if (tsc_hz_measured < 100000000ULL || tsc_hz_measured > 20000000000ULL)
         tsc_hz_measured = 0; /* (no sensible answer: time.c measures it against the timer's ticks instead) */
     uint32_t per_10ms = tsc_hz_measured ? calibrate_timer(tsc_hz_measured) : 0;
@@ -275,9 +349,14 @@ void apic_init(void) {
         lapic_write(LAPIC_TMR_INIT, 0);
     }
     ticks_per_period = per_10ms * 100 / HZ;
-    kprintf("apic: %s, %d I/O APIC(s), timer %u kHz; counter %lu kHz (sure to %u ppm, try %u)\n",
+    char how[32];
+    if (tsc_tries)
+        ksnprintf(how, sizeof how, "the PIT, try %u", tsc_tries);
+    else
+        ksnprintf(how, sizeof how, "the ACPI timer");
+    kprintf("apic: %s, %d I/O APIC(s), timer %u kHz; counter %lu kHz (sure to %u ppm, against %s)\n",
             x2apic ? "x2APIC" : "xAPIC", ioapic_count, per_10ms / 10 * 16, (unsigned long)(tsc_hz_measured / 1000),
-            tsc_unc_ppm, tsc_tries);
+            tsc_unc_ppm, how);
 }
 
 /* The timer is one-shot: each interrupt sets it again, for the next tick or a sleeper due before that, so a 1 ms
