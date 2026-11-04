@@ -35,6 +35,9 @@ void arch_load_user_gs(uint64_t base); /* the GS base the thread sees when it is
 /* This CPU's timer is to fire by `deadline_ns` (time_monotonic_ns): a sleeper due before its next tick (interrupts
  * off). Where the timer can't be armed so (arm64 for now) sleepers wake at the tick after. */
 void arch_timer_arm(uint64_t deadline_ns);
+/* About to idle (interrupts off): the CPU's timer only for its own sleepers, or a second from now, not every tick:
+ * an idle virtual CPU woken 250 times a second for nothing costs the computer it runs on. */
+void arch_idle_quiet(void);
 void arch_exec_init_regs(struct regs *r, uint64_t entry, uint64_t sp);
 void arch_fork_child_regs(struct regs *r, uint64_t new_sp);
 

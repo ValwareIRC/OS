@@ -351,6 +351,15 @@ static uint64_t cpu_time[MAX_CPUS][CT_N];
 static uint64_t busy_ticks;           /* non-idle ticks over all CPUs, for loadavg */
 static uint64_t loadavg_fixed[3];     /* 11-bit fixed point, as Linux */
 
+void proc_account_idle(uint64_t ticks) { cpu_time[this_cpu()->id][CT_IDLE] += ticks; }
+
+/* Every CPU's ticks so far: in user mode, in the kernel, idle (perfwatch). */
+void proc_cpu_totals(uint64_t *user, uint64_t *sys, uint64_t *idle) {
+    *user = *sys = *idle = 0;
+    for (int i = 0; i < MAX_CPUS; i++)
+        *user += cpu_time[i][CT_USER], *sys += cpu_time[i][CT_SYS], *idle += cpu_time[i][CT_IDLE];
+}
+
 void proc_account_tick(struct regs *r) {
     struct cpu *c = this_cpu();
     struct thread *t = c->current;
@@ -358,6 +367,8 @@ void proc_account_tick(struct regs *r) {
         cpu_time[c->id][CT_IDLE]++;
     } else {
         __atomic_add_fetch(&busy_ticks, 1, __ATOMIC_RELAXED);
+        if (t)
+            t->ticks++;
         if (regs_user_mode(r)) {
             cpu_time[c->id][CT_USER]++;
             if (t && t->user)

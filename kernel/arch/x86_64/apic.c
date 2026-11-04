@@ -5,6 +5,7 @@
 #include <kernel/lib.h>
 #include <kernel/mm.h>
 #include <kernel/spinlock.h>
+#include <kernel/sched.h>
 
 /* Local APIC (x2APIC when the CPU has it, xAPIC MMIO otherwise), I/O APIC,
  * and the periodic scheduler tick. The legacy 8259 PIC is masked for good. */
@@ -238,6 +239,19 @@ void arch_timer_arm(uint64_t deadline_ns) {
     uint64_t now = time_monotonic_ns();
     c->arch.armed_ns = deadline_ns;
     lapic_timer_in(deadline_ns > now ? deadline_ns - now : 1000);
+}
+
+void proc_account_idle(uint64_t ticks);
+bool time_precise(void);
+
+void arch_idle_quiet(void) {
+    struct cpu *c = this_cpu();
+    if (!c || c->id == 0 || !time_precise()) /* (CPU 0 keeps the system's tick: global_ticks, load averages) */
+        return;
+    uint64_t now = time_monotonic_ns(), next = sched_next_wake(), far = now + 1000000000ULL;
+    uint64_t at = next < far ? next : far;
+    c->arch.armed_ns = at;
+    lapic_timer_in(at > now ? at - now : 1000);
 }
 
 void lapic_init_cpu(void) {

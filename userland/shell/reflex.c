@@ -14,6 +14,7 @@
 #include "app.h"
 #include "settings.h"
 #include "launcher.h"
+#include "alive.h"
 #include "../lib/http.h"
 #include "../lib/json.h"
 
@@ -125,7 +126,8 @@ static void download_tick(void) {
         return;
     }
     int i = model_index();
-    if (strcmp(reflex_engine(), "rules") && !model_here(i) && !dl.failed && A.now > 60000 && !apps_installing()) {
+    if (strcmp(reflex_engine(), "rules") && !model_here(i) && !dl.failed && A.now > 60000 && !apps_installing() &&
+        !alive_prefs.no_downloads) {
         if (dl.paused)
             LOG("reflex: the install is done; the download goes on\n");
         dl.paused = false;

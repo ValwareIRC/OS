@@ -32,6 +32,7 @@ void sched_preempt(void);
 
 /* (Its timer fires at each tick only, for now: a sleeper wakes at the tick after its time.) */
 void arch_timer_arm(uint64_t deadline_ns) { (void)deadline_ns; }
+void arch_idle_quiet(void) {}
 
 static void resched_irq(struct regs *r) {
     (void)r;

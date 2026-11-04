@@ -41,6 +41,10 @@ static void timer_irq(struct regs *r) {
         return;
     }
     bool tick = now + 50000 >= c->arch.next_tick_ns;
+    if (tick && now > c->arch.next_tick_ns + tick_ns) { /* it slept through ticks while idle: idle they were */
+        void proc_account_idle(uint64_t ticks);
+        proc_account_idle((now - c->arch.next_tick_ns) / tick_ns);
+    }
     if (tick) {
         c->arch.next_tick_ns += tick_ns;
         if (c->arch.next_tick_ns <= now || c->arch.next_tick_ns > now + 2 * tick_ns) /* fell behind, or the clock moved */
@@ -140,8 +144,11 @@ static void ap_entry(struct limine_mp_info *info) {
     lapic_init_cpu();
     sched_init_cpu();
     __atomic_store_n(&c->online, true, __ATOMIC_RELEASE);
-    for (;;)
-        __asm__ volatile("sti; hlt");
+    for (;;) {
+        __asm__ volatile("cli");
+        arch_idle_quiet();
+        __asm__ volatile("sti; hlt"); /* (sti's one-instruction shadow: nothing slips in before the hlt) */
+    }
 }
 
 void smp_init(void) {

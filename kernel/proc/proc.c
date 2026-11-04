@@ -142,6 +142,100 @@ static void hangdump_main(void *arg) {
     }
 }
 
+/* Debug aid (fw_cfg opt/os/perfwatch=1): every 10 s, which processes used the processors (timer ticks in user
+ * mode and the kernel), most first, the kernel's own threads (the network, sound...) as one, and how busy the
+ * machine was: what the system costs while it should be doing nothing. Read by tests/perf_idle_vm_win.py. */
+void proc_cpu_totals(uint64_t *user, uint64_t *sys, uint64_t *idle);
+
+struct kt_ctx {
+    char *line;
+    int *n;
+    size_t size;
+};
+
+/* A kernel thread's ticks since the last report (kept in the thread: name and count), if any. */
+static void kt_report(struct thread *t, void *arg) {
+    struct kt_ctx *c = arg;
+    static struct { struct thread *t; uint64_t ticks; } seen[64];
+    if (t->user) /* (a program's first thread starts this way too: it is counted with its process) */
+        return;
+    for (int i = 0; i < 64; i++) {
+        if (seen[i].t == t || !seen[i].t) {
+            uint64_t d = t->ticks - (seen[i].t ? seen[i].ticks : t->ticks);
+            seen[i].t = t, seen[i].ticks = t->ticks;
+            if (d * 100 / (HZ * 10) >= 1 && *c->n < (int)c->size - 40)
+                *c->n += ksnprintf(c->line + *c->n, c->size - (size_t)*c->n, " %s %lu%%", t->name, d * 100 / (HZ * 10));
+            return;
+        }
+    }
+}
+
+static void perfwatch_main(void *arg) {
+    (void)arg;
+    enum { N = 256 };
+    static struct { int pid; uint64_t t; } was[N], now_[N];
+    static struct { int pid; uint64_t d, k; char name[16]; } top[N];
+    int nwas = 0;
+    uint64_t u0, s0, i0;
+    proc_cpu_totals(&u0, &s0, &i0);
+    for (;;) {
+        thread_sleep_ms(10000);
+        int nnow = 0, ntop = 0;
+        uint64_t procs_sys = 0;
+        uint64_t f = spin_lock_irqsave(&proc_lock);
+        for (struct process *p = all_procs; p && nnow < N; p = p->next_all) {
+            uint64_t ut = p->dead_utime, st = p->dead_stime;
+            for (struct user_thread *t = p->threads; t; t = t->next_in_proc)
+                ut += t->utime, st += t->stime;
+            now_[nnow].pid = p->pid, now_[nnow].t = ut + st;
+            uint64_t before = 0, before_found = 0;
+            for (int i = 0; i < nwas; i++)
+                if (was[i].pid == p->pid)
+                    before = was[i].t, before_found = 1;
+            uint64_t d = now_[nnow].t - (before_found ? before : now_[nnow].t);
+            if (d && ntop < N) {
+                top[ntop].pid = p->pid, top[ntop].d = d, top[ntop].k = st;
+                ksnprintf(top[ntop].name, sizeof top[ntop].name, "%s", p->name);
+                ntop++;
+            }
+            procs_sys += st;
+            nnow++;
+        }
+        spin_unlock_irqrestore(&proc_lock, f);
+        (void)procs_sys;
+        memcpy(was, now_, sizeof was[0] * (size_t)nnow);
+        nwas = nnow;
+        uint64_t u1, s1, i1;
+        proc_cpu_totals(&u1, &s1, &i1);
+        uint64_t du = u1 - u0, ds = s1 - s0, di = i1 - i0, all = du + ds + di;
+        u0 = u1, s0 = s1, i0 = i1;
+        char line[700];
+        int n = ksnprintf(line, sizeof line, "perfwatch: busy %lu.%lu%% of all CPUs (kernel %lu.%lu%%):",
+                          all ? (du + ds) * 1000 / all / 10 : 0, all ? (du + ds) * 1000 / all % 10 : 0,
+                          all ? ds * 1000 / all / 10 : 0, all ? ds * 1000 / all % 10 : 0);
+        uint64_t procs = 0;
+        for (int k = 0; k < ntop; k++)
+            procs += top[k].d;
+        for (int shown = 0; shown < 6; shown++) { /* the busiest, in % of one CPU */
+            int best = -1;
+            for (int k = 0; k < ntop; k++)
+                if (top[k].d && (best < 0 || top[k].d > top[best].d))
+                    best = k;
+            if (best < 0)
+                break;
+            n += ksnprintf(line + n, sizeof line - (size_t)n, " %s(%d) %lu%%", top[best].name, top[best].pid,
+                           top[best].d * 100 / (HZ * 10));
+            top[best].d = 0;
+        }
+        uint64_t threads = du + ds > procs ? du + ds - procs : 0; /* the kernel's own threads and interrupts */
+        n += ksnprintf(line + n, sizeof line - (size_t)n, ", kernel threads %lu%%:", threads * 100 / (HZ * 10));
+        struct kt_ctx c = {line, &n, sizeof line};
+        sched_each_kthread(kt_report, &c);
+        ksnprintf(line + n, sizeof line - (size_t)n, "\n");
+        kprintf("%s", line);
+    }
+}
+
 uint64_t proc_table_lock(void) { return spin_lock_irqsave(&proc_lock); }
 void proc_table_unlock(uint64_t flags) { spin_unlock_irqrestore(&proc_lock, flags); }
 
@@ -761,6 +855,8 @@ static void init_entry(void *arg) {
     }
     if (fwcfg_read_file("opt/os/hangdump", trace, sizeof trace) > 0 && trace[0] == '1')
         thread_create("hangdump", hangdump_main, NULL);
+    if (fwcfg_read_file("opt/os/perfwatch", trace, sizeof trace) > 0 && trace[0] == '1')
+        thread_create("perfwatch", perfwatch_main, NULL);
     ksnprintf(mode, sizeof mode, "OS_MODE=%s", test ? value : "interactive");
     /* A root shell on the console is for development only, asked for by the host (-fw_cfg
      * name=opt/os/console,string=shell): never on a computer someone could sit at or plug a cable into. */

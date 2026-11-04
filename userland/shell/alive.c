@@ -49,6 +49,7 @@ static void prefs_load(void) {
         else if (!strcmp(line, "lights.follow")) alive_prefs.lights_follow = on;
         else if (!strcmp(line, "lights.show")) alive_prefs.lights_show = on;
         else if (!strcmp(line, "always_draw")) alive_prefs.always_draw = on;
+        else if (!strcmp(line, "background_downloads")) alive_prefs.no_downloads = !on;
         else if (!strncmp(line, "sense.", 6))
             for (int s = 0; s < SENSE_COUNT; s++)
                 if (!strcmp(line + 6, sense_info[s].key))

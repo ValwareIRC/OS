@@ -20,7 +20,12 @@ struct thread {
     struct user_thread *user; /* NULL for kernel-only threads */
     uint64_t switch_reserve;  /* bytes kept free at the stack top (user frame) */
     char name[32];
+    uint64_t ticks;           /* timer ticks it was running at (kernel threads: perfwatch tells them apart) */
+    struct thread *next_kthread;
 };
+
+/* The kernel's own threads (no user part), for perfwatch: `fn` for each. */
+void sched_each_kthread(void (*fn)(struct thread *t, void *arg), void *arg);
 
 /* Called once per CPU from that CPU's boot context, which becomes its idle
  * thread. */
@@ -51,4 +56,5 @@ void thread_wake(struct thread *t);
 /* Timer interrupt hooks: sched_timer wakes this CPU's sleepers that are due (counting them in *woken) and returns
  * the earliest deadline still waiting (UINT64_MAX: none); sched_tick is the scheduler's tick (HZ a second). */
 uint64_t sched_timer(uint64_t now_ns, int *woken);
+uint64_t sched_next_wake(void); /* this CPU's earliest sleeper (UINT64_MAX: none); interrupts off */
 void sched_tick(void);

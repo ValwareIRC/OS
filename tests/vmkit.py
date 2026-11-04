@@ -73,6 +73,8 @@ class Vm:
                       ",media=cdrom,if=none,readonly=on", "-device", "ide-cd,drive=big,bus=ide.3"]
         if os.environ.get("HANGDUMP"):  # every minute, what each thread is doing (kernel/proc/proc.c)
             qargs += ["-fw_cfg", "name=opt/os/hangdump,string=1"]
+        if os.environ.get("PERFWATCH"):  # every 10 s, who used the processors (kernel/proc/proc.c)
+            qargs += ["-fw_cfg", "name=opt/os/perfwatch,string=1"]
         if self.disk:
             qargs += ["-drive", "id=disk0,file=" + self.disk.replace(os.sep, "/").replace(",", ",,") +
                       ",format=raw,if=none" + ("" if os.environ.get("DISK_RW") else ",snapshot=on"),

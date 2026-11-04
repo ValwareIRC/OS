@@ -150,6 +150,8 @@ static void schedule(enum thread_state new_state) {
         if (new_state == THREAD_READY)
             rq_push(prev);
     }
+    if (prev == c->idle && next != c->idle)
+        arch_timer_arm(time_monotonic_ns() + 1000000000ULL / HZ); /* time slices again (see arch_idle_quiet) */
     next->state = THREAD_RUNNING;
     next->last_cpu = c->id;
     c->current = next;
@@ -168,11 +170,23 @@ void thread_start(void) {
     thread_exit();
 }
 
+static struct thread *kthreads; /* (they never exit) */
+
 struct thread *thread_create(const char *name, void (*entry)(void *), void *arg) {
     struct thread *t = thread_create_ex(name, entry, arg, 0, NULL);
-    if (t)
+    if (t) {
+        uint64_t f = spin_lock_irqsave(&rq_lock);
+        t->next_kthread = kthreads;
+        kthreads = t;
+        spin_unlock_irqrestore(&rq_lock, f);
         thread_start_ready(t);
+    }
     return t;
+}
+
+void sched_each_kthread(void (*fn)(struct thread *t, void *arg), void *arg) {
+    for (struct thread *t = __atomic_load_n(&kthreads, __ATOMIC_ACQUIRE); t; t = t->next_kthread)
+        fn(t, arg);
 }
 
 struct thread *thread_create_ex(const char *name, void (*entry)(void *), void *arg, uint64_t reserve,
@@ -304,6 +318,17 @@ uint64_t sched_timer(uint64_t now_ns, int *woken) {
     if (n > 1 || (n && c->current != c->idle)) /* this CPU takes one at most; share the rest */
         kick_idle_cpu();
     *woken = n;
+    return next;
+}
+
+uint64_t sched_next_wake(void) {
+    struct cpu *c = this_cpu();
+    uint64_t next = UINT64_MAX;
+    spin_lock(&rq_lock);
+    for (struct thread *t = sleepers[c->id]; t; t = t->next)
+        if (t->wake_ns < next)
+            next = t->wake_ns;
+    spin_unlock(&rq_lock);
     return next;
 }
 
