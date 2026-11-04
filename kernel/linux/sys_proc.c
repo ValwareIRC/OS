@@ -82,6 +82,7 @@ static int64_t do_clone(uint64_t flags, uint64_t newsp, uint64_t ptid, uint64_t 
     child->sid = parent->sid;
     child->ctty = parent->ctty;
     child->umask = parent->umask;
+    child->oom_score_adj = parent->oom_score_adj;
     child->uid = parent->uid, child->gid = parent->gid, child->euid = parent->euid, child->egid = parent->egid;
     child->cap_eff_off = parent->cap_eff_off, child->cap_perm_off = parent->cap_perm_off, child->cap_inh = parent->cap_inh;
     memcpy(child->sigactions, parent->sigactions, sizeof child->sigactions);

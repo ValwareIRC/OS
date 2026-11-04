@@ -208,6 +208,18 @@ static void server_tick(void) {
 
 bool reflex_ready(void) { return up && strcmp(reflex_engine(), "rules"); }
 
+/* Memory its server will take once it starts, and doesn't hold yet (its model, the copy llama.cpp makes of its
+ * weights, its conversation): what a bigger model starting meanwhile must leave (models.c). 0 when it runs (what
+ * it holds is no longer free) or never will. */
+long reflex_reserve_mb(void) {
+    if (!strcmp(reflex_engine(), "rules") || server > 0)
+        return 0;
+    int i = model_index();
+    if (!model_here(i) && (dl.failed || alive_prefs.no_downloads))
+        return 0;
+    return (long)(models[i].bytes >> 20) * 2 + 600;
+}
+
 const char *reflex_status(void) {
     static char s[200];
     int i = model_index();

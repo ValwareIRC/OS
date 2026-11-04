@@ -88,9 +88,15 @@ void pmm_init(void) {
 
 static spinlock_t pmm_lock = SPINLOCK_INIT;
 
+/* Single pages refused for want of memory, ever (a page fault that fails while this grows is out of memory, not a
+ * bad address: proc.c's OOM handling then makes room rather than ending whoever asked). */
+uint64_t pmm_page_failures;
+
 uint64_t pmm_alloc(size_t pages) {
     uint64_t f = spin_lock_irqsave(&pmm_lock);
     uint64_t r = alloc_locked(pages);
+    if (!r && pages == 1)
+        pmm_page_failures++;
     spin_unlock_irqrestore(&pmm_lock, f);
     return r;
 }

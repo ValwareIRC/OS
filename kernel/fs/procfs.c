@@ -1127,7 +1127,46 @@ static int show_zero(struct snode *n, struct sbuf *b) {
     return r;
 }
 
-/* oom_score_adj and oom_adj: there is no OOM killer to tune; accepted. */
+/* oom_score_adj: who is ended first when memory runs out (proc.c): -1000 never, 1000 first. Lowering it takes
+ * root (Linux's CAP_SYS_RESOURCE); anyone may raise their own. (oom_adj, the old scale: accepted, as before.) */
+static void get_adj(struct process *p, void *arg) { *(int *)arg = p->oom_score_adj; }
+static int show_oom_score_adj(struct snode *n, struct sbuf *b) {
+    int v = 0;
+    if (proc_inspect(n->id[0], get_adj, &v) < 0)
+        return -ESRCH;
+    sb_printf(b, "%d\n", v);
+    return 0;
+}
+struct adj_set {
+    int v, r;
+    uint32_t euid, uid;
+};
+static void set_adj(struct process *p, void *arg) {
+    struct adj_set *s = arg;
+    if (s->euid != 0 && (s->v < p->oom_score_adj || s->uid != p->uid))
+        s->r = -EACCES;
+    else
+        p->oom_score_adj = s->v;
+}
+static int64_t store_oom_score_adj(struct snode *n, const char *buf, size_t len) {
+    size_t i = 0;
+    bool neg = i < len && buf[i] == '-';
+    if (neg)
+        i++;
+    int v = 0;
+    size_t digits = i;
+    for (; i < len && buf[i] >= '0' && buf[i] <= '9' && v <= 1000; i++)
+        v = v * 10 + (buf[i] - '0');
+    if (i == digits || v > 1000)
+        return -EINVAL;
+    struct process *me = proc_current();
+    struct adj_set s = {neg ? -v : v, 0, me->euid, me->uid};
+    if (proc_inspect(n->id[0], set_adj, &s) < 0)
+        return -ESRCH;
+    return s.r < 0 ? s.r : (int64_t)len;
+}
+
+/* oom_adj: the old scale; accepted. */
 static int64_t store_ignored(struct snode *n, const char *buf, size_t len) {
     (void)n;
     (void)buf;
@@ -1274,7 +1313,7 @@ static const struct sent pid_children[] = {
     FILE_RO("mounts", show_mounts),
     FILE_RW("oom_adj", show_zero, store_ignored),
     FILE_RO("oom_score", show_zero),
-    FILE_RW("oom_score_adj", show_zero, store_ignored),
+    FILE_RW("oom_score_adj", show_oom_score_adj, store_oom_score_adj),
     MAGIC("root", link_root, follow_root),
     FILE_RO("stat", show_stat),
     FILE_RO("statm", show_statm),

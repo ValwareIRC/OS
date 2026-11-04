@@ -457,8 +457,13 @@ static pid_t spawn_gui(void) {
         }
         close(sv[0]);
     }
+    int ex[2] = {-1, -1}; /* closed by the desktop's execve: then it is the desktop, and may be protected */
+    if (pipe2(ex, O_CLOEXEC) < 0)
+        ex[0] = ex[1] = -1;
     pid_t pid = fork();
     if (pid == 0) {
+        if (ex[0] >= 0)
+            close(ex[0]);
         setsid();
         if (sv[1] >= 0) {
             char f[16];
@@ -477,5 +482,22 @@ static pid_t spawn_gui(void) {
     }
     if (sv[1] >= 0)
         close(sv[1]);
+    if (ex[1] >= 0)
+        close(ex[1]);
+    if (pid > 0 && ex[0] >= 0) {
+        /* When memory runs out the kernel ends the biggest program to make room: never the desktop (only root may
+         * set this; what the desktop starts begins at 0 again, at its own execve: kernel/proc/exec.c). */
+        char c, path[48];
+        while (read(ex[0], &c, 1) < 0 && errno == EINTR)
+            ;
+        snprintf(path, sizeof path, "/proc/%d/oom_score_adj", pid);
+        int fd = open(path, O_WRONLY);
+        if (fd < 0 || write(fd, "-1000", 5) != 5)
+            printf("init: the desktop couldn't be kept from the out-of-memory handling (%s)\n", strerror(errno));
+        if (fd >= 0)
+            close(fd);
+    }
+    if (ex[0] >= 0)
+        close(ex[0]);
     return pid;
 }

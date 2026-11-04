@@ -224,6 +224,7 @@ struct process {
     struct seccomp_filter *seccomp; /* the newest filter; each holds the one before (referenced) */
     int seccomp_mode;     /* 0 off, 1 strict, 2 filters */
     uint32_t umask;
+    int oom_score_adj; /* -1000..1000: which is ended first when memory runs out (-1000: never; fork keeps it) */
     uint32_t uid, gid, euid, egid;
     /* Capabilities, as the bits NOT held (so a process made by the kernel
      * has them all); inheritable as the bits held. See kernel/linux/sys_proc.c. */

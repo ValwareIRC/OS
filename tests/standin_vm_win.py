@@ -47,12 +47,12 @@ try:
         results["read from the disc"] = bool(read)
         if read:
             print(f"PERF standin_read_s={int(read.group(2)) / 1000:.1f}", flush=True)
-        ready = vm.wait_for(r"mind: the one on this computer is standing in$|the stand-in couldn't start", 900, m)
+        ready = vm.wait_for(r"(?m)mind: the one on this computer is standing in$|the stand-in couldn't start", 900, m)
         results["it starts"] = bool(ready) and "couldn't" not in ready.group(0)
         if not results["it starts"]:
             ready = None
-            raise SystemExit  # (the rest needs it running; the log says why below)
         print(f"PERF standin_ready_s={time.time() - t_yes:.0f}", flush=True)
+    if asked and ready:
         # what went unanswered, answered by the model here (not the fake: it is gone)
         ans = vm.wait_for(r"shell: ai (?!Hello! I'm here)(.{1,80})", 900, ready.end() + m if ready else m)
         results["what went unanswered is answered here"] = bool(ans)
@@ -69,6 +69,7 @@ try:
                                                          r"answers again", 5, m2))
         time.sleep(3)
         results["the companion answers with its own mind again"] = bool(vm.say("thank you", r"shell: ai Hello! I'm here", 90))
+    results["the desktop never ended"] = "the desktop exited" not in vm.log_text() and "(os-shell): segmentation" not in vm.log_text()
 finally:
     vm.stop()
 for l in re.findall(r".*(?:medium:|mind:|standin|stand-in).*", vm.log_text())[-24:]:

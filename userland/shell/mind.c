@@ -138,6 +138,15 @@ bool mind_builtin_ready(void) {
         job_free(health);
         health = NULL;
         LOG("mind: %s after %llus\n", ready ? "awake" : "never woke", (unsigned long long)(now_ms() - woke_at) / 1000);
+        /* what it took, in its own words (the memory it needs is reckoned before it starts: models.c) */
+        FILE *lf = fopen("/tmp/os-mind.log", "r");
+        char line[300];
+        while (lf && fgets(line, sizeof line, lf))
+            if (strstr(line, "buffer size") || strstr(line, "KV self size") || strstr(line, "kv_cache: size") ||
+                strstr(line, "REPACK") || strstr(line, "flash_attn"))
+                LOG("mind: | %.200s", line);
+        if (lf)
+            fclose(lf);
     }
     return ready;
 }

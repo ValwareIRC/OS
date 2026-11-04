@@ -352,6 +352,10 @@ static int execve_depth(const char *path, char *const argv[], char *const envp[]
     struct exec_info *old_ei = p->exec;
     p->mm = mm;
     p->exec = ei;
+    /* Protection from the OOM handling is the program's that asked for it, not what it starts (the desktop's
+     * -1000 would cover every app and model server it opens): a new program begins at 0. (Linux keeps it.) */
+    if (p->oom_score_adj < 0)
+        p->oom_score_adj = 0;
     proc_table_unlock(lf);
     mm_activate(mm);
     if (old)

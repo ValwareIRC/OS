@@ -841,14 +841,108 @@ static bool debug_trace;
 
 /* Called by the arch page-fault handler. Returns false for a kernel-mode
  * fault nothing resolves, which the arch reports with its own fault details. */
+/* ---- out of memory ----
+ * A page fault that fails because no page is left (pmm_page_failures grew) isn't the program's doing. As Linux
+ * does, the process holding the most memory is ended to make room (oom_score_adj weighs in; -1000, the desktop's,
+ * never; init never), and the one that faulted tries again; while one ended is still going away the others wait
+ * for its memory rather than end more. Before, whoever needed the next page was ended, the desktop as often as
+ * not (a test with the built-in model on a 12 GB computer: the model's server, then the desktop). */
+extern uint64_t pmm_page_failures;
+static int oom_victim;          /* ended for memory and not gone yet (0: none) */
+static uint64_t oom_victim_at;  /* (monotonic ns) */
+#define OOM_CANDIDATES 512
+
+/* The pid ended now, or being waited for; 0 when there is nobody left to end. */
+static int oom_make_room(struct process *self) {
+    uint64_t now = time_monotonic_ns();
+    struct cand {
+        int pid, adj;
+        struct mm *mm;
+    } *c = kmalloc(sizeof *c * OOM_CANDIDATES);
+    if (!c)
+        return 0;
+    int n = 0, waiting = 0;
+    uint64_t f = spin_lock_irqsave(&proc_lock);
+    for (struct process *p = all_procs; p; p = p->next_all)
+        if (p->pid == oom_victim && p->state == PROC_ALIVE && now - oom_victim_at < 5000000000ULL)
+            waiting = p->pid;
+    if (!waiting) {
+        oom_victim = 0;
+        for (struct process *p = all_procs; p && n < OOM_CANDIDATES; p = p->next_all) {
+            if (p->pid <= 1 || p->state != PROC_ALIVE || !p->mm || p->oom_score_adj <= -1000 || p->group_exit)
+                continue;
+            __atomic_add_fetch(&p->mm->refcount, 1, __ATOMIC_RELAXED); /* (counted outside the lock) */
+            c[n++] = (struct cand){p->pid, p->oom_score_adj, p->mm};
+        }
+    }
+    spin_unlock_irqrestore(&proc_lock, f);
+    if (waiting) {
+        kfree(c);
+        return waiting;
+    }
+    int64_t best_pts = 0, total = (int64_t)pmm_total_pages();
+    int best = -1;
+    uint64_t best_rss = 0;
+    for (int i = 0; i < n; i++) {
+        uint64_t rss = mm_rss_pages(c[i].mm);
+        int64_t pts = (int64_t)rss + (int64_t)c[i].adj * total / 1000;
+        if (pts > best_pts)
+            best_pts = pts, best = i, best_rss = rss;
+        mm_put(c[i].mm);
+    }
+    int pid = best >= 0 ? c[best].pid : 0;
+    kfree(c);
+    if (!pid)
+        return 0;
+    char name[16] = "?";
+    f = spin_lock_irqsave(&proc_lock);
+    for (struct process *p = all_procs; p; p = p->next_all)
+        if (p->pid == pid && p->state == PROC_ALIVE) {
+            ksnprintf(name, sizeof name, "%s", p->name);
+            oom_victim = pid, oom_victim_at = now;
+            kill_locked(p, SIGKILL);
+        }
+    spin_unlock_irqrestore(&proc_lock, f);
+    if (pid == self->pid)
+        kprintf("oom: out of memory: ended %s (pid %d, %lu MiB): it held the most\n", name, pid,
+                (unsigned long)(best_rss * PAGE_SIZE >> 20));
+    else
+        kprintf("oom: out of memory: ended %s (pid %d, %lu MiB) to make room for %s (pid %d)\n", name, pid,
+                (unsigned long)(best_rss * PAGE_SIZE >> 20), self->name, self->pid);
+    return pid;
+}
+
 bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec);
 bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     if (debug_trace)
         kprintf("#PF addr=%lx rip=%lx\n", addr, regs_ip(r));
     struct thread *t = thread_current();
     struct mm *mm = t && t->user ? t->user->proc->mm : NULL;
+    uint64_t fails = __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED);
     if (mm && mm_handle_fault(mm, addr, write, exec))
         return true;
+    if (regs_user_mode(r) && mm && __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED) != fails) {
+        /* no page left: room is made, then again (for up to 10 s) */
+        struct process *self = t->user->proc;
+        for (int tries = 0; tries < 500; tries++) {
+            int victim = oom_make_room(self);
+            if (!victim || victim == self->pid)
+                break;
+            irq_enable(); /* (a fault taken with interrupts on: they can be again while it waits) */
+            thread_sleep_ms(20);
+            if (self->group_exit || (__atomic_load_n(&self->pending_signals, __ATOMIC_ACQUIRE) & sigbit(SIGKILL)))
+                break; /* (it was ended meanwhile, for memory or otherwise) */
+            fails = __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED);
+            if (mm_handle_fault(mm, addr, write, exec))
+                return true;
+            if (__atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED) == fails)
+                break; /* (it failed for another reason this time) */
+        }
+        proc_exit_begin(SIGKILL);
+        kprintf("pid %d (%s): out of memory at %lx (it held the most, or nothing else could be ended)\n", self->pid,
+                self->name, addr);
+        proc_exit(SIGKILL);
+    }
     if (regs_user_mode(r)) {
         proc_exit_begin(SIGSEGV); /* the other threads stop first: the log line below takes a while */
         kprintf("pid %d (%s): segmentation fault at %lx, rip %lx\n", t->user->proc->pid, t->user->proc->name, addr,

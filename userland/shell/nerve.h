@@ -36,3 +36,4 @@ bool nerve_is_wake_note(const char *text);
 /* Reflex engines (reflex.c): which decides, and whether it's ready. */
 const char *reflex_engine(void);   /* "llm", "jev" or "rules" */
 const char *reflex_status(void);   /* in words, for Settings and for it */
+long reflex_reserve_mb(void);      /* memory its server will take when it starts and doesn't hold yet (MB) */

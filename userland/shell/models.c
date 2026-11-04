@@ -2,6 +2,7 @@
 #include "models.h"
 #include "app.h"
 #include "mind.h"
+#include "nerve.h"
 #include "settings.h"
 #include "launcher.h"
 #include "tray.h"
@@ -196,6 +197,13 @@ int models_context(void) {
     long avail = avail_mb();
     if (avail < 0)
         avail = (long)room_mb();
+    /* the reflexes' small model, when it will start and hasn't yet (its download finishing): its room kept (a
+     * 12 GB computer: it started beside the built-in model, and the built-in model was ended to make room) */
+    long reserve = reflex_reserve_mb();
+    if (reserve) {
+        LOG("models: %ld MB kept for the reflexes' model, which hasn't started yet\n", reserve);
+        avail -= reserve;
+    }
     char p[256];
     path_of(i, p, sizeof p);
     bool resident = !strncmp(p, "/usr/share/", 11); /* in memory from the boot (or read from the disc into it) */

@@ -101,6 +101,15 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
 14m. **A program could have only 256 files and sockets open**, and the kernel panicked when one ran out: Firefox
     needs more, stalled, and its next socket() freed the socket twice. The table grows now, to Linux's limits
     (1024, raised by the program up to 65536); a full table refuses with EMFILE. 17 self-tests.
+14n. **The built-in model was read at every boot**, 5 GB from the disc into memory (about 3 minutes on a slow
+    boot), whatever mind the companion used. It stays on the disc now unless it is the mind (chosen in
+    onboarding, behind the waiting screen there); when the mind is elsewhere and can't be reached, the person
+    is asked whether it may stand in, and it goes back to their mind when that answers. tests/standin_vm_win.py
+    (15 checks). Not yet on a computer started with UEFI from a USB stick: there the boot loader still brings it,
+    as the kernel can't read USB yet (docs/gpu.md, phase 1).
+14o. **Out of memory ended whoever needed the next page**, the desktop as often as not. The kernel ends the
+    process holding the most memory now (as Linux; oom_score_adj is real, -1000 for the desktop) and the one
+    that faulted goes on. 7 self-tests (a program that takes all the memory is ended, the system goes on).
 
 ## To fix (in this order)
 
