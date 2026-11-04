@@ -36,7 +36,10 @@ void time_init(void) {
         tsc_hz = (t1 - t0) * 20;
     }
     tsc_boot = t0 - (tick0 * tsc_hz / HZ);
-    __atomic_store_n(&real_base_ns, boot_epoch * 1000000000LL, __ATOMIC_RELAXED);
+    /* the wall clock was boot_epoch when it was read (about now): less the time the monotonic clock had counted
+     * by then (it started with the timer, before this; counted on top, the clock began about a second ahead) */
+    __atomic_store_n(&real_base_ns, boot_epoch * 1000000000LL - (int64_t)(tick0 * (1000000000ULL / HZ)),
+                     __ATOMIC_RELAXED);
     kprintf("time: counter %lu MHz, wall clock %ld\n", tsc_hz / 1000000, boot_epoch);
 }
 

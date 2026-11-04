@@ -93,6 +93,14 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
     already saved. tests/journal_crash_win.py pulls the power at random moments while files are written (3 of 3
     rounds: every file there byte for byte); tests/home_disk_vm_win.py moves a home from before onto the disk
     and keeps a 50 MB file through a power cut (9 of 9).
+14l. **The clock could run at half speed for a whole session**: the timer was measured at boot against one 10 ms
+    window of the PIT, and in a VM one slow port read stretched it. One boot measured 2.15 times too high, and
+    every second, timeout and animation then took 2.15 seconds (Firefox's start took 14 minutes; the clock was
+    122 s behind when the network set it). Now measured over 50 ms with both ends pinned, again if not sure to
+    0.1%; the boot log says how sure it was. Even unstalled the old way was 3.4% off.
+14m. **A program could have only 256 files and sockets open**, and the kernel panicked when one ran out: Firefox
+    needs more, stalled, and its next socket() freed the socket twice. The table grows now, to Linux's limits
+    (1024, raised by the program up to 65536); a full table refuses with EMFILE. 17 self-tests.
 
 ## To fix (in this order)
 

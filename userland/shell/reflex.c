@@ -59,11 +59,20 @@ static int model_index(void) {
 
 static void model_path(int i, char *out, size_t n) { snprintf(out, n, DIR_ "/reflex-%s.gguf", models[i].id); }
 
+/* Whether model i is on the disk, whole: looked at every 5 s, not at every frame (a look at the disk can wait behind
+ * another program's work there: with Firefox out of descriptors, these took half the desktop's time). */
+static uint64_t here_looked;
 static bool model_here(int i) {
+    static int here_i = -1;
+    static bool here;
+    if (i == here_i && here_looked && A.now - here_looked < 5000)
+        return here;
     char p[256];
     model_path(i, p, sizeof p);
     struct stat st;
-    return stat(p, &st) == 0 && (unsigned long long)st.st_size == models[i].bytes;
+    here = stat(p, &st) == 0 && (unsigned long long)st.st_size == models[i].bytes;
+    here_i = i, here_looked = A.now ? A.now : 1;
+    return here;
 }
 
 /* ---- the model, downloaded once ---- */
@@ -107,6 +116,7 @@ static void download_tick(void) {
         model_path(dl.i, p, sizeof p);
         if (stat(dl.part, &s) == 0 && (unsigned long long)s.st_size == models[dl.i].bytes && rename(dl.part, p) == 0) {
             LOG("reflex: %s downloaded\n", models[dl.i].name);
+            here_looked = 0; /* (looked at again at once) */
         } else {
             dl.failed = true; /* tried once this time; Settings can try again */
             char why[200] = "";
