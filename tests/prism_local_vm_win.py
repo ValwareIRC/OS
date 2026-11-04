@@ -44,7 +44,11 @@ os.environ["AUTORUN"] = script
 results = {}
 disk = os.path.join(out, "disk.img")
 vmkit.Vm.new_disk(disk, 24 << 30)
-mind = {"provider": "claude-pc", "base_url": f"http://10.0.2.2:{AIPORT}/v1", "api_key": "", "model": "sonnet"}
+# BRIDGE_PORT: the real bridge on this PC (scripts/claude-bridge.mjs), which takes tools: the agent thinks with
+# Claude ("os") and the model here isn't needed. Without it, a stand-in that says tools:false (the model here).
+BRIDGE = os.environ.get("BRIDGE_PORT")
+mind = {"provider": "claude-pc", "base_url": f"http://10.0.2.2:{BRIDGE or AIPORT}/v1", "api_key": "",
+        "model": os.environ.get("BRIDGE_MODEL", "haiku") if BRIDGE else "sonnet"}
 vm = vmkit.Vm(out, ["Okay."] * 20, memory=os.environ.get("MEM", "14G"), disk=disk, mind=mind, qport=4491, aiport=AIPORT)
 try:
     vm.start()
@@ -53,11 +57,17 @@ try:
         time.sleep(4)
         vm.shot("1-consent.png")
         vm.key("ret")
-    results["Prism asks for the model on this computer (the mind can't use tools)"] = bool(
-        vm.wait_for(r"appapi: com\.valware\.prism asks for the model on this computer", 400))
-    results["read from the disc and started"] = bool(vm.wait_for(r"medium: /usr/share/os/mind/model\.gguf read", 300))
-    results["Prism's agent asks it"] = bool(vm.wait_for(r"appapi: com\.valware\.prism asks the model on this computer", 600))
+    if BRIDGE:
+        results["Prism's agent asks the companion's mind (Claude, with tools)"] = bool(
+            vm.wait_for(r"appapi: com\.valware\.prism asks the mind", 400))
+    else:
+        results["Prism asks for the model on this computer (the mind can't use tools)"] = bool(
+            vm.wait_for(r"appapi: com\.valware\.prism asks for the model on this computer", 400))
+        results["read from the disc and started"] = bool(vm.wait_for(r"medium: /usr/share/os/mind/model\.gguf read", 300))
+        results["Prism's agent asks it"] = bool(vm.wait_for(r"appapi: com\.valware\.prism asks the model on this computer", 600))
     items = vm.wait_for(r"AGENTCHECK items (.*)", 1500)
+    if BRIDGE:
+        results["the model on this computer wasn't needed"] = "model.gguf read" not in vm.log_text()
     results["the agent's turn on it reads the file"] = bool(items) and "Lighthouse keeper notes" in items.group(1)
     vm.shot("2-after.png")
     vm.wait_for(r"AGENTCHECK done", 120)

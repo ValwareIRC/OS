@@ -37,8 +37,9 @@ it can change anything inside itself.
   `image_url` data URLs and `stream_options` pass through untouched to minds that speak OpenAI (the
   built-in model runs with `--jinja` so it takes tools), and are translated for Anthropic and Gemini
   minds. Usage numbers come in the final stream chunk when the mind gives them.
-- The "os" entry in `/v1/models` says `"tools":false` when the mind can't call tools (Claude on this
-  PC through its bridge, which turns them off); the app then keeps it for chat.
+- The "os" entry in `/v1/models` says `"tools":false` when the mind can't call tools; the app then keeps
+  it for chat. (Claude on this PC calls them: its bridge keeps Claude Code's own tools off, so nothing runs
+  on the PC, and gives Claude the app's tools, whose calls come back to the app as usual.)
 - `/v1/models` also lists `"local"`, the model on this computer, whenever there is one and it isn't
   already the mind (then "os" is it): `{"id":"local","label":"Qwen3 8B (on this computer)","tools":true,
   "context":N,"loaded":false,"load_seconds":55}`. It takes tools, so an app whose work needs them has one

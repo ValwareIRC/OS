@@ -53,6 +53,7 @@ vm = start(old_iso, replies)
 try:
     got = ask(vm, "write the note", "")
     results["the old system saves a note in their home"] = note in got
+    moved_before = "their home moved onto the disk" in vm.log_text()  # (an image from after 30e5b1b moves it itself)
     m = len(vm.log_text())
     vm.cmd("system_powerdown")  # ACPI: as the power button, the system saves and shuts down
     vm.wait_for(r"store: saved|power", 60, m)
@@ -69,7 +70,8 @@ sha = ""
 try:
     log = vm.log_text()
     results["the disk is given a journal"] = bool(re.search(r"given a journal: ok|journal of \d+ MiB", log))
-    results["their home is moved onto the disk"] = "their home moved onto the disk" in log
+    results["their home is moved onto the disk"] = "their home moved onto the disk" in log or (
+        moved_before and "their home is on the disk" in log)
     got = ask(vm, "check the home", "")
     results["the note from before is in it"] = note in got
     results["the home is on the disk"] = "/var/lib/os-data/home/" in got

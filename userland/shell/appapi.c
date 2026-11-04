@@ -385,9 +385,9 @@ static const struct ai_provider *mind(void) {
     return A.provider && A.cfg.model[0] && A.provider->available ? A.provider : NULL;
 }
 
+/* (Claude on this PC too: its bridge keeps Claude Code's own tools off, so nothing runs on the PC, and hands an
+ * app's tools to Claude, whose calls come back to the app: scripts/claude-bridge.mjs) */
 static bool mind_has_tools(const struct ai_provider *p) {
-    if (!strcmp(p->id, "claude-pc"))
-        return false; /* its bridge turns every tool off */
     return p->wire == AI_OPENAI || p->wire == AI_AZURE || p->wire == AI_ANTHROPIC;
 }
 

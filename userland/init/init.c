@@ -2632,6 +2632,19 @@ static void setup_data_disk(void) {
             printf("init: " DATA_DEV " given a journal: %s\n", tr == 0 ? "ok" : out);
         }
     }
+    /* With the journal a power cut is mended by replaying it (the kernel keeps the disk "valid": e2fsck -p
+     * then only replays, in seconds, instead of reading the whole disk); the whole of it is still checked every
+     * 30 starts (its maximum mount count, at byte 1024 + 54). */
+    int16_t max_mounts = 0;
+    int sfd = open(DATA_DEV, O_RDONLY);
+    if (sfd >= 0 && pread(sfd, &max_mounts, 2, 1024 + 54) == 2 && max_mounts != 30 && data_disk_journaled()) {
+        close(sfd), sfd = -1;
+        char *tc[] = {"/usr/sbin/tune2fs", "-c", "30", DATA_DEV, NULL};
+        int tr = run(tc, out, sizeof out);
+        printf("init: " DATA_DEV " checked whole every 30 starts: %s\n", tr == 0 ? "ok" : out);
+    }
+    if (sfd >= 0)
+        close(sfd);
     mkdir("/var/lib", 0755);
     mkdir(DATA_DIR, 0755);
     if (mount(DATA_DEV, DATA_DIR, "ext2", 0, NULL) != 0) {

@@ -3,8 +3,10 @@
 //
 // It answers OpenAI-style requests on 127.0.0.1:4570 (the VM reaches it as
 // http://10.0.2.2:4570/v1) and hands each one to `claude -p` with every
-// tool turned off, so Claude can only talk: it cannot run anything on this
-// PC. Customisations (CLAUDE.md, hooks, MCP servers) are skipped too.
+// Claude Code tool turned off, so Claude cannot run anything on this PC.
+// An app's own tools (OpenAI function calling: Prism's agent) work: Claude
+// asks for them, and they run in the app, in the VM (see "tools" below).
+// Customisations (CLAUDE.md, hooks, MCP servers) are skipped too.
 //
 //   node scripts/claude-bridge.mjs [--port 4570]
 //
@@ -51,20 +53,69 @@ function blocks(content) {
 
 const textOf = c => blocks(c).filter(b => b.type === 'text').map(b => b.text).join('\n');
 
+// ---- tools ----
+// The app's tools (OpenAI function calling) run where the app is, in the VM: never here. Claude Code's own
+// tools stay off (--tools ''), so Claude can't run anything on this PC; it is told the app's tools and asks
+// for one with a <tool_call> block, which goes back to the app as an OpenAI tool call. The app's results come
+// back in the next request as role "tool" messages, and ride along in the transcript.
+function toolPrompt(tools, choice) {
+  const list = tools.map(t => t.function || t).map(f =>
+    `- ${f.name}: ${f.description || ''}\n  parameters (JSON schema): ${JSON.stringify(f.parameters || {})}`).join('\n');
+  let must = '';
+  if (choice === 'required') must = '\nYou must use a tool in this answer.';
+  else if (choice && typeof choice === 'object' && choice.function?.name) must = `\nYou must use the tool ${choice.function.name} in this answer.`;
+  return `You can use tools. They run in the app that asked (on the person's computer), not here, and their results come back to you.
+To use one, end your answer with one or more blocks, each exactly:
+<tool_call>{"name": "TOOL_NAME", "arguments": {ARGUMENTS AS JSON}}</tool_call>
+Write nothing after them. Each result comes back to you in a <tool_result> block, and then you go on. When you need no tool, answer normally, with no such block.${must}
+The tools:
+${list}`;
+}
+
+let callNo = 0;
+// Claude's answer, its <tool_call> blocks taken out as OpenAI tool calls.
+function toolCalls(text) {
+  const calls = [];
+  const rest = text.replace(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g, (all, json) => {
+    try {
+      const c = JSON.parse(json);
+      if (c && typeof c.name === 'string') {
+        calls.push({ id: `call_${Date.now().toString(36)}_${++callNo}`, type: 'function',
+          function: { name: c.name, arguments: JSON.stringify(c.arguments ?? {}) } });
+        return '';
+      }
+    } catch { /* not a call after all: left in the text */ }
+    return all;
+  }).trim();
+  return { calls, rest };
+}
+
+// One message in the transcript: its words, the tools it asked for, or a tool's result.
+function line(m) {
+  if (m.role === 'tool')
+    return `<tool_result id="${m.tool_call_id || ''}"${m.name ? ` name="${m.name}"` : ''}>\n${textOf(m.content)}\n</tool_result>`;
+  const who = m.role === 'assistant' ? 'you' : 'them';
+  const calls = (m.tool_calls || []).map(c =>
+    `<tool_call>${JSON.stringify({ name: c.function?.name, arguments: (() => { try { return JSON.parse(c.function?.arguments || '{}'); } catch { return c.function?.arguments; } })() })}</tool_call>`);
+  return `<${who}>\n${[textOf(m.content), ...calls].filter(Boolean).join('\n')}\n</${who}>`;
+}
+
 // `claude -p` takes one new user turn, so earlier turns ride along in it as a
-// transcript, and the last user message (with any pictures) closes it.
-function turn(messages) {
-  const system = messages.filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n\n');
+// transcript, and the last user message (with any pictures) closes it; what
+// came after it (the tools it used for that message, and their results) follows.
+function turn(messages, tools, choice) {
+  let system = messages.filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n\n');
+  if (tools?.length && choice !== 'none') system = (system ? system + '\n\n' : '') + toolPrompt(tools, choice);
   const talk = messages.filter(m => m.role !== 'system');
   let lastUser = talk.length - 1;
   while (lastUser >= 0 && talk[lastUser].role !== 'user') lastUser--;
-  const before = talk.slice(0, Math.max(lastUser, 0));
+  const before = talk.slice(0, Math.max(lastUser, 0)), after = lastUser >= 0 ? talk.slice(lastUser + 1) : talk;
   const content = [];
-  if (before.length) {
-    const lines = before.map(m => `<${m.role === 'assistant' ? 'you' : 'them'}>\n${textOf(m.content)}\n</${m.role === 'assistant' ? 'you' : 'them'}>`);
-    content.push({ type: 'text', text: `The conversation so far:\n${lines.join('\n')}\n\nTheir new message follows. Answer it as your next turn.` });
-  }
+  if (before.length)
+    content.push({ type: 'text', text: `The conversation so far:\n${before.map(line).join('\n')}\n\nTheir new message follows. Answer it as your next turn.` });
   content.push(...(lastUser >= 0 ? blocks(talk[lastUser].content) : [{ type: 'text', text: '(no message)' }]));
+  if (after.length)
+    content.push({ type: 'text', text: `\nYour work on it so far:\n${after.map(line).join('\n')}\n\nGo on from here.` });
   return { system, content };
 }
 
@@ -139,8 +190,39 @@ http.createServer((req, res) => {
     let q;
     try { q = JSON.parse(body); } catch { return send(res, 400, { error: { message: 'That was not JSON.' } }); }
     const model = pickModel(q.model);
-    const { system, content } = turn(q.messages || []);
+    const tools = Array.isArray(q.tools) && q.tools.length && q.tool_choice !== 'none' ? q.tools : null;
+    const { system, content } = turn(q.messages || [], tools, q.tool_choice);
     const t0 = Date.now();
+    if (tools) {
+      // With tools the whole answer is waited for (its tool calls are found in it), then sent: streamed, as
+      // OpenAI streams tool calls, or whole.
+      try {
+        const r = await ask(model, system, content);
+        const { calls, rest } = toolCalls(r.result || '');
+        const finish = calls.length ? 'tool_calls' : r.stop_reason === 'max_tokens' ? 'length' : 'stop';
+        log(`${model}: ${Date.now() - t0} ms, ${r.usage?.output_tokens ?? '?'} tokens out, ${calls.length} tool call(s)`);
+        if (q.stream) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+          const chunk = (delta, f = null) => res.write('data: ' + JSON.stringify({
+            id: 'bridge-' + t0, object: 'chat.completion.chunk', created: Math.floor(t0 / 1000), model,
+            choices: [{ index: 0, delta, finish_reason: f }],
+          }) + '\n\n');
+          chunk({ role: 'assistant', content: rest || '' });
+          calls.forEach((c, index) => chunk({ tool_calls: [{ index, ...c }] }));
+          chunk({}, finish);
+          return res.end('data: [DONE]\n\n');
+        }
+        return send(res, 200, {
+          id: 'bridge-' + t0, object: 'chat.completion', created: Math.floor(t0 / 1000), model,
+          choices: [{ index: 0, message: { role: 'assistant', content: rest || null, ...(calls.length ? { tool_calls: calls } : {}) },
+            finish_reason: finish }],
+          usage: { prompt_tokens: r.usage?.input_tokens ?? 0, completion_tokens: r.usage?.output_tokens ?? 0 },
+        });
+      } catch (e) {
+        log(`${model}: failed: ${e.message}`);
+        return send(res, 502, { error: { message: 'Claude on this PC: ' + e.message } });
+      }
+    }
     if (q.stream) {
       // Server-sent events, as OpenAI streams them: the VM shows designs
       // being written instead of waiting minutes for the whole reply.

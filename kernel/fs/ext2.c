@@ -180,7 +180,12 @@ static uint32_t sb32(struct ext2fs *fs, int off) {
 }
 static void sb32_set(struct ext2fs *fs, int off, uint32_t v) { memcpy(fs->sb + off, &v, 4); }
 
+/* With a journal it stays "valid", as ext3/4 keep it: the journal's RECOVER flag says it was in use, and
+ * e2fsck replays the journal then (seconds) instead of checking the whole disk after every power cut or closed
+ * window (init asks for a full check every 30 starts, by tune2fs -c). Without one, "not valid" while mounted. */
 static void sb_state(struct ext2fs *fs, bool clean) {
+    if (fs->jon)
+        clean = true;
     uint16_t state;
     memcpy(&state, fs->sb + 58, 2);
     state = clean ? (uint16_t)(state | STATE_VALID) : (uint16_t)(state & ~STATE_VALID);
