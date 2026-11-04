@@ -1597,6 +1597,7 @@ static const struct sent sys_kernel_random[] = {
 /* The big files left on the disc (main.c): what each is doing; a path written asks for it to be read. Anyone
  * may ask (the desktop runs as the person): it only brings a file the system came with into memory. */
 int medium_request(const char *dest);
+int medium_release(const char *dest);
 int medium_status(char *out, size_t n);
 static int show_from_disc(struct snode *n, struct sbuf *b) {
     (void)n;
@@ -1607,6 +1608,9 @@ static int show_from_disc(struct snode *n, struct sbuf *b) {
 }
 static int64_t store_from_disc(struct snode *n, const char *buf, size_t len) {
     (void)n;
+    bool release = len > 8 && !memcmp(buf, "release ", 8); /* "release PATH": its memory back */
+    if (release)
+        buf += 8, len -= 8;
     char path[200];
     size_t k = 0;
     for (; k < len && k + 1 < sizeof path && buf[k] != '\n' && buf[k] != ' '; k++)
@@ -1614,8 +1618,8 @@ static int64_t store_from_disc(struct snode *n, const char *buf, size_t len) {
     path[k] = 0;
     if (!k)
         return -EINVAL;
-    int r = medium_request(path);
-    return r < 0 ? r : (int64_t)len;
+    int r = release ? medium_release(path) : medium_request(path);
+    return r < 0 ? r : (int64_t)len + (release ? 8 : 0);
 }
 
 static const struct sent sys_kernel[] = {

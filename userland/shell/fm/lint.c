@@ -260,7 +260,7 @@ void fm_lint_paint(fm_doc *d, const fm_lint_opts *o, fm_node *open, bool window)
     fm_render_layer(d, c, 0);
     if (window) {
         rect body;
-        fm_render_window_frame(d, c, 0, sample_window(d, o), true, &body);
+        fm_render_window_frame(d, c, 0, sample_window(d, o), true, &body, false);
         canvas_clip(c, body);
         fm_host_draw_view("files", body);
         canvas_unclip(c);

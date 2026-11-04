@@ -67,8 +67,32 @@ void serial_rx_init(void) {
  * /dev/hostclip; nothing here interprets it. */
 
 #define COM2 0x2f8
+#define VEC_COM2 0x27
+#define HOSTLINK_RING 65536
 
 static bool com2_present;
+
+/* What COM2's interrupt brought, for the reader. The desktop reads it every frame: it used to read the port then,
+ * a trip to QEMU's own thread each time, waiting while that thread draws its window (a fifth of a core, on a
+ * VM shown full screen). Now the port is touched only when something arrives. */
+static uint8_t hl_ring[HOSTLINK_RING];
+static uint32_t hl_head, hl_tail; /* (head: the interrupt's; tail: the reader's) */
+static spinlock_t hl_lock = SPINLOCK_INIT;
+
+static void com2_irq(struct regs *r) {
+    (void)r;
+    uint64_t f = spin_lock_irqsave(&hl_lock);
+    for (int n = 0; n < 64 && (inb(COM2 + 5) & 1); n++) { /* (a FIFO's worth at a time: never a tight loop) */
+        uint8_t c = inb(COM2);
+        uint32_t next = (hl_head + 1) % HOSTLINK_RING;
+        if (next != hl_tail) {
+            hl_ring[hl_head] = c;
+            hl_head = next;
+        }
+    }
+    spin_unlock_irqrestore(&hl_lock, f);
+    lapic_eoi();
+}
 
 bool platform_hostlink_init(void) {
     outb(COM2 + 1, 0x00);
@@ -81,23 +105,29 @@ bool platform_hostlink_init(void) {
     outb(COM2 + 0, 0x5a);
     if (inb(COM2 + 0) != 0x5a)
         return com2_present = false;
-    outb(COM2 + 4, 0x0f);
-    /* Whatever is already waiting (a clipboard sent while booting) is left
-     * for the reader: draining it here in a tight loop is exactly the
-     * pattern that, under some hypervisors (Windows' WHPX), keeps QEMU's
+    outb(COM2 + 4, 0x0f); /* (OUT2 on: the interrupt reaches the I/O APIC) */
+    /* Whatever is already waiting (a clipboard sent while booting) comes with the first interrupt: draining it
+     * here in a tight loop is exactly the pattern that, under some hypervisors (Windows' WHPX), keeps QEMU's
      * own thread from running and freezes its window. */
+    idt_set_handler(VEC_COM2, com2_irq);
+    bool level, active_low;
+    uint32_t gsi = irq_to_gsi(3, &level, &active_low);
+    ioapic_route(gsi, VEC_COM2, cpus[0]->arch.lapic_id, level, active_low);
+    outb(COM2 + 1, 0x01); /* interrupt on received data */
     return com2_present = true;
 }
 
-/* Non-blocking: returns what has arrived (0 if nothing). Every port access
- * is a VM exit, so it reads only what is ready, a FIFO's worth at a time,
- * and never waits: the shell calls it every frame anyway. */
+/* Non-blocking: what has arrived (0 if nothing), from what the interrupt kept: no port is touched here. */
 int64_t platform_hostlink_read(void *buf, uint64_t len) {
     if (!com2_present)
         return 0;
     uint8_t *b = buf;
     uint64_t n = 0;
-    while (n < len && n < 64 && (inb(COM2 + 5) & 1))
-        b[n++] = inb(COM2);
+    uint64_t f = spin_lock_irqsave(&hl_lock);
+    while (n < len && hl_tail != hl_head) {
+        b[n++] = hl_ring[hl_tail];
+        hl_tail = (hl_tail + 1) % HOSTLINK_RING;
+    }
+    spin_unlock_irqrestore(&hl_lock, f);
     return (int64_t)n;
 }

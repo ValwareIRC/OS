@@ -65,6 +65,8 @@ void draw_arc(canvas *c, float cx, float cy, float radius, float a0, float a1, f
 void fill_polygon(canvas *c, const float *xy, int n, color col);
 /* Faster large blurs: work at half resolution. */
 void blur_fast(canvas *c, rect r, float corner_radius, int strength);
+/* Something opaque is painted there next: glass needs no blur inside it (set around one drawing; w 0: none). */
+extern rect blur_hole;
 /* Bilinear upscale of src onto all of dst. */
 void canvas_scale(canvas *dst, const canvas *src);
 

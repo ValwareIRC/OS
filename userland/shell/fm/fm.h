@@ -360,7 +360,8 @@ void fm_type_inherit(fm_style *st, const fm_style *parent);
 /* Layout and drawing. Layers: 0 = below windows, 1 = above windows. */
 void fm_layout(fm_doc *d, rect screen);
 void fm_render_layer(fm_doc *d, canvas *c, int layer);
-void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out);
+void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out,
+                            bool opaque_body); /* opaque_body: an app fills its content next (no glass blur there) */
 int fm_layer_of(const fm_node *n);
 
 /* Input. Returns true if the pointer is over something in that layer. */

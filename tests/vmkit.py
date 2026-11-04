@@ -75,6 +75,10 @@ class Vm:
             qargs += ["-fw_cfg", "name=opt/os/hangdump,string=1"]
         if os.environ.get("PERFWATCH"):  # every 10 s, who used the processors (kernel/proc/proc.c)
             qargs += ["-fw_cfg", "name=opt/os/perfwatch,string=1"]
+        if os.environ.get("AUTORUN"):  # a script run once as the person on the first desktop frame (launcher.c)
+            qargs += ["-fw_cfg", "name=opt/os/autorun.sh,file=" + os.environ["AUTORUN"].replace(os.sep, "/")]
+        if os.environ.get("HOSTCLIP_PORT"):  # COM2 as the launcher has it: the host's clipboard (os-win.ps1)
+            qargs += ["-serial", f"tcp:127.0.0.1:{os.environ['HOSTCLIP_PORT']},server=on,wait=off"]
         if self.disk:
             qargs += ["-drive", "id=disk0,file=" + self.disk.replace(os.sep, "/").replace(",", ",,") +
                       ",format=raw,if=none" + ("" if os.environ.get("DISK_RW") else ",snapshot=on"),

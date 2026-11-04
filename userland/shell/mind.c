@@ -157,6 +157,15 @@ int mind_builtin_waking_for(void) {
     return pid > 0 && !ready ? (int)((now_ms() - woke_at) / 1000) : 0;
 }
 
+/* About how long until it answers, from now: read from the disc first (about 25 s for 5 GB), then loaded (about
+ * 30 s); less what has gone by (for an app waiting on it: appapi.c). */
+int mind_builtin_load_seconds(void) {
+    if (ready)
+        return 0;
+    int total = (model_on_disc() || model_coming() ? 25 : 0) + 30, gone = mind_builtin_waking_for();
+    return total - gone > 5 ? total - gone : 5;
+}
+
 bool mind_builtin_present(void) {
     return (access(models_selected_path(), R_OK) == 0 || model_coming() || model_on_disc()) && access(SERVER, X_OK) == 0;
 }

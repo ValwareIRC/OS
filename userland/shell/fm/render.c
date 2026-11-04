@@ -1659,11 +1659,18 @@ bool fm_window_slot(fm_doc *d, rect *frame, float radius[4], float *border, rect
     return true;
 }
 
-void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out) {
+void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out,
+                            bool opaque_body) {
     double l0 = pnow();
-    fm_node *root = fmi_frame_layout(d, win, r, focused, content_out);
+    rect content = {0, 0, 0, 0};
+    fm_node *root = fmi_frame_layout(d, win, r, focused, &content);
     fm_pacc[5] += pnow() - l0;
+    if (content_out)
+        *content_out = content;
+    if (opaque_body) /* what the app fills next: its glass is blurred only around it (gfx.c) */
+        blur_hole = content;
     if (root)
         draw_node(d, c, root, 1);
+    blur_hole = (rect){0, 0, 0, 0};
     d->cur_win = -1;
 }

@@ -39,6 +39,15 @@ it can change anything inside itself.
   minds. Usage numbers come in the final stream chunk when the mind gives them.
 - The "os" entry in `/v1/models` says `"tools":false` when the mind can't call tools (Claude on this
   PC through its bridge, which turns them off); the app then keeps it for chat.
+- `/v1/models` also lists `"local"`, the model on this computer, whenever there is one and it isn't
+  already the mind (then "os" is it): `{"id":"local","label":"Qwen3 8B (on this computer)","tools":true,
+  "context":N,"loaded":false,"load_seconds":55}`. It takes tools, so an app whose work needs them has one
+  even when the mind can't. It isn't in memory until it's asked for (the system leaves it on its disc):
+  a chat request with `"model":"local"` starts it and is answered
+  `503 {"error":"loading","seconds_left":S}` until it can answer (about a minute: read from the disc,
+  then loaded); ask again then. `503 {"error":"no_room"}` when it couldn't start (not enough memory).
+  It stops once no app has used it for 10 minutes, and its memory goes back.
+- The model on this computer is asked with the system's own key; an app needs none.
 
 ## Identity
 

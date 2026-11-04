@@ -19,6 +19,7 @@
 #include "theme.h"
 #include "wallpaper.h"
 #include "voice.h"
+#include "mind.h"
 #include "models.h"
 #include "../lib/http.h"
 #include "../lib/json.h"
@@ -390,27 +391,67 @@ static bool mind_has_tools(const struct ai_provider *p) {
     return p->wire == AI_OPENAI || p->wire == AI_AZURE || p->wire == AI_ANTHROPIC;
 }
 
+/* The model on this computer, for apps, beside the companion's own mind ("local"): listed whenever there is one
+ * (in memory, on the disk, or still on the system's disc), started when an app asks for it, stopped once no app
+ * has used it for 10 minutes (unless it is the companion's own mind, or standing in for it). An app whose work
+ * needs tools (Prism's agent) has one even when the companion's mind can't call them (Claude through the PC's
+ * bridge): before, it found none and asked the person to add one. */
+#define LOCAL_IDLE_MS (10 * 60000)
+static uint64_t local_used_at;
+static bool local_for_apps; /* started for an app (not for the companion): stopped when idle */
+
+static bool local_offered(void) {
+    const struct ai_provider *p = mind();
+    return mind_builtin_present() && !(p && !strcmp(p->id, "builtin")) && ai_find_provider("builtin");
+}
+
 static void models(struct conn *c) {
     const struct ai_provider *p = mind();
-    if (!p) {
+    bool local = local_offered();
+    if (!p && !local) {
         reply_error(c, 503, "no_mind");
         return;
     }
-    char label[200];
-    if (!strcmp(p->id, "builtin"))
-        snprintf(label, sizeof label, "%s (on this computer)", A.cfg.model);
-    else
-        snprintf(label, sizeof label, "%s: %s (yours)", p->name, A.cfg.model);
     sbuf b;
     sb_init(&b);
-    sb_add(&b, "{\"object\":\"list\",\"data\":[{\"id\":\"os\",\"object\":\"model\",\"owned_by\":\"os\",\"label\":");
-    sb_json_str(&b, label);
-    sb_printf(&b, ",\"tools\":%s", mind_has_tools(p) ? "true" : "false");
-    if (!strcmp(p->id, "builtin")) /* the model on this computer: as much as its memory allows */
-        sb_printf(&b, ",\"context\":%d", models_context());
-    sb_add(&b, "}]}");
+    sb_add(&b, "{\"object\":\"list\",\"data\":[");
+    if (p) {
+        char label[200];
+        if (!strcmp(p->id, "builtin"))
+            snprintf(label, sizeof label, "%s (on this computer)", A.cfg.model);
+        else
+            snprintf(label, sizeof label, "%s: %s (yours)", p->name, A.cfg.model);
+        sb_add(&b, "{\"id\":\"os\",\"object\":\"model\",\"owned_by\":\"os\",\"label\":");
+        sb_json_str(&b, label);
+        sb_printf(&b, ",\"tools\":%s", mind_has_tools(p) ? "true" : "false");
+        if (!strcmp(p->id, "builtin")) /* the model on this computer: as much as its memory allows */
+            sb_printf(&b, ",\"context\":%d", models_context());
+        sb_add(&b, "}");
+    }
+    if (local) {
+        char label[200];
+        snprintf(label, sizeof label, "%s (on this computer)", models_selected()->name);
+        sb_printf(&b, "%s{\"id\":\"local\",\"object\":\"model\",\"owned_by\":\"os\",\"label\":", p ? "," : "");
+        sb_json_str(&b, label);
+        bool ready = mind_builtin_ready();
+        sb_printf(&b, ",\"tools\":true,\"context\":%d,\"loaded\":%s,\"load_seconds\":%d}", models_context(),
+                  ready ? "true" : "false", ready ? 0 : mind_builtin_load_seconds());
+    }
+    sb_add(&b, "]}");
     reply(c, 200, b.p);
     sb_free(&b);
+}
+
+/* From appapi_poll: the model started for apps goes once none has used it for a while (its memory back). */
+static void local_idle(void) {
+    if (!local_for_apps || A.now - local_used_at < LOCAL_IDLE_MS)
+        return;
+    local_for_apps = false;
+    const struct ai_provider *p = mind();
+    if ((p && !strcmp(p->id, "builtin")) || !mind_builtin_running())
+        return; /* (it is the companion's own mind now, or standing in for it: it stays) */
+    LOG("appapi: the model on this computer stops (no app used it for %d minutes)\n", LOCAL_IDLE_MS / 60000);
+    mind_builtin_stop();
 }
 
 struct proxy {
@@ -461,7 +502,9 @@ static void proxy_openai(int fd, struct proxy *x, json *req) {
         snprintf(auth, sizeof auth, "api-key: %s", x->cfg.api_key);
     } else {
         snprintf(url, sizeof url, "%s/chat/completions", x->cfg.base_url);
-        snprintf(auth, sizeof auth, "Authorization: Bearer %s", x->cfg.api_key[0] ? x->cfg.api_key : "none");
+        /* the model on this computer answers only to the system's own key (mind.c: --api-key-file) */
+        snprintf(auth, sizeof auth, "Authorization: Bearer %s",
+                 x->cfg.api_key[0] ? x->cfg.api_key : !strcmp(x->p->id, "builtin") ? ai_local_key() : "none");
     }
     const char *headers[] = {"Content-Type: application/json", auth, NULL};
     struct passthru t = {.fd = fd, .stream = json_bool(json_get(req, "stream"), false)};
@@ -872,8 +915,42 @@ static void proxy_child(int fd, void *ctx) {
     json_free(req);
 }
 
+/* Whether the request names the model on this computer ("model":"local"). */
+static bool asks_local(const struct conn *c) {
+    json *req = json_parse(c->body, c->blen);
+    json *m = req ? json_get(req, "model") : NULL;
+    bool local = m && m->type == JSON_STRING && m->str && !strcmp(m->str, "local");
+    json_free(req);
+    return local;
+}
+
 static void chat(int i) {
     struct conn *c = &conns[i];
+    if (asks_local(c) && local_offered()) {
+        local_used_at = A.now;
+        if (!mind_builtin_ready()) { /* started (read from the disc first if it must be): asked again shortly */
+            if (!mind_builtin_running() && !mind_builtin_waking_for()) {
+                LOG("appapi: %s asks for the model on this computer: starting it\n", apps[c->app].id);
+                mind_builtin_start();
+                local_for_apps = true;
+            }
+            char body[96];
+            int left = mind_builtin_load_seconds();
+            snprintf(body, sizeof body, "{\"error\":\"loading\",\"seconds_left\":%d}", left > 1 ? left : 1);
+            if (!mind_builtin_running() && !mind_builtin_waking_for()) /* it couldn't start */
+                snprintf(body, sizeof body, "{\"error\":\"no_room\"}");
+            reply(c, 503, body);
+            return;
+        }
+        const struct ai_provider *b = ai_find_provider("builtin");
+        struct proxy x = {.p = b, .body = c->body, .blen = c->blen};
+        snprintf(x.cfg.provider, sizeof x.cfg.provider, "%s", b->id);
+        snprintf(x.cfg.base_url, sizeof x.cfg.base_url, "%s", b->base_url);
+        snprintf(x.cfg.model, sizeof x.cfg.model, "%s", b->default_model ? b->default_model : "os");
+        LOG("appapi: %s asks the model on this computer (%zu bytes)\n", apps[c->app].id, c->blen);
+        hand_to_child(i, proxy_child, &x);
+        return;
+    }
     const struct ai_provider *p = mind();
     if (!p) {
         reply_error(c, 503, "no_mind");
@@ -2249,6 +2326,7 @@ static void lip_poll(void) {
 
 void appapi_poll(void) {
     reap();
+    local_idle();
     if (A.now - last_scan > 3000) {
         scan_apps();
         last_scan = A.now;

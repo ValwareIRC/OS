@@ -1387,8 +1387,8 @@ void launcher_input(fm_doc *ui) {
         files_setup();
         index_refresh(true);
         /* development aid (fw_cfg opt/os/autorun.sh): a test script, run once as the person */
-        if (access("/etc/os/autorun.sh", R_OK) == 0)
-            spawn_command("sh /etc/os/autorun.sh </dev/null >/dev/console 2>&1", "Autorun");
+        if (access("/etc/os/autorun.sh", R_OK) == 0) /* (its words to the desktop's own log: the console is root's) */
+            spawn_command("sh /etc/os/autorun.sh </dev/null 1>&2", "Autorun");
     }
     index_poll();
     flathub_poll();

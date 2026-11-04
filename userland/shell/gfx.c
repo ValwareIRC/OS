@@ -762,12 +762,21 @@ static size_t blur_memo_bytes;
 
 static void blur_fast_now(canvas *c, rect r, float radius, int strength);
 
+/* Where something opaque is painted next (a window's app: desktop.c fills its body before the app's picture):
+ * glass over it needs no blur there. Set around one drawing, then cleared (empty: none). */
+rect blur_hole;
+
 void blur_fast(canvas *c, rect r, float radius, int strength) {
     int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y;
     int x1 = r.x + r.w > c->w ? c->w : r.x + r.w, y1 = r.y + r.h > c->h ? c->h : r.y + r.h;
     int w = x1 - x0, h = y1 - y0;
     if (w <= 0 || h <= 0)
         return;
+    if (blur_hole.w > 0 && blur_hole.x < x1 && blur_hole.y < y1 && blur_hole.x + blur_hole.w > x0 &&
+        blur_hole.y + blur_hole.h > y0) { /* only the ring around it (cheap: kept no copy of) */
+        blur_fast_now(c, r, radius, strength);
+        return;
+    }
     if (w / 2 < 4 || h / 2 < 4) { /* (a small one is blurred another way, from beyond its box: not kept) */
         blur_fast_now(c, r, radius, strength);
         return;
@@ -839,8 +848,21 @@ static void blur_fast_now(canvas *c, rect r, float radius, int strength) {
     int *xs = scratch(3, (size_t)bw * 2 * sizeof(int));
     if (!small || !tmp || !acc || !xs)
         return;
+    /* with a hole (blur_hole): its middle, beyond what the blur reaches from the ring, isn't read, and nothing
+     * inside it is written (a window's glass frame: its title bar and edges, not the 1.2 million pixels its app
+     * covers next; it was a third of the desktop's time with two big apps open) */
+    int reach = 3 * (strength / 2 > 1 ? strength / 2 : 1) + 2;
+    int dx0 = 0, dx1 = 0, dy0 = 0, dy1 = 0; /* the deep middle, in half-size pixels */
+    if (blur_hole.w > 0) {
+        dx0 = (blur_hole.x - x0) / 2 + reach, dx1 = (blur_hole.x + blur_hole.w - x0) / 2 - reach;
+        dy0 = (blur_hole.y - y0) / 2 + reach, dy1 = (blur_hole.y + blur_hole.h - y0) / 2 - reach;
+    }
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
+            if (y >= dy0 && y < dy1 && x >= dx0 && x < dx1) {
+                x = dx1 - 1; /* (skipped: nothing outside the hole reads it) */
+                continue;
+            }
             const uint32_t *p = &c->px[(size_t)(y0 + 2 * y) * (size_t)c->w + (size_t)(x0 + 2 * x)];
             uint32_t a = p[0], b = p[1], d = p[c->w], e = p[c->w + 1];
             small[(size_t)y * (size_t)w + (size_t)x] =
@@ -866,7 +888,13 @@ static void blur_fast_now(canvas *c, rect r, float radius, int strength) {
         uint32_t *dst = &c->px[(size_t)gy * (size_t)c->w + (size_t)x0];
         bool edge_row = gy < r.y + rad || gy >= r.y + r.h - rad;
         int a = edge_row ? bw : rad, b = edge_row ? bw : bw - rad;
+        bool hole_row = blur_hole.w > 0 && gy >= blur_hole.y && gy < blur_hole.y + blur_hole.h;
+        int hx0 = hole_row ? blur_hole.x - x0 : bw, hx1 = hole_row ? blur_hole.x + blur_hole.w - x0 : bw;
         for (int x = 0; x < bw; x++) {
+            if (x >= hx0 && x < hx1) {
+                x = hx1 - 1;
+                continue;
+            }
             int i0 = xs[2 * x], i1 = i0 + 1 < w ? i0 + 1 : i0;
             uint32_t tx = (uint32_t)xs[2 * x + 1];
             uint32_t p = r0[i0], q = r0[i1], u = r1[i0], v = r1[i1];

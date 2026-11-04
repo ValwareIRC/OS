@@ -473,7 +473,7 @@ static void draw_full(fm_doc *doc, const design *d, float dt) {
     fm_render_layer(doc, PV.full, 0);
     if (PV.window) {
         rect body;
-        fm_render_window_frame(doc, PV.full, WIN_FILES, sample_window(doc), true, &body);
+        fm_render_window_frame(doc, PV.full, WIN_FILES, sample_window(doc), true, &body, false);
         canvas_clip(PV.full, body);
         stylist_placeholder_view("files", body);
         canvas_unclip(PV.full);

@@ -364,7 +364,21 @@ static void keep_child(void *arg, char **result) {
     *result = strdup(ok ? "1" : "0");
 }
 
+/* The kernel lets go of it when it read it from the disc (it can again): no copy to the disk needed. */
+static bool kernel_release(void) {
+    FILE *f = fopen("/proc/sys/kernel/os_from_disc", "w");
+    if (!f)
+        return false;
+    bool ok = fprintf(f, "release %s\n", BUILTIN_FILE) > 0;
+    ok = fclose(f) == 0 && ok;
+    return ok;
+}
+
 static void let_go(void) {
+    if (kernel_release()) { /* (looked at again: if it is read again, for an app or to stand in, it goes again) */
+        LOG("models: the built-in model let go of memory (back on the system's disc)\n");
+        return;
+    }
     if (unlink(BUILTIN_FILE) == 0)
         LOG("models: the built-in model let go of memory (%s)\n",
             access(BUILTIN_KEPT, R_OK) == 0 ? "kept on the disk" : "back at the next start");
@@ -394,6 +408,10 @@ static void release_poll(void) {
             net.at = A.now;
             net.check = job_start(online_child, NULL);
         }
+        return;
+    }
+    if (kernel_release()) { /* read from the disc: it can be again, so no copy on the disk is needed */
+        LOG("models: the built-in model let go of memory (back on the system's disc)\n");
         return;
     }
     struct stat st;

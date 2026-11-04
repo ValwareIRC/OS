@@ -316,6 +316,31 @@ int medium_request(const char *dest) {
     return r;
 }
 
+/* Lets go of a file read from the disc (its memory back): it is on the disc again, to be asked for again.
+ * -ENOENT when it isn't one of these, or isn't in memory now. */
+int medium_release(const char *dest);
+int medium_release(const char *dest) {
+    for (int i = 0; i < nlazies; i++) {
+        struct lazy_file *lf = lazies[i];
+        if (strcmp(dest, lf->dest))
+            continue;
+        uint64_t f = spin_lock_irqsave(&lazy_lock);
+        bool here = lf->state == LAZY_HERE;
+        if (here)
+            lf->state = LAZY_ON_DISC;
+        spin_unlock_irqrestore(&lazy_lock, f);
+        if (!here)
+            return -ENOENT;
+        char ondisc[200];
+        ksnprintf(ondisc, sizeof ondisc, "%s.ondisc", lf->dest);
+        touch_path(ondisc); /* (first: never neither here nor on the disc) */
+        unlink_path(lf->dest);
+        kprintf("medium: %s let go of (back on the disc until it is asked for)\n", lf->dest);
+        return 0;
+    }
+    return -ENOENT;
+}
+
 /* "PATH on-disc|reading|here BYTES" a line each (/proc/sys/kernel/os_from_disc). */
 int medium_status(char *out, size_t n);
 int medium_status(char *out, size_t n) {

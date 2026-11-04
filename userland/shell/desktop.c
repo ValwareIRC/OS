@@ -1500,7 +1500,9 @@ static void draw_window(int w, bool focused) {
         shadow_round(A.frame, r, 8, 28, RGBA(0, 0, 0, focused ? 110 : 70));
         body = r;
     } else {
-        PROF("window frames", fm_render_window_frame(A.ui, A.frame, w, r, focused, &body));
+        /* an app's body is painted opaque (app_body): its frame's glass is blurred only around it */
+        bool opaque_body = w >= WIN_COUNT && !win->fx && win->view && C_A(D.surface) == 255;
+        PROF("window frames", fm_render_window_frame(A.ui, A.frame, w, r, focused, &body, opaque_body));
     }
     canvas_clip(A.frame, body);
     switch (w) {
@@ -1783,6 +1785,7 @@ static void app_body(int w, rect body) {
     struct window *win = &A.win[w];
     wl_view *v = win->view;
     win->body = body;
+    /* opaque, whatever the app draws over it: its frame's glass relies on that (fm_render_window_frame) */
     fill_rect(A.frame, body, D.surface);
     if (!v || !v->px)
         return;

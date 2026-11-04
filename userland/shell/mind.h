@@ -13,6 +13,8 @@ bool mind_builtin_alive(void);
 bool mind_builtin_ready(void);
 /* Seconds since it began waking (0 when it isn't). */
 int mind_builtin_waking_for(void);
+/* About how long until it answers, from now (0 when it can): for an app waiting on it. */
+int mind_builtin_load_seconds(void);
 /* From the main loop: starts it once a model still being read from the disc is whole (mind_builtin_start
  * asked meanwhile). */
 void mind_builtin_tick(void);
