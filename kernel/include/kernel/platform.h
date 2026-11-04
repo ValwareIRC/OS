@@ -9,6 +9,11 @@ bool platform_hostlink_init(void);
 int64_t platform_hostlink_read(void *buf, uint64_t len);
 
 void platform_input_init(void);
+/* The pointer made absolute at once, the kernel's very first act (where there is such a thing: a PC under QEMU's
+ * vmmouse). Until it is, QEMU on Windows takes a host mouse over its window for a relative one, grabs it and keeps
+ * putting it back in the middle, and with a big or full-screen window (always under the pointer) that kept QEMU
+ * too busy to answer the system's every port access: it never got past starting its input. */
+void platform_pointer_early(void);
 int64_t platform_rtc_read(void);
 void platform_reboot(void);
 void platform_poweroff(void);

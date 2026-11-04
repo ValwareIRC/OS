@@ -4,6 +4,7 @@
 #include <kernel/input.h>
 #include <kernel/lib.h>
 #include <kernel/platform.h>
+#include <kernel/proc.h>
 #include <kernel/vfs.h>
 
 /* Evdev sources: the i8042 PS/2 controller, plus the VMware/QEMU
@@ -114,6 +115,8 @@ static bool vmmouse_init(void) {
     return true;
 }
 
+void platform_pointer_early(void) { vmmouse = vmmouse_init(); }
+
 static void vmmouse_poll(void) {
     for (int guard = 0; guard < 32; guard++) {
         uint32_t r[4];
@@ -173,13 +176,17 @@ static void mouse_byte(uint8_t b) {
 #define VEC_KBD 0x25
 #define VEC_MOUSE 0x26
 
+/* A controller that never answers is waited for 50 ms at most, whatever each port access costs (under a busy
+ * QEMU, a millisecond: 100000 of them were minutes). */
 static void i8042_wait_write(void) {
-    for (int i = 0; i < 100000 && (inb(0x64) & 2); i++)
+    uint64_t end = time_monotonic_ns() + 50000000;
+    for (int i = 0; i < 100000 && (inb(0x64) & 2) && time_monotonic_ns() < end; i++)
         ;
 }
 
 static void i8042_wait_read(void) {
-    for (int i = 0; i < 100000 && !(inb(0x64) & 1); i++)
+    uint64_t end = time_monotonic_ns() + 50000000;
+    for (int i = 0; i < 100000 && !(inb(0x64) & 1) && time_monotonic_ns() < end; i++)
         ;
 }
 
@@ -235,9 +242,9 @@ void platform_input_init(void) {
     i8042_cmd(0x60);
     i8042_wait_write();
     outb(0x60, cfg);
-    /* The absolute (vmmouse) pointer first: until it is on, QEMU's window
-     * treats a host mouse moving over it as a relative one, and under
-     * Windows' hypervisor that can starve this CPU for as long as it moves. */
+    /* The absolute (vmmouse) pointer again (platform_pointer_early asked first): until it is on, QEMU's window
+     * treats a host mouse moving over it as a relative one, and under Windows' hypervisor that can starve this
+     * CPU for as long as it moves. */
     vmmouse = vmmouse_init();
     mouse_write(0xf6); /* defaults */
     mouse_write(0xf4); /* streaming on */

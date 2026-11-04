@@ -662,6 +662,7 @@ static void init_main(void *arg) {
 
 void kmain(void);
 void kmain(void) {
+    platform_pointer_early(); /* (before anything that asks the machine: kernel/include/kernel/platform.h) */
     serial_init();
     if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision))
         panic("bootloader does not support Limine base revision 3");
