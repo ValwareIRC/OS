@@ -360,7 +360,7 @@ static int execve_depth(const char *path, char *const argv[], char *const envp[]
         exec_info_put(old_ei);
 
     uint64_t f = spin_lock_irqsave(&p->fds->lock);
-    for (int i = 0; i < MAX_FDS; i++) {
+    for (int i = 0; i < p->fds->cap; i++) {
         if (p->fds->fd[i] && p->fds->cloexec[i]) {
             file_put(p->fds->fd[i]);
             p->fds->fd[i] = NULL;

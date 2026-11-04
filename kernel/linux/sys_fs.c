@@ -12,39 +12,54 @@
 
 struct file *fd_get(int fd) {
     struct fdtable *t = proc_current()->fds;
-    if (fd < 0 || fd >= MAX_FDS || !t)
+    if (fd < 0 || !t)
         return NULL;
     uint64_t f = spin_lock_irqsave(&t->lock);
-    struct file *file = t->fd[fd];
+    struct file *file = fd < t->cap ? t->fd[fd] : NULL;
     if (file)
         file_ref(file);
     spin_unlock_irqrestore(&t->lock, f);
     return file;
 }
 
+/* The lowest free descriptor from `min_fd` on, below the process's RLIMIT_NOFILE (the table grows to it). */
 int fd_install(struct file *file, int min_fd, bool cloexec) {
     struct fdtable *t = proc_current()->fds;
     uint64_t f = spin_lock_irqsave(&t->lock);
-    for (int i = min_fd < 0 ? 0 : min_fd; i < MAX_FDS; i++) {
+    int r = -EMFILE;
+    for (int i = min_fd < 0 ? 0 : min_fd; i < (int)t->nofile; i++) {
+        if (i >= t->cap && !fdtable_room(t, i, &f)) {
+            r = -ENOMEM;
+            break;
+        }
         if (!t->fd[i]) {
             t->fd[i] = file;
             t->cloexec[i] = cloexec;
-            spin_unlock_irqrestore(&t->lock, f);
-            return i;
+            r = i;
+            break;
         }
     }
+    bool first = r == -EMFILE && !t->ran_out;
+    if (r == -EMFILE)
+        t->ran_out = true;
     spin_unlock_irqrestore(&t->lock, f);
-    return -EMFILE;
+    if (first) /* (once a table: a program out of descriptors fails in ways that are hard to trace back) */
+        kprintf("fd: %s (pid %d) is out of descriptors (its limit: %u)\n", proc_current()->name,
+                pid_to_user(proc_current()->pid), t->nofile);
+    return r;
 }
 
 int fd_close(int fd) {
     struct fdtable *t = proc_current()->fds;
-    if (fd < 0 || fd >= MAX_FDS)
+    if (fd < 0)
         return -EBADF;
     uint64_t f = spin_lock_irqsave(&t->lock);
-    struct file *file = t->fd[fd];
-    t->fd[fd] = NULL;
-    t->cloexec[fd] = 0;
+    struct file *file = NULL;
+    if (fd < t->cap) {
+        file = t->fd[fd];
+        t->fd[fd] = NULL;
+        t->cloexec[fd] = 0;
+    }
     spin_unlock_irqrestore(&t->lock, f);
     if (!file)
         return -EBADF;
@@ -369,12 +384,15 @@ SYSCALL(close_range) {
     if (first > last)
         return -EINVAL;
     struct fdtable *t = proc_current()->fds;
-    for (uint64_t fd = first; fd <= last && fd < MAX_FDS; fd++) {
-        if (!t->fd[fd])
-            continue;
-        if (a3 & 4 /* CLOSE_RANGE_CLOEXEC */)
+    for (uint64_t fd = first; fd <= last; fd++) {
+        uint64_t f = spin_lock_irqsave(&t->lock);
+        bool past = fd >= (uint64_t)t->cap, open = !past && t->fd[fd];
+        if (open && (a3 & 4 /* CLOSE_RANGE_CLOEXEC */))
             t->cloexec[fd] = 1;
-        else
+        spin_unlock_irqrestore(&t->lock, f);
+        if (past)
+            break;
+        if (open && !(a3 & 4))
             fd_close((int)fd);
     }
     return 0;
@@ -992,12 +1010,17 @@ static int64_t dup_to(int oldfd, int newfd, bool cloexec) {
     struct file *f = fd_get(oldfd);
     if (!f)
         return -EBADF;
-    if (newfd < 0 || newfd >= MAX_FDS) {
+    struct fdtable *t = proc_current()->fds;
+    if (newfd < 0 || newfd >= (int)t->nofile) {
         file_put(f);
         return -EBADF;
     }
-    struct fdtable *t = proc_current()->fds;
     uint64_t fl = spin_lock_irqsave(&t->lock);
+    if (!fdtable_room(t, newfd, &fl)) {
+        spin_unlock_irqrestore(&t->lock, fl);
+        file_put(f);
+        return -ENOMEM;
+    }
     struct file *old = t->fd[newfd];
     t->fd[newfd] = f;
     t->cloexec[newfd] = cloexec;
@@ -1048,17 +1071,27 @@ SYSCALL(fcntl) {
     switch (a2) {
     case F_DUPFD:
     case F_DUPFD_CLOEXEC:
+        if (a3 >= t->nofile) { /* (as Linux: past RLIMIT_NOFILE) */
+            r = -EINVAL;
+            break;
+        }
         file_ref(f);
         r = fd_install(f, (int)a3, a2 == F_DUPFD_CLOEXEC);
         if (r < 0)
             file_put(f);
         break;
     case F_GETFD:
-        r = t->cloexec[fd] ? FD_CLOEXEC : 0;
+    case F_SETFD: {
+        uint64_t fl = spin_lock_irqsave(&t->lock);
+        if (fd >= t->cap)
+            r = -EBADF; /* (closed meanwhile) */
+        else if (a2 == F_GETFD)
+            r = t->cloexec[fd] ? FD_CLOEXEC : 0;
+        else
+            t->cloexec[fd] = (a3 & FD_CLOEXEC) != 0;
+        spin_unlock_irqrestore(&t->lock, fl);
         break;
-    case F_SETFD:
-        t->cloexec[fd] = (a3 & FD_CLOEXEC) != 0;
-        break;
+    }
     case F_GETFL:
         r = f->flags;
         break;
@@ -1217,7 +1250,7 @@ static int64_t poll_kernel(struct linux_pollfd *fds, uint64_t n, int64_t timeout
 }
 
 static int64_t do_poll(uint64_t ufds, uint64_t n, int64_t timeout_ms) {
-    if (n > MAX_FDS)
+    if (n > proc_current()->fds->nofile) /* (as Linux: more than RLIMIT_NOFILE) */
         return -EINVAL;
     struct linux_pollfd *fds = kmalloc(n ? n * sizeof *fds : 1);
     if (!fds)
@@ -1271,11 +1304,8 @@ static int64_t do_select(int64_t nfds, uint64_t ur, uint64_t uw, uint64_t ue, in
     static const int16_t want[3] = {POLLIN, POLLOUT, POLLPRI};
     uint64_t n = 0;
     for (int fd = 0; fd < nfds; fd++)
-        if ((sets[0][fd / 64] | sets[1][fd / 64] | sets[2][fd / 64]) & (1ULL << (fd % 64))) {
-            if (fd >= MAX_FDS)
-                return -EBADF;
+        if ((sets[0][fd / 64] | sets[1][fd / 64] | sets[2][fd / 64]) & (1ULL << (fd % 64)))
             n++;
-        }
     struct linux_pollfd *fds = kmalloc(n ? n * sizeof *fds : 1);
     if (!fds)
         return -ENOMEM;

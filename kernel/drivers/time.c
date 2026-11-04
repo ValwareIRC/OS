@@ -12,17 +12,29 @@ static uint64_t tsc_hz, tsc_boot;
 static int64_t boot_epoch;
 static int64_t real_base_ns; /* the wall clock = this + the monotonic clock */
 
-/* Measures the TSC over 50 ms of the (already calibrated) APIC tick. */
+/* The counter's rate as the architecture measured it (x86: against the PIT, in apic.c), or 0: then measured here
+ * over 50 ms of the (already calibrated) timer tick. */
+__attribute__((weak)) uint64_t arch_counter_hz(void);
+__attribute__((weak)) uint64_t arch_counter_hz(void) { return 0; }
+
 void time_init(void) {
     boot_epoch = platform_rtc_read();
-    uint64_t start_tick = global_ticks;
-    while (global_ticks == start_tick)
-        cpu_idle_wait();
-    uint64_t t0 = arch_counter(), tick0 = global_ticks;
-    while (global_ticks < tick0 + HZ / 20)
-        cpu_idle_wait();
-    uint64_t t1 = arch_counter();
-    tsc_hz = (t1 - t0) * 20;
+    uint64_t hz = arch_counter_hz(), t0, tick0;
+    if (hz) {
+        uint64_t f = irq_save(); /* (the tick and the counter read together) */
+        t0 = arch_counter(), tick0 = global_ticks;
+        irq_restore(f);
+        tsc_hz = hz;
+    } else {
+        uint64_t start_tick = global_ticks;
+        while (global_ticks == start_tick)
+            cpu_idle_wait();
+        t0 = arch_counter(), tick0 = global_ticks;
+        while (global_ticks < tick0 + HZ / 20)
+            cpu_idle_wait();
+        uint64_t t1 = arch_counter();
+        tsc_hz = (t1 - t0) * 20;
+    }
     tsc_boot = t0 - (tick0 * tsc_hz / HZ);
     __atomic_store_n(&real_base_ns, boot_epoch * 1000000000LL, __ATOMIC_RELAXED);
     kprintf("time: counter %lu MHz, wall clock %ld\n", tsc_hz / 1000000, boot_epoch);

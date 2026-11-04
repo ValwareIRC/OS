@@ -162,14 +162,24 @@ int futex_cmpxchg_user(uint64_t uaddr, uint32_t expected, uint32_t desired, uint
  * resume; 0 otherwise. */
 uint64_t exception_fixup(uint64_t rip);
 
-#define MAX_FDS 256
+/* A process's descriptors: a table that doubles as it fills, up to its RLIMIT_NOFILE. As on Linux it starts at
+ * 1024 (select() can't see past that) and a program may raise it to the hard limit (Firefox and Chromium do: 256,
+ * this system's old fixed size, ran Firefox out of descriptors). */
+#define FD_SOFT_LIMIT 1024
+#define FD_HARD_LIMIT 65536
 
 struct fdtable {
-    struct file *fd[MAX_FDS];
-    uint8_t cloexec[MAX_FDS];
+    struct file **fd; /* cap slots of each, under lock (grown by fdtable_room) */
+    uint8_t *cloexec;
+    int cap;
+    uint32_t nofile, nofile_max; /* RLIMIT_NOFILE: copied with the table, as fork and unshare copy limits */
+    bool ran_out;                /* (said so in the log once) */
     int refcount;
     spinlock_t lock;
 };
+/* Room in `t` for descriptor `fd`, with t->lock held as `*flags`: let go of while the bigger table is found, and
+ * taken again (so look again after). False when there is no memory for it. */
+bool fdtable_room(struct fdtable *t, int fd, uint64_t *flags);
 
 enum proc_state { PROC_ALIVE, PROC_ZOMBIE };
 

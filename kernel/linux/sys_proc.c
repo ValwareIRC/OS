@@ -821,16 +821,34 @@ SYSCALL(set_tid_address) {
     return pid_to_user(thread_current()->user->tid);
 }
 
+/* Limits: RLIMIT_NOFILE is real (the descriptor table grows to it; a program may raise it to its hard limit, and
+ * only root past that, as far as FD_HARD_LIMIT: Linux's nr_open). Others: reported as none (the stack as its size),
+ * and changes to them accepted. Another process's: the defaults, and changes to them accepted (not yet its own). */
 SYSCALL(prlimit64) {
     UNUSED_ARGS();
-    if (a4) {
-        struct linux_rlimit lim = {UINT64_MAX, UINT64_MAX};
-        if (a2 == 3) /* RLIMIT_STACK */
-            lim.rlim_cur = USER_STACK_SIZE;
-        else if (a2 == 7) /* RLIMIT_NOFILE */
-            lim.rlim_cur = lim.rlim_max = MAX_FDS;
-        return copy_to_user(a4, &lim, sizeof lim);
+    struct process *p = proc_current();
+    struct fdtable *t = !a1 || (int)a1 == pid_to_user(p->pid) ? p->fds : NULL;
+    if (a2 >= 16)
+        return -EINVAL;
+    struct linux_rlimit lim = {UINT64_MAX, UINT64_MAX};
+    if (a2 == 3) /* RLIMIT_STACK */
+        lim.rlim_cur = USER_STACK_SIZE;
+    else if (a2 == 7) /* RLIMIT_NOFILE */
+        lim.rlim_cur = t ? t->nofile : FD_SOFT_LIMIT, lim.rlim_max = t ? t->nofile_max : FD_HARD_LIMIT;
+    if (a3 && a2 == 7 && t) {
+        struct linux_rlimit want;
+        if (copy_from_user(&want, a3, sizeof want) < 0)
+            return -EFAULT;
+        if (want.rlim_cur > want.rlim_max)
+            return -EINVAL;
+        if (want.rlim_max > FD_HARD_LIMIT || (want.rlim_max > t->nofile_max && p->euid != 0))
+            return -EPERM;
+        uint64_t f = spin_lock_irqsave(&t->lock);
+        t->nofile = (uint32_t)want.rlim_cur, t->nofile_max = (uint32_t)want.rlim_max;
+        spin_unlock_irqrestore(&t->lock, f);
     }
+    if (a4)
+        return copy_to_user(a4, &lim, sizeof lim);
     return 0;
 }
 
@@ -841,7 +859,7 @@ SYSCALL(getrlimit) {
 
 SYSCALL(setrlimit) {
     UNUSED_ARGS();
-    return 0;
+    return sys_prlimit64(0, a1, a2, 0, 0, 0, frame);
 }
 
 /* getrusage: the time it (RUSAGE_SELF), its waited-for children (RUSAGE_CHILDREN) or this thread (RUSAGE_THREAD)

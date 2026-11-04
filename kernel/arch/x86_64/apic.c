@@ -181,25 +181,68 @@ static void parse_madt(void) {
     }
 }
 
-/* Count APIC timer ticks across 10 ms of PIT channel 2. */
-static uint32_t calibrate_timer(void) {
-    const uint16_t pit_10ms = 11932; /* 1.193182 MHz / 100 */
-    outb(0x61, (inb(0x61) & ~0x02) | 0x01); /* gate on, speaker off */
-    outb(0x43, 0xb0);                         /* channel 2, lo/hi, mode 0 */
-    outb(0x42, pit_10ms & 0xff);
-    outb(0x42, pit_10ms >> 8);
-    uint8_t g = inb(0x61);
-    outb(0x61, g & ~1); /* restart the count with a rising gate edge */
-    outb(0x61, g | 1);
+static uint64_t tsc_hz_measured;
+static uint32_t tsc_tries, tsc_unc_ppm;
 
-    lapic_write(LAPIC_TMR_DIV, 0x3); /* divide by 16 */
-    lapic_write(LAPIC_TMR_INIT, 0xffffffff);
-    while (!(inb(0x61) & 0x20))
-        ;
-    uint32_t elapsed = 0xffffffff - lapic_read(LAPIC_TMR_CUR);
-    lapic_write(LAPIC_TMR_INIT, 0);
-    return elapsed;
+/* The counter's (TSC's) rate, against 50 ms of PIT channel 2. In a virtual machine every port access is a trip
+ * to the emulator, and one can stall for milliseconds while it is busy (opening its window, say): measured as one
+ * window of 10 ms that a stall stretched, a VM's clocks once ran 2.15 times too slow for good (a second lasted
+ * two, the disk was written every 11 s, Firefox's start took 14 minutes). So both ends are pinned between two
+ * counter readings, and a measurement that isn't sure to 0.1% is taken again (the surest of ten, at worst). */
+static uint64_t calibrate_tsc(void) {
+    const uint32_t pit_hz = 1193182, count = pit_hz / 20; /* 50 ms (59659: fits the 16-bit counter) */
+    uint64_t best_hz = 0, best_ppm = UINT64_MAX;
+    for (uint32_t attempt = 1; attempt <= 10; attempt++) {
+        outb(0x61, (inb(0x61) & ~0x02) | 0x01); /* gate on, speaker off */
+        outb(0x43, 0xb0);                         /* channel 2, lo/hi, mode 0: OUT goes high at 0 */
+        outb(0x42, count & 0xff);
+        uint64_t s0 = arch_counter();
+        outb(0x42, count >> 8); /* it counts from this write */
+        uint64_t s1 = arch_counter();
+        uint64_t before = s1, e0, e1; /* `before`: when the last reading that said "not yet" began */
+        bool ended = false;
+        for (;;) {
+            e0 = arch_counter();
+            ended = inb(0x61) & 0x20;
+            e1 = arch_counter();
+            if (ended || e1 - s1 > (1ULL << 35)) /* (no PIT answering: given up after some seconds) */
+                break;
+            before = e0;
+        }
+        if (!ended)
+            break;
+        /* it began in [s0, s1] and ended in [before, e1] */
+        uint64_t span = (before + e1) / 2 - (s0 + s1) / 2, unc = (s1 - s0) + (e1 - before);
+        uint64_t ppm = span ? unc * 1000000 / span : UINT64_MAX;
+        if (ppm < best_ppm) {
+            best_ppm = ppm, best_hz = span * 20;
+            tsc_tries = attempt, tsc_unc_ppm = (uint32_t)(ppm < 1000000 ? ppm : 999999);
+        }
+        if (ppm <= 1000)
+            break;
+    }
+    return best_hz;
 }
+
+/* The APIC timer's ticks in 10 ms, against the counter (read inside the processor: no trip to the emulator). */
+static uint32_t calibrate_timer(uint64_t tsc_hz) {
+    lapic_write(LAPIC_TMR_DIV, 0x3); /* divide by 16 */
+    uint64_t t0 = arch_counter();
+    lapic_write(LAPIC_TMR_INIT, 0xffffffff);
+    uint64_t t1 = arch_counter();
+    while (arch_counter() - t1 < tsc_hz / 100)
+        cpu_relax();
+    uint64_t t2 = arch_counter();
+    uint32_t elapsed = 0xffffffff - lapic_read(LAPIC_TMR_CUR);
+    uint64_t t3 = arch_counter();
+    lapic_write(LAPIC_TMR_INIT, 0);
+    uint64_t span = (t2 + t3) / 2 - (t0 + t1) / 2;
+    return span ? (uint32_t)((uint64_t)elapsed * (tsc_hz / 100) / span) : elapsed;
+}
+
+/* The counter's rate as measured at boot (time.c runs the clock on it). */
+uint64_t arch_counter_hz(void);
+uint64_t arch_counter_hz(void) { return tsc_hz_measured; }
 
 static void enable_lapic_mode(void) {
     uint64_t base = rdmsr(MSR_APIC_BASE) | APIC_BASE_ENABLE;
@@ -216,10 +259,25 @@ void apic_init(void) {
     pic_disable();
     parse_madt();
     lapic_write(LAPIC_SVR, 0x100 | VEC_SPURIOUS);
-    uint32_t per_10ms = calibrate_timer();
+    tsc_hz_measured = calibrate_tsc();
+    if (tsc_hz_measured < 100000000ULL || tsc_hz_measured > 20000000000ULL)
+        tsc_hz_measured = 0; /* (no sensible answer: time.c measures it against the timer's ticks instead) */
+    uint32_t per_10ms = tsc_hz_measured ? calibrate_timer(tsc_hz_measured) : 0;
+    if (!per_10ms) { /* the old way: the APIC timer across one 10 ms of the PIT */
+        lapic_write(LAPIC_TMR_DIV, 0x3);
+        outb(0x43, 0xb0);
+        outb(0x42, 11932 & 0xff);
+        lapic_write(LAPIC_TMR_INIT, 0xffffffff);
+        outb(0x42, 11932 >> 8);
+        while (!(inb(0x61) & 0x20))
+            ;
+        per_10ms = 0xffffffff - lapic_read(LAPIC_TMR_CUR);
+        lapic_write(LAPIC_TMR_INIT, 0);
+    }
     ticks_per_period = per_10ms * 100 / HZ;
-    kprintf("apic: %s, %d I/O APIC(s), timer %u kHz\n", x2apic ? "x2APIC" : "xAPIC", ioapic_count,
-            per_10ms / 10 * 16);
+    kprintf("apic: %s, %d I/O APIC(s), timer %u kHz; counter %lu kHz (sure to %u ppm, try %u)\n",
+            x2apic ? "x2APIC" : "xAPIC", ioapic_count, per_10ms / 10 * 16, (unsigned long)(tsc_hz_measured / 1000),
+            tsc_unc_ppm, tsc_tries);
 }
 
 /* The timer is one-shot: each interrupt sets it again, for the next tick or a sleeper due before that, so a 1 ms

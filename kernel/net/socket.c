@@ -273,8 +273,9 @@ static int sf_poll(struct vnode *v, struct file *f, struct waitq **wq) {
     return ev;
 }
 
-static void sf_release(struct vnode *v) {
-    struct sock *s = v->data;
+/* No file refers to the socket any more (its last one closed, or it never got one): TCP closes it, and it is
+ * freed once TCP is done with it. */
+static void sock_let_go(struct sock *s) {
     uint64_t f = spin_lock_irqsave(&net_lock);
     s->file_open = false;
     if (s->type == 1) {
@@ -295,6 +296,8 @@ static void sf_release(struct vnode *v) {
     net_unlock(f);
 }
 
+static void sf_release(struct vnode *v) { sock_let_go(v->data); }
+
 /* Sockets answer the interface questions (ifconfig, the desktop's tray). */
 static int64_t sf_ioctl(struct vnode *v, struct file *f, uint64_t req, uint64_t arg) {
     (void)v, (void)f;
@@ -305,10 +308,15 @@ static const struct vnode_ops sock_ops = {
     .read = sf_read, .write = sf_write, .poll = sf_poll, .release = sf_release, .ioctl = sf_ioctl,
 };
 
+/* Gives socket `s` a file and a descriptor. On failure the socket is let go of, here or by its file's release
+ * (the caller must not touch it again: freeing it after a full descriptor table freed it twice, a kernel panic
+ * when Firefox ran out of descriptors). */
 static int sock_file(struct sock *s, uint32_t flags, bool cloexec) {
     struct vnode *v = vnode_alloc(VN_SOCK, 0777, &sock_ops);
-    if (!v)
+    if (!v) {
+        sock_let_go(s);
         return -ENOMEM;
+    }
     v->data = s;
     s->file_open = true;
     struct file *f = file_from_vnode(v, O_RDWR | (flags & O_NONBLOCK));
@@ -487,14 +495,7 @@ SYSCALL(socket) {
     net_unlock(f);
     if (!s)
         return -ENOMEM;
-    int fd = sock_file(s, (a2 & SOCK_NONBLOCK) ? O_NONBLOCK : 0, a2 & SOCK_CLOEXEC);
-    if (fd < 0) {
-        f = spin_lock_irqsave(&net_lock);
-        s->file_open = false;
-        sock_free_if_done(s);
-        net_unlock(f);
-    }
-    return fd;
+    return sock_file(s, (a2 & SOCK_NONBLOCK) ? O_NONBLOCK : 0, a2 & SOCK_CLOEXEC);
 }
 
 SYSCALL(connect) {

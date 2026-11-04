@@ -730,7 +730,7 @@ static int show_status(struct snode *n, struct sbuf *b) {
     sb_printf(b, "Name:\t%s\nUmask:\t%s\nState:\t%s\nTgid:\t%d\nNgid:\t0\nPid:\t%d\nPPid:\t%d\nTracerPid:\t0\n",
               s.comm, umask, state_name(s.state), s.pid, s.tid, s.ppid);
     sb_printf(b, "Uid:\t%u\t%u\t%u\t%u\nGid:\t%u\t%u\t%u\t%u\nFDSize:\t%d\nGroups:\t\n", s.uid, s.euid, s.euid,
-              s.euid, s.gid, s.egid, s.egid, s.egid, MAX_FDS);
+              s.euid, s.gid, s.egid, s.egid, s.egid, s.fds ? s.fds->cap : 0);
     int chain[PIDNS_MAX];
     int nc = pid_ns_chain(s.gpid, proc_current()->ns.pid, chain, PIDNS_MAX);
     sb_printf(b, "NStgid:");
@@ -899,9 +899,9 @@ static struct file *fd_file(struct snode *n, int fd) {
     if (snap(n, W_FDS, &s) < 0)
         return NULL;
     struct file *f = NULL;
-    if (s.fds && fd >= 0 && fd < MAX_FDS) {
+    if (s.fds && fd >= 0) {
         uint64_t fl = spin_lock_irqsave(&s.fds->lock);
-        f = s.fds->fd[fd];
+        f = fd < s.fds->cap ? s.fds->fd[fd] : NULL;
         if (f)
             file_ref(f);
         spin_unlock_irqrestore(&s.fds->lock, fl);
@@ -917,7 +917,7 @@ static int fd_nth(struct snode *dir, uint64_t i, char *name, size_t size, int *i
     int found = -1;
     if (s.fds) {
         uint64_t fl = spin_lock_irqsave(&s.fds->lock);
-        for (int fd = 0; fd < MAX_FDS; fd++)
+        for (int fd = 0; fd < s.fds->cap; fd++)
             if (s.fds->fd[fd] && i-- == 0) {
                 found = fd;
                 break;
@@ -1085,10 +1085,11 @@ static void limit_row(struct sbuf *b, const char *name, uint64_t soft, uint64_t 
 /* The same values prlimit64 reports (linux/sys_proc.c). */
 static int show_limits(struct snode *n, struct sbuf *b) {
     struct psnap s;
-    int r = snap(n, 0, &s);
+    int r = snap(n, W_FDS, &s);
     if (r < 0)
         return r;
     const uint64_t U = UINT64_MAX;
+    uint64_t nofile = s.fds ? s.fds->nofile : FD_SOFT_LIMIT, nofile_max = s.fds ? s.fds->nofile_max : FD_HARD_LIMIT;
     sb_printf(b, "Limit");
     sb_pad(b, 26);
     sb_printf(b, "Soft Limit");
@@ -1105,7 +1106,7 @@ static int show_limits(struct snode *n, struct sbuf *b) {
     limit_row(b, "Max core file size", U, U, "bytes");
     limit_row(b, "Max resident set", U, U, "bytes");
     limit_row(b, "Max processes", U, U, "processes");
-    limit_row(b, "Max open files", MAX_FDS, MAX_FDS, "files");
+    limit_row(b, "Max open files", nofile, nofile_max, "files");
     limit_row(b, "Max locked memory", U, U, "bytes");
     limit_row(b, "Max address space", U, U, "bytes");
     limit_row(b, "Max file locks", U, U, "locks");
@@ -1114,6 +1115,7 @@ static int show_limits(struct snode *n, struct sbuf *b) {
     limit_row(b, "Max nice priority", U, U, "");
     limit_row(b, "Max realtime priority", U, U, "");
     limit_row(b, "Max realtime timeout", U, U, "us");
+    snap_release(&s);
     return 0;
 }
 

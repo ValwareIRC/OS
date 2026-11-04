@@ -103,13 +103,13 @@ void proc_dump_threads(void) {
             }
             const char *sc = syscall_name(ut->sc_nr);
             if ((!strcmp(sc, "epoll_wait") || !strcmp(sc, "epoll_pwait") || !strcmp(sc, "epoll_pwait2")) && p->fds &&
-                ut->sc_a1 < MAX_FDS) {
+                ut->sc_a1 < (uint64_t)p->fds->cap) {
                 void epoll_debug_dump(struct file *f);
                 epoll_debug_dump(p->fds->fd[ut->sc_a1]);
             }
             /* blocked reading: what it reads, and whether there is something there now */
             if ((!strcmp(sc, "read") || !strcmp(sc, "recvfrom") || !strcmp(sc, "recvmsg")) && p->fds &&
-                ut->sc_a1 < MAX_FDS) {
+                ut->sc_a1 < (uint64_t)p->fds->cap) {
                 struct file *fl = p->fds->fd[ut->sc_a1];
                 if (fl && fl->vnode) {
                     struct waitq *wq;
@@ -119,7 +119,7 @@ void proc_dump_threads(void) {
                     /* who else has it open, and which way */
                     for (struct process *q = all_procs; q; q = q->next_all)
                         if (q->fds)
-                            for (int k = 0; k < MAX_FDS; k++) {
+                            for (int k = 0; k < q->fds->cap; k++) {
                                 struct file *o = q->fds->fd[k];
                                 if (o && o->vnode == fl->vnode)
                                     kprintf("      held by %d fd %d %s%s\n", q->pid, k,
@@ -272,29 +272,78 @@ static struct user_thread *thread_find_locked(int tid) {
 
 /* ---- file descriptor tables ---- */
 
-struct fdtable *fdtable_create(void);
-struct fdtable *fdtable_create(void) {
+static struct fdtable *fdtable_alloc(int cap) {
     struct fdtable *t = kzalloc(sizeof *t);
-    if (t)
-        t->refcount = 1;
+    struct file **fd = t ? kzalloc(sizeof *fd * (size_t)cap) : NULL;
+    uint8_t *cloexec = fd ? kzalloc((size_t)cap) : NULL;
+    if (!cloexec) {
+        kfree(fd);
+        kfree(t);
+        return NULL;
+    }
+    t->fd = fd, t->cloexec = cloexec, t->cap = cap;
+    t->nofile = FD_SOFT_LIMIT, t->nofile_max = FD_HARD_LIMIT;
+    t->refcount = 1;
     return t;
+}
+
+struct fdtable *fdtable_create(void);
+struct fdtable *fdtable_create(void) { return fdtable_alloc(64); }
+
+bool fdtable_room(struct fdtable *t, int fd, uint64_t *flags) {
+    while (fd >= t->cap) {
+        int want = t->cap ? t->cap * 2 : 64;
+        while (want <= fd)
+            want *= 2;
+        spin_unlock_irqrestore(&t->lock, *flags);
+        struct file **nfd = kzalloc(sizeof *nfd * (size_t)want);
+        uint8_t *ncl = nfd ? kzalloc((size_t)want) : NULL;
+        *flags = spin_lock_irqsave(&t->lock);
+        if (!ncl) {
+            kfree(nfd);
+            return false;
+        }
+        if (want > t->cap) { /* (unless another thread grew it meanwhile: then these go back) */
+            if (want >= 512) /* (past the old fixed 256: worth knowing who) */
+                kprintf("fd: %s (pid %d) has %d descriptors: room for %d now\n", proc_current()->name,
+                        pid_to_user(proc_current()->pid), t->cap, want);
+            memcpy(nfd, t->fd, sizeof *nfd * (size_t)t->cap);
+            memcpy(ncl, t->cloexec, (size_t)t->cap);
+            struct file **ofd = t->fd;
+            uint8_t *ocl = t->cloexec;
+            t->fd = nfd, t->cloexec = ncl, t->cap = want;
+            nfd = ofd, ncl = ocl;
+        }
+        kfree(nfd);
+        kfree(ncl);
+    }
+    return true;
 }
 
 struct fdtable *fdtable_dup(struct fdtable *src);
 struct fdtable *fdtable_dup(struct fdtable *src) {
-    struct fdtable *t = fdtable_create();
-    if (!t)
-        return NULL;
-    uint64_t f = spin_lock_irqsave(&src->lock);
-    for (int i = 0; i < MAX_FDS; i++) {
-        if (src->fd[i]) {
-            file_ref(src->fd[i]);
-            t->fd[i] = src->fd[i];
-            t->cloexec[i] = src->cloexec[i];
+    for (;;) {
+        int cap = __atomic_load_n(&src->cap, __ATOMIC_RELAXED);
+        struct fdtable *t = fdtable_alloc(cap);
+        if (!t)
+            return NULL;
+        uint64_t f = spin_lock_irqsave(&src->lock);
+        if (src->cap != cap) { /* it grew while this one was made: again, at its new size */
+            spin_unlock_irqrestore(&src->lock, f);
+            kfree(t->fd), kfree(t->cloexec), kfree(t);
+            continue;
         }
+        for (int i = 0; i < cap; i++) {
+            if (src->fd[i]) {
+                file_ref(src->fd[i]);
+                t->fd[i] = src->fd[i];
+                t->cloexec[i] = src->cloexec[i];
+            }
+        }
+        t->nofile = src->nofile, t->nofile_max = src->nofile_max;
+        spin_unlock_irqrestore(&src->lock, f);
+        return t;
     }
-    spin_unlock_irqrestore(&src->lock, f);
-    return t;
 }
 
 void fdtable_put(struct fdtable *t);
@@ -302,9 +351,11 @@ bool syscall_traced(const char *name);
 void fdtable_put(struct fdtable *t) {
     if (__atomic_sub_fetch(&t->refcount, 1, __ATOMIC_ACQ_REL) != 0)
         return;
-    for (int i = 0; i < MAX_FDS; i++)
+    for (int i = 0; i < t->cap; i++)
         if (t->fd[i])
             file_put(t->fd[i]);
+    kfree(t->fd);
+    kfree(t->cloexec);
     kfree(t);
 }
 
