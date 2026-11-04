@@ -1587,6 +1587,32 @@ static int64_t store_max_userns(struct snode *n, const char *buf, size_t len) {
     return r < 0 ? r : (int64_t)len;
 }
 
+extern int lo_chaos;
+static int show_lo_chaos(struct snode *n, struct sbuf *b) {
+    (void)n;
+    sb_printf(b, "%d\n", lo_chaos);
+    return 0;
+}
+static int64_t store_lo_chaos(struct snode *n, const char *buf, size_t len) {
+    (void)n;
+    int v = 0;
+    size_t i = 0;
+    for (; i < len && buf[i] >= '0' && buf[i] <= '9'; i++)
+        v = v * 10 + (buf[i] - '0');
+    if (i == 0)
+        return -EINVAL;
+    lo_chaos = v;
+    return (int64_t)len;
+}
+static const struct sent sys_net_ipv4[] = {
+    {.name = "os_loopback_chaos", .type = VN_REG, .mode = 0600, .show = show_lo_chaos, .store = store_lo_chaos},
+    {0},
+};
+static const struct sent sys_net[] = {
+    {.name = "ipv4", .type = VN_DIR, .mode = 0555, .children = sys_net_ipv4},
+    {0},
+};
+
 static const struct sent sys_user[] = {
     CONST("max_cgroup_namespaces", ns_max),
     CONST("max_ipc_namespaces", ns_max),
@@ -1623,6 +1649,7 @@ static const struct sent sys_fs[] = {
 static const struct sent sys_dir[] = {
     {.name = "fs", .type = VN_DIR, .mode = 0555, .children = sys_fs},
     {.name = "kernel", .type = VN_DIR, .mode = 0555, .children = sys_kernel},
+    {.name = "net", .type = VN_DIR, .mode = 0555, .children = sys_net},
     {.name = "user", .type = VN_DIR, .mode = 0555, .children = sys_user},
     {.name = "vm", .type = VN_DIR, .mode = 0555, .children = sys_vm},
     {0},

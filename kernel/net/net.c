@@ -129,6 +129,9 @@ struct lo_pkt {
 };
 
 #define LO_QUEUE_MAX 4096 /* packets; only a runaway sender gets near it */
+int lo_chaos; /* (the fault injector for tests: see lo_send) */
+static unsigned lo_chaos_n;
+static struct lo_pkt *lo_held;
 static struct lo_pkt *lo_head, **lo_tail = &lo_head;
 static int lo_queued;
 
@@ -157,6 +160,12 @@ uint32_t ip_source_for(uint32_t dst) {
 size_t ip_mtu_for(uint32_t dst) { return ip_is_local(dst) ? LO_MTU : ETH_MTU; }
 
 static void lo_drain(void) {
+    if (lo_held && !lo_head) { /* nothing came after the late one: it goes now */
+        lo_head = lo_held;
+        lo_tail = &lo_held->next;
+        lo_held = NULL;
+        lo_queued++;
+    }
     while (lo_head) {
         struct lo_pkt *p = lo_head;
         lo_head = p->next;
@@ -252,6 +261,9 @@ static void ip_header(struct ip_hdr *ip, uint32_t src, uint32_t dst, uint8_t pro
 }
 
 /* Queues a packet for local delivery (see lo_drain). */
+/* For tests (/proc/sys/net/ipv4/os_loopback_chaos = N, root only): over loopback, every Nth TCP segment carrying
+ * data is lost and another held back behind the next one, so the stack's loss and reordering handling (resends,
+ * segments kept ahead of a gap, SACK) is exercised where nothing else would lose a packet. 0: off. */
 static int lo_send(uint32_t src, uint32_t dst, uint8_t proto, const void *payload, size_t len) {
     if (len + sizeof(struct ip_hdr) > LO_MTU || lo_queued >= LO_QUEUE_MAX)
         return -1;
@@ -262,9 +274,28 @@ static int lo_send(uint32_t src, uint32_t dst, uint8_t proto, const void *payloa
     memcpy(p->data + sizeof(struct ip_hdr), payload, len);
     p->len = sizeof(struct ip_hdr) + len;
     p->next = NULL;
+    const uint8_t *tp = payload;
+    if (lo_chaos >= 4 && proto == PROTO_TCP && len >= 20 && len > (size_t)(tp[12] >> 4) * 4) {
+        unsigned n = ++lo_chaos_n % (unsigned)lo_chaos;
+        if (n == 0) { /* lost */
+            kfree(p);
+            return 0;
+        }
+        if (n == (unsigned)lo_chaos / 2 && !lo_held) { /* late: after the next one */
+            lo_held = p;
+            return 0;
+        }
+    }
     *lo_tail = p;
     lo_tail = &p->next;
     lo_queued++;
+    if (lo_held && lo_held != p) {
+        struct lo_pkt *h = lo_held;
+        lo_held = NULL;
+        *lo_tail = h;
+        lo_tail = &h->next;
+        lo_queued++;
+    }
     lo_if.tx_packets++;
     return 0;
 }

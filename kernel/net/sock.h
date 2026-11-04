@@ -4,8 +4,13 @@
 
 /* Internal socket state shared by socket.c, udp.c and tcp.c. */
 
-#define SOCK_RX_SIZE (128 * 1024) /* a power of two: the receive ring wraps with % */
-#define SOCK_TX_SIZE (128 * 1024) /* a power of two too */
+/* A stream's receive ring starts at SOCK_RX_SIZE and doubles while data streams in, up to SOCK_RX_MAX (so a
+ * download from far away keeps a whole round trip's worth in flight, and a quiet connection holds 128 KiB, not
+ * megabytes). Powers of two: the rings wrap with %. */
+#define SOCK_RX_SIZE (128 * 1024)
+#define SOCK_RX_MAX (4 * 1024 * 1024)
+#define SOCK_TX_SIZE (256 * 1024)
+#define TCP_RCV_WSCALE 6 /* our window's scale: 65535 << 6 covers SOCK_RX_MAX */
 #define UDP_QUEUE 64
 #define SOCK_BACKLOG 64 /* connections waiting for accept(), half-open ones included */
 
@@ -36,7 +41,11 @@ struct sock {
     /* stream receive ring (in-order bytes) */
     uint8_t *rx;
     uint64_t rx_head, rx_tail; /* written / read, ever */
+    uint32_t rx_size;          /* its size now (SOCK_RX_SIZE..SOCK_RX_MAX) */
+    uint64_t grow_bytes, grow_ms; /* taken in since it last grew, and when that was */
     bool rx_eof;
+    struct tcp_ooo *ooo;       /* segments that came ahead of a gap, by sequence: kept until it fills */
+    uint32_t ooo_bytes;
 
     /* udp */
     struct dgram q[UDP_QUEUE];
@@ -46,6 +55,8 @@ struct sock {
     enum tcp_state state;
     uint32_t iss, snd_una, snd_nxt, snd_wnd, rcv_nxt;
     uint16_t mss;
+    uint8_t snd_wscale, rcv_wscale; /* window scaling (RFC 7323): the peer's, ours; 0 when not agreed */
+    bool sack_ok;                    /* the peer understands SACK: our ACKs say what came ahead of a gap */
     uint8_t *tx;               /* ring of the bytes from snd_una onward... */
     uint64_t tx_off;           /* ...which start here (ACKs advance it, nothing moves) */
     uint64_t tx_len;           /* bytes buffered (unacked + unsent) */

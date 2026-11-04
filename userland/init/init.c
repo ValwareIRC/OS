@@ -296,6 +296,60 @@ static void lo_throughput_test(void) {
     printf("utest: lo: 4 MiB one way in %ld ms (%ld MiB/s)\n", ms, ms > 0 ? 4000L / ms : 0L);
 }
 
+/* 4 MiB over loopback with every 7th data segment lost and another arriving late (the kernel's fault injector):
+ * every byte must arrive in order (segments ahead of a gap kept, SACK, resends), soon, and the receiver's buffer
+ * must have grown past its first 128 KiB (window scaling agreed, the ring doubling while data streams). */
+static void lo_chaos_test(void) {
+    int cf = open("/proc/sys/net/ipv4/os_loopback_chaos", O_WRONLY);
+    CHECK(cf >= 0 && write(cf, "7", 1) == 1, "lo: loss and reordering switched on (tests)");
+    if (cf >= 0)
+        close(cf);
+    uint16_t port = 0;
+    int ls = lo_server(INADDR_LOOPBACK, &port);
+    pid_t pid = ls >= 0 ? fork() : -1;
+    if (pid == 0) {
+        int c = accept(ls, NULL, NULL);
+        static uint8_t buf[65536];
+        size_t total = 0;
+        ssize_t n;
+        uint32_t h = 2166136261u, rcvbuf = 0;
+        socklen_t sl = sizeof rcvbuf;
+        while (c >= 0 && total < LO_ECHO_BYTES && (n = read(c, buf, sizeof buf)) > 0) {
+            for (ssize_t i = 0; i < n; i++)
+                h = (h ^ buf[i]) * 16777619u;
+            total += (size_t)n;
+        }
+        uint32_t want = 2166136261u;
+        for (size_t i = 0; i < LO_ECHO_BYTES; i++)
+            want = (want ^ lo_data[i]) * 16777619u;
+        getsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &sl);
+        char r = total != LO_ECHO_BYTES ? 'n' : h != want ? 'x' : rcvbuf <= 128 * 1024 ? 's' : 'k';
+        _exit(write(c, &r, 1) == 1 ? 0 : 1);
+    }
+    if (ls >= 0)
+        close(ls);
+    int c = pid > 0 ? lo_connect(INADDR_LOOPBACK, port) : -1;
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    char k = 0;
+    bool sent = c >= 0 && write_all(c, lo_data, LO_ECHO_BYTES) && read(c, &k, 1) == 1;
+    long ms = ms_since(&t0);
+    if (c >= 0)
+        close(c);
+    if (pid > 0)
+        waitpid(pid, NULL, 0);
+    cf = open("/proc/sys/net/ipv4/os_loopback_chaos", O_WRONLY);
+    if (cf >= 0) {
+        if (write(cf, "0", 1) != 1)
+            printf("utest: lo: couldn't switch the chaos off\n");
+        close(cf);
+    }
+    CHECK(sent && k != 'n' && k != 'x', "lo: 4 MiB through loss and reordering, every byte in order");
+    CHECK(sent && k == 'k', "lo: the receive buffer grew (window scaling agreed)");
+    CHECK(sent && ms < 15000, "lo: and soon (no stalls on the lost ones)");
+    printf("utest: lo: 4 MiB with every 7th segment lost in %ld ms (receiver said %c)\n", ms, k ? k : '-');
+}
+
 static void lo_echo_test(void) {
     uint16_t port = 0;
     int ls = lo_server(INADDR_LOOPBACK, &port);
@@ -593,6 +647,7 @@ static void lo_tests(void) {
     }
     fill_pattern(lo_data, LO_ECHO_BYTES, 0, 0x10);
     lo_throughput_test();
+    lo_chaos_test();
     lo_echo_test();
     lo_concurrent_test();
     lo_refused_test();

@@ -20,6 +20,7 @@ struct sock *sock_alloc(int type) {
     waitq_init(&s->wq);
     if (type == 1) {
         s->rx = kmalloc(SOCK_RX_SIZE);
+        s->rx_size = SOCK_RX_SIZE;
         s->tx = kmalloc(SOCK_TX_SIZE);
         if (!s->rx || !s->tx) {
             kfree(s->rx);
@@ -45,6 +46,8 @@ void sock_free_if_done(struct sock *s) {
         }
     for (int i = 0; i < s->q_count; i++)
         kfree(s->q[(s->q_head + i) % UDP_QUEUE].data);
+    void tcp_drop_ooo(struct sock *s);
+    tcp_drop_ooo(s);
     kfree(s->rx);
     kfree(s->tx);
     kfree(s);
@@ -93,7 +96,7 @@ struct sock *sock_find(int type, uint32_t lip, uint16_t lport, uint32_t rip, uin
 
 /* True when the advertised receive window has (nearly) closed, so reading
  * must tell the peer it may send again. */
-static bool rx_window_closed(struct sock *s) { return SOCK_RX_SIZE - (s->rx_head - s->rx_tail) < 4096; }
+static bool rx_window_closed(struct sock *s) { return s->rx_size - (s->rx_head - s->rx_tail) < s->rx_size / 4; }
 
 /* ---- file operations ---- */
 
@@ -140,8 +143,8 @@ static int64_t sock_recv(struct sock *s, void *buf, size_t len, bool nonblock, u
             uint64_t avail = s->rx_head - s->rx_tail;
             if (avail) {
                 size_t n = avail < len ? avail : len;
-                size_t at = s->rx_tail % SOCK_RX_SIZE;
-                size_t first = n < SOCK_RX_SIZE - at ? n : SOCK_RX_SIZE - at;
+                size_t at = s->rx_tail % s->rx_size;
+                size_t first = n < s->rx_size - at ? n : s->rx_size - at;
                 memcpy(buf, s->rx + at, first);
                 memcpy((uint8_t *)buf + first, s->rx, n - first);
                 bool was_full = rx_window_closed(s);
@@ -917,7 +920,7 @@ SYSCALL(getsockopt) {
         case SO_REUSEADDR: value = s->reuseaddr; break;
         case SO_KEEPALIVE: value = s->keepalive; break;
         case SO_SNDBUF: value = SOCK_TX_SIZE; break;
-        case SO_RCVBUF: value = SOCK_RX_SIZE; break;
+        case SO_RCVBUF: value = s->type == 1 && s->rx_size ? (int)s->rx_size : SOCK_RX_SIZE; break;
         case SO_ACCEPTCONN: value = s->type == 1 && s->state == TCP_LISTEN; break;
         case SO_DOMAIN: value = AF_INET; break;
         case SO_PROTOCOL: value = s->type == 1 ? 6 : 17; break;

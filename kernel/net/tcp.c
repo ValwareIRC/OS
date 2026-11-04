@@ -2,12 +2,14 @@
 #include <kernel/mm.h>
 #include "sock.h"
 
-/* TCP (RFC 793/9293), sized for a client that talks HTTPS to cloud APIs and
- * for local services over loopback: in-order receive (out-of-order segments
- * are dropped and re-ACKed), go-back-N retransmission with exponential
- * backoff and a fast retransmit after three duplicate ACKs, zero-window
- * probing, MSS option, no window scaling (64 KiB windows), no SACK. Passive
- * open (listen/accept) is supported for local services. */
+/* TCP (RFC 793/9293) for a desktop: downloads from far away and local services
+ * over loopback. Window scaling (RFC 7323) with a receive buffer that grows
+ * while data streams in (to 4 MiB: a round trip's worth from across the world),
+ * segments that arrive ahead of a gap kept and merged when it fills, SACK
+ * (RFC 2018) blocks in our ACKs so the sender resends only what was lost, one
+ * ACK per batch of received data; go-back-N retransmission from the first hole
+ * with exponential backoff and a fast retransmit after three duplicate ACKs,
+ * zero-window probing, MSS. Passive open (listen/accept) for local services. */
 
 #define FIN 0x01
 #define SYN 0x02
@@ -47,13 +49,78 @@ static uint64_t now_ms(void) { return time_monotonic_ns() / 1000000ULL; }
 
 static uint16_t route_mss(uint32_t dst) { return ip_is_local(dst) ? LO_MSS : ETH_MSS; }
 
-static uint16_t rx_window(struct sock *s) {
+/* The window to advertise, in the segment's own units (scaled unless it is a SYN, whose window never is). */
+static uint16_t rx_window(struct sock *s, bool syn) {
     uint64_t used = s->rx_head - s->rx_tail;
-    uint64_t space = SOCK_RX_SIZE - used;
+    uint64_t space = s->rx_size > used ? s->rx_size - used : 0;
+    if (!syn && s->rcv_wscale)
+        space >>= s->rcv_wscale;
     return (uint16_t)(space > 65535 ? 65535 : space);
 }
 
+/* ---- segments that came ahead of a gap ---- */
+
+struct tcp_ooo {
+    struct tcp_ooo *next;
+    uint32_t seq, len;
+    bool fin;
+    uint8_t data[];
+};
+
+#define OOO_MAX_SEGS 256
+
+void tcp_drop_ooo(struct sock *s) {
+    while (s->ooo) {
+        struct tcp_ooo *o = s->ooo;
+        s->ooo = o->next;
+        kfree(o);
+    }
+    s->ooo_bytes = 0;
+}
+
+/* Keeps [seq, seq+len) for later, in order, without bytes it already has. */
+static void ooo_insert(struct sock *s, uint32_t seq, const uint8_t *data, uint32_t len, bool fin) {
+    int n = 0;
+    for (struct tcp_ooo *o = s->ooo; o; o = o->next)
+        n++;
+    uint64_t space = s->rx_size - (s->rx_head - s->rx_tail);
+    if (n >= OOO_MAX_SEGS || s->ooo_bytes + len > space) /* (beyond what the window offered: dropped, resent later) */
+        return;
+    struct tcp_ooo **pp = &s->ooo;
+    while (*pp && seq_lt((*pp)->seq, seq))
+        pp = &(*pp)->next;
+    if (*pp && (*pp)->seq == seq && (*pp)->len >= len)
+        return; /* a copy of one it has */
+    struct tcp_ooo *o = kmalloc(sizeof *o + len);
+    if (!o)
+        return;
+    o->seq = seq, o->len = len, o->fin = fin;
+    memcpy(o->data, data, len);
+    o->next = *pp;
+    *pp = o;
+    s->ooo_bytes += len;
+}
+
+/* The SACK blocks for an ACK: up to three ranges it holds beyond the gap, merged where they touch. */
+static int sack_blocks(struct sock *s, uint32_t blocks[3][2]) {
+    int n = 0;
+    for (struct tcp_ooo *o = s->ooo; o; o = o->next) {
+        if (n && seq_le(o->seq, blocks[n - 1][1])) {
+            if (seq_lt(blocks[n - 1][1], o->seq + o->len))
+                blocks[n - 1][1] = o->seq + o->len;
+            continue;
+        }
+        if (n == 3)
+            break;
+        blocks[n][0] = o->seq, blocks[n][1] = o->seq + o->len;
+        n++;
+    }
+    return n;
+}
+
 /* Copies `len` bytes of the send ring, starting `off` bytes after snd_una. */
+void tcp_rx_append(struct sock *s, const uint8_t *data, size_t take);
+
 static void tx_copy(struct sock *s, uint64_t off, uint8_t *dst, size_t len) {
     size_t at = (s->tx_off + off) % SOCK_TX_SIZE;
     size_t first = len < SOCK_TX_SIZE - at ? len : SOCK_TX_SIZE - at;
@@ -67,8 +134,31 @@ static void send_segment(struct sock *s, uint8_t flags, uint32_t seq, uint64_t o
     /* Static, not on the stack: a loopback segment is LO_MSS bytes. net_lock
      * (held) gives it one user at a time, and ip_send never calls back into
      * TCP (loopback delivery is deferred to net_unlock). */
-    static uint8_t buf[sizeof(struct tcp_hdr) + 4 + LO_MSS];
-    size_t hlen = sizeof(struct tcp_hdr) + ((flags & SYN) ? 4 : 0);
+    static uint8_t buf[sizeof(struct tcp_hdr) + 40 + LO_MSS];
+    uint8_t *o = buf + sizeof(struct tcp_hdr);
+    size_t olen = 0;
+    if (flags & SYN) {
+        /* MSS; window scale and SACK permitted: offered in a SYN, answered in a SYN-ACK only if the SYN offered */
+        uint16_t mss = route_mss(s->rip);
+        o[0] = 2, o[1] = 4, o[2] = (uint8_t)(mss >> 8), o[3] = (uint8_t)(mss & 0xff);
+        olen = 4;
+        bool offer = !(flags & ACK);
+        if (offer || s->rcv_wscale)
+            o[olen] = 1, o[olen + 1] = 3, o[olen + 2] = 3, o[olen + 3] = offer ? TCP_RCV_WSCALE : s->rcv_wscale, olen += 4;
+        if (offer || s->sack_ok)
+            o[olen] = 1, o[olen + 1] = 1, o[olen + 2] = 4, o[olen + 3] = 2, olen += 4;
+    } else if ((flags & ACK) && s->sack_ok && s->ooo) {
+        uint32_t b[3][2];
+        int n = sack_blocks(s, b);
+        o[0] = 1, o[1] = 1, o[2] = 5, o[3] = (uint8_t)(2 + 8 * n);
+        for (int i = 0; i < n; i++) {
+            uint32_t l = htonl(b[i][0]), r = htonl(b[i][1]);
+            memcpy(o + 4 + 8 * i, &l, 4);
+            memcpy(o + 8 + 8 * i, &r, 4);
+        }
+        olen = 4 + 8 * (size_t)n;
+    }
+    size_t hlen = sizeof(struct tcp_hdr) + olen;
     if (hlen + len > sizeof buf)
         return;
     struct tcp_hdr *h = (struct tcp_hdr *)buf;
@@ -79,12 +169,7 @@ static void send_segment(struct sock *s, uint8_t flags, uint32_t seq, uint64_t o
     h->ack = (flags & ACK) ? htonl(s->rcv_nxt) : 0;
     h->off = (uint8_t)((hlen / 4) << 4);
     h->flags = flags;
-    h->wnd = htons(rx_window(s));
-    if (flags & SYN) { /* MSS option */
-        uint16_t mss = route_mss(s->rip);
-        uint8_t *o = buf + sizeof *h;
-        o[0] = 2, o[1] = 4, o[2] = (uint8_t)(mss >> 8), o[3] = (uint8_t)(mss & 0xff);
-    }
+    h->wnd = htons(rx_window(s, flags & SYN));
     if (len)
         tx_copy(s, off, buf + hlen, len);
     uint32_t src = s->lip, dst = s->rip;
@@ -223,6 +308,7 @@ int tcp_connect(struct sock *s) {
     s->rto_ms = RTO_INITIAL;
     s->retries = 0;
     s->error = 0;
+    s->snd_wscale = s->rcv_wscale = 0, s->sack_ok = false;
     s->state = TCP_SYN_SENT;
     send_segment(s, SYN, s->iss, 0, 0);
     arm_rto(s);
@@ -307,7 +393,7 @@ static bool ack_received(struct sock *s, uint32_t ack) {
 }
 
 static void accept_child(struct sock *l, uint32_t src, uint16_t sport, uint32_t dst, const struct tcp_hdr *h,
-                         uint16_t mss) {
+                         uint16_t mss, int wscale, bool sack) {
     /* Half-open connections count against the backlog too: each one becomes
      * an accept-queue entry when its handshake completes. When full, the SYN
      * is dropped and the client's retransmission tries again later. */
@@ -330,6 +416,9 @@ static void accept_child(struct sock *l, uint32_t src, uint16_t sport, uint32_t 
     c->snd_nxt = c->iss + 1;
     c->snd_wnd = ntohs(h->wnd);
     c->mss = mss;
+    if (wscale >= 0) /* both scale, or neither */
+        c->snd_wscale = (uint8_t)wscale, c->rcv_wscale = TCP_RCV_WSCALE;
+    c->sack_ok = sack;
     c->rto_ms = RTO_INITIAL;
     c->state = TCP_SYN_RCVD;
     c->listener = l;
@@ -342,6 +431,36 @@ void tcp_listener_closed(struct sock *l) {
     for (struct sock *o = all_socks; o; o = o->next)
         if (o->listener == l)
             o->listener = NULL; /* half-open ones are refused when they complete */
+}
+
+/* A bigger ring, the bytes kept in place (positions are counted from the start, wrapped by the size). */
+static void rx_grow(struct sock *s, uint32_t size) {
+    uint8_t *n = kmalloc(size);
+    if (!n)
+        return;
+    for (uint64_t i = s->rx_tail; i < s->rx_head; i++)
+        n[i % size] = s->rx[i % s->rx_size];
+    kfree(s->rx);
+    s->rx = n;
+    s->rx_size = size;
+}
+
+void tcp_rx_append(struct sock *s, const uint8_t *data, size_t take) {
+    size_t at = s->rx_head % s->rx_size;
+    size_t first = take < s->rx_size - at ? take : s->rx_size - at;
+    memcpy(s->rx + at, data, first);
+    memcpy(s->rx, data + first, take - first);
+    s->rx_head += take;
+    s->rcv_nxt += (uint32_t)take;
+    /* A whole ring's worth in under a second: data is streaming, and the window may be what holds it back. */
+    s->grow_bytes += take;
+    if (s->grow_bytes >= s->rx_size) {
+        uint64_t now = now_ms();
+        if (s->rcv_wscale && s->rx_size < SOCK_RX_MAX && now - s->grow_ms < 1000)
+            rx_grow(s, s->rx_size * 2);
+        s->grow_bytes = 0;
+        s->grow_ms = now;
+    }
 }
 
 void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg, size_t len) {
@@ -358,6 +477,8 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
     const uint8_t *data = seg + hlen;
     size_t dlen = len - hlen;
     uint16_t mss = 536;
+    int wscale = -1; /* not offered */
+    bool sack_perm = false;
     for (const uint8_t *o = seg + sizeof *h; o < seg + hlen;) {
         if (*o == 0)
             break;
@@ -365,10 +486,14 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
             o++;
             continue;
         }
-        if (o + 1 >= seg + hlen || o[1] < 2)
+        if (o + 1 >= seg + hlen || o[1] < 2 || o + o[1] > seg + hlen)
             break;
         if (o[0] == 2 && o[1] == 4)
             mss = (uint16_t)(o[2] << 8 | o[3]);
+        else if (o[0] == 3 && o[1] == 3)
+            wscale = o[2] > 14 ? 14 : o[2];
+        else if (o[0] == 4 && o[1] == 2)
+            sack_perm = true;
         o += o[1];
     }
     if (mss > route_mss(src))
@@ -388,7 +513,7 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
         if (flags & ACK) /* for a connection that no longer exists */
             send_rst(src, sport, dst, dport, ack, 0, false);
         else if (flags & SYN)
-            accept_child(s, src, sport, dst, h, mss);
+            accept_child(s, src, sport, dst, h, mss, wscale, sack_perm);
         return;
     }
 
@@ -405,8 +530,11 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
         if ((flags & (SYN | ACK)) == (SYN | ACK) && ack == s->iss + 1) {
             s->rcv_nxt = seq + 1;
             s->snd_una = ack;
-            s->snd_wnd = ntohs(h->wnd);
+            s->snd_wnd = ntohs(h->wnd); /* (a SYN's window is never scaled) */
             s->mss = mss;
+            if (wscale >= 0) /* it answered our offer: both scale */
+                s->snd_wscale = (uint8_t)wscale, s->rcv_wscale = TCP_RCV_WSCALE;
+            s->sack_ok = sack_perm;
             s->state = TCP_ESTABLISHED;
             s->rto_deadline = 0;
             s->retries = 0;
@@ -441,7 +569,7 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
 
     if (flags & ACK) {
         bool advanced = ack_received(s, ack);
-        s->snd_wnd = ntohs(h->wnd);
+        s->snd_wnd = (uint32_t)ntohs(h->wnd) << s->snd_wscale;
         if (advanced) {
             s->dupacks = 0;
         } else if (ack == s->snd_una && !dlen && !(flags & (SYN | FIN)) && s->snd_nxt != s->snd_una &&
@@ -454,19 +582,47 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
     }
 
     bool need_ack = false;
+    if ((dlen || (flags & FIN)) && seq_lt(seq, s->rcv_nxt)) { /* (partly) a copy of what it has: the rest is new */
+        uint32_t old = s->rcv_nxt - seq;
+        if (old >= dlen + ((flags & FIN) ? 1 : 0)) {
+            dlen = 0, flags &= (uint8_t)~FIN;
+            need_ack = true; /* all of it: a resend it didn't need; say where it is */
+        } else {
+            data += old < dlen ? old : dlen;
+            dlen -= old < dlen ? old : dlen;
+            seq = s->rcv_nxt;
+        }
+    }
     if (dlen || (flags & FIN)) {
         if (seq != s->rcv_nxt) {
-            need_ack = true; /* out of order or duplicate: re-ACK what we have */
+            /* ahead of a gap: kept, and the ACK says so at once (its SACK blocks), so only the gap is resent */
+            if (dlen)
+                ooo_insert(s, seq, data, (uint32_t)dlen, flags & FIN);
+            need_ack = true;
         } else {
-            uint64_t space = SOCK_RX_SIZE - (s->rx_head - s->rx_tail);
+            uint64_t space = s->rx_size - (s->rx_head - s->rx_tail);
             size_t take = dlen < space ? dlen : space;
-            size_t at = s->rx_head % SOCK_RX_SIZE;
-            size_t first = take < SOCK_RX_SIZE - at ? take : SOCK_RX_SIZE - at;
-            memcpy(s->rx + at, data, first);
-            memcpy(s->rx, data + first, take - first);
-            s->rx_head += take;
-            s->rcv_nxt += (uint32_t)take;
-            need_ack = (flags & FIN) || take < dlen; /* a FIN, or no room: told now; plain data: at the batch's end */
+            tcp_rx_append(s, data, take);
+            /* what came ahead of the gap follows now, if the gap is filled */
+            bool ooo_fin = false;
+            while (s->ooo && seq_le(s->ooo->seq, s->rcv_nxt) && take == dlen) {
+                struct tcp_ooo *o = s->ooo;
+                s->ooo = o->next;
+                s->ooo_bytes -= o->len;
+                uint32_t skip = s->rcv_nxt - o->seq;
+                if (skip < o->len) {
+                    uint64_t room = s->rx_size - (s->rx_head - s->rx_tail);
+                    uint32_t want = o->len - skip;
+                    tcp_rx_append(s, o->data + skip, want < room ? want : room);
+                    ooo_fin = o->fin && want <= room;
+                }
+                kfree(o);
+                need_ack = true; /* (the gap closed: the sender is told at once) */
+            }
+            if (ooo_fin)
+                flags |= FIN, take = dlen; /* the FIN that came ahead of the gap */
+            if (!need_ack)
+                need_ack = (flags & FIN) || take < dlen; /* a FIN, or no room: told now; plain data: at the batch's end */
             if (!need_ack && take)
                 tcp_defer(s);
             if ((flags & FIN) && take == dlen) {
