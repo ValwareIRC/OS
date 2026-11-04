@@ -80,6 +80,7 @@ typedef struct app {
     enum screen screen;
     uint64_t now, screen_since;
     bool dirty;   /* something changed that the next frame must show (set by anyone) */
+    bool face_new; /* a new picture of the companion's face came (presence.c): a frame, but no fading after it */
     bool drawing; /* this frame is drawn (main.c: only when something may have changed) */
 
     struct ai_config cfg;
@@ -219,6 +220,13 @@ void design_begin(const char *extra_instruction);
 void desktop_enter(void);
 void desktop_draw(void);
 void desktop_set_ui(struct fm_doc *doc);
+/* A frame that brings only the top app's new picture (desktop.c): after a full frame, whether its window is
+ * nothing but that picture on the screen; then whether the next can be just the picture, and putting it there
+ * (false: draw the whole frame). */
+void desktop_note_clean(void);
+bool desktop_app_in_front(void); /* the window in front is an app's (the person is working in it) */
+bool desktop_app_frame_ready(void);
+bool desktop_app_frame_put(rect *out);
 /* A design takes over the desktop (from the preview): it morphs out of the
  * old one. `first`: the end of onboarding, the desktop arrives. */
 void desktop_adopt(struct fm_doc *doc, const design *d, bool first);

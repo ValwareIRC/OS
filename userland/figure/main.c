@@ -102,6 +102,7 @@ static struct {
     life L;
     scene sc;
     bool visible;
+    bool calm; /* the person is working in an app: idle, it draws fewer frames */
     fbuf buf;
     int bw, bh;
     char inbuf[65536];
@@ -338,6 +339,8 @@ static void command(char *line) {
         G.L.listening = atoi(arg) != 0;
     else if (!strcmp(word, "doze"))
         G.L.dozing = atoi(arg) != 0;
+    else if (!strcmp(word, "calm"))
+        G.calm = atoi(arg) != 0;
     else if (!strcmp(word, "ack")) {
         int s = atoi(arg);
         if (s >= 0 && s < G.nslot)
@@ -470,7 +473,9 @@ int main(int argc, char **argv) {
         now = now_s();
         if (G.visible && now >= next) {
             draw(now);
-            double fps = G.L.dozing ? 5 : life_busy(&G.L) ? 30 : 15;
+            /* breathing and blinking while the person works in an app: 8 frames a second (each one is a frame
+             * of the whole desktop too, in software); speaking, gesturing, thinking: 30 */
+            double fps = G.L.dozing ? 5 : life_busy(&G.L) ? 30 : G.calm ? 8 : 15;
             next += 1.0 / fps;
             if (next < now)
                 next = now + 1.0 / fps;

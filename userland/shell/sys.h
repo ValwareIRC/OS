@@ -16,6 +16,7 @@ bool display_open(void);
 int display_width(void);
 int display_height(void);
 void display_present(const canvas *frame);
+void display_present_rect(const canvas *frame, rect r); /* only that part of it (the rest is on the screen already) */
 /* Resolution changes (Bochs/QEMU std VGA): whether a mode would work, and
  * switching to it (the framebuffer is mapped again; frames must follow). */
 bool display_mode_possible(int w, int h);

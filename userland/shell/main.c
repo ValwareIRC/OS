@@ -305,8 +305,10 @@ static uint64_t views_sig(void) {
  * when something on it may have changed, and a little after (hovers fading, a popover closing), and otherwise four
  * times a second (a clock, a blinking cursor, anything that changed without saying so). It used to be thirty
  * times a second whatever happened: half a processor core with nothing moving. */
+static bool just_apps; /* this frame was wanted for nothing but an app's new picture */
+
 static bool frame_wanted(void) {
-    static uint64_t last_drawn, busy_until, last_views, since, frames, drawn;
+    static uint64_t last_drawn, last_full, busy_until, last_views, since, frames, drawn, quick;
     static unsigned seen; /* which reasons kept it drawing, over the last half minute (for the log) */
     uint64_t vs = views_sig();
     bool input = A.in.moved || A.in.down || A.in.clicked || A.in.pressed || A.in.right_clicked || A.in.wheel ||
@@ -319,26 +321,34 @@ static bool frame_wanted(void) {
         A.companion.pending || agent_busy() || voice_speaking() || voice_listening() || voice_hearing(),
         capture_active() || launcher_active() || preview_showing() || portal_modal() || appapi_modal() || body_asking() ||
             A.confirm_power || actions_confirming() || mind_fallback_asking(),
-        term_busy(), fxwin_wake_in() <= 34,
+        term_busy(), fxwin_wake_in() <= 34, A.face_new,
     };
     static const char *const names[] = {"asked", "screen", "input", "app frame", "app message", "app waiting",
                                         "animation", "live wallpaper", "window manager", "toast or caption",
-                                        "companion", "panel", "terminal", "Facet app"};
-    bool busy = false;
+                                        "companion", "panel", "terminal", "Facet app", "its face"};
+    enum { FACE = 14 };
+    bool busy = false, other = false;
     for (unsigned i = 0; i < sizeof why / sizeof why[0]; i++)
         if (why[i]) {
             busy = true;
+            other |= i != 3 && i != 4 && i != FACE; /* (pictures and messages: no hover fading after those) */
             seen |= 1u << i;
         }
     last_views = vs;
     woke_by_app = false;
-    if (busy)
+    if (other)
         busy_until = A.now + 600;
-    bool draw = A.now < busy_until || A.now - last_drawn >= 250;
+    bool draw = busy || A.now < busy_until || A.now - last_drawn >= 250;
+    /* only an app's picture changed: maybe only it is put on the screen (still a whole frame every 250 ms, for what
+     * changed without saying so) */
+    just_apps = draw && why[3] && !other && !why[FACE] && A.now >= busy_until && A.now - last_full < 250;
     if (draw) {
         last_drawn = A.now;
         A.dirty = false;
+        A.face_new = false;
         drawn++;
+        if (!just_apps)
+            last_full = A.now;
     }
     frames++;
     if (!since)
@@ -348,12 +358,51 @@ static bool frame_wanted(void) {
         for (unsigned i = 0; i < sizeof why / sizeof why[0]; i++)
             if (seen & (1u << i))
                 snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", list[0] ? ", " : "", names[i]);
-        LOG("frames: %llu drawn of %llu in %llu s (kept drawing by: %s)\n", (unsigned long long)drawn,
-            (unsigned long long)frames, (unsigned long long)((A.now - since) / 1000), list[0] ? list : "nothing");
+        LOG("frames: %llu drawn of %llu in %llu s (kept drawing by: %s; %llu wanted only for an app's picture)\n",
+            (unsigned long long)drawn, (unsigned long long)frames, (unsigned long long)((A.now - since) / 1000),
+            list[0] ? list : "nothing", (unsigned long long)quick);
         prof_log(A.now - since);
-        since = A.now, frames = drawn = 0, seen = 0;
+        since = A.now, frames = drawn = quick = 0, seen = 0;
     }
+    quick += just_apps;
     return draw;
+}
+
+/* What the pointer covers, kept from before it was drawn: a frame that puts only an app's picture on the screen
+ * puts back what it covered there (outside the picture) and draws it again on top. */
+#define UNDER 48
+static uint32_t under[(2 * UNDER) * (2 * UNDER)];
+static rect under_r;
+
+static void pointer_save(int x, int y) {
+    int x0 = x - UNDER < 0 ? 0 : x - UNDER, y0 = y - UNDER < 0 ? 0 : y - UNDER;
+    int x1 = x + UNDER > A.frame->w ? A.frame->w : x + UNDER, y1 = y + UNDER > A.frame->h ? A.frame->h : y + UNDER;
+    under_r = (rect){x0, y0, x1 > x0 ? x1 - x0 : 0, y1 > y0 ? y1 - y0 : 0};
+    for (int j = 0; j < under_r.h; j++)
+        memcpy(under + (size_t)j * (size_t)under_r.w, A.frame->px + (size_t)(y0 + j) * (size_t)A.frame->w + x0,
+               (size_t)under_r.w * 4);
+}
+
+static void pointer_put_back(rect app) {
+    for (int j = 0; j < under_r.h; j++)
+        for (int i = 0; i < under_r.w; i++) {
+            int x = under_r.x + i, y = under_r.y + j;
+            uint32_t *f = A.frame->px + (size_t)y * (size_t)A.frame->w + x, *u = under + (size_t)j * (size_t)under_r.w + i;
+            if (x >= app.x && x < app.x + app.w && y >= app.y && y < app.y + app.h)
+                *u = *f; /* the app's new picture is what lies under it now */
+            else
+                *f = *u;
+        }
+}
+
+static rect rect_union(rect a, rect b) {
+    if (a.w <= 0 || a.h <= 0)
+        return b;
+    if (b.w <= 0 || b.h <= 0)
+        return a;
+    int x0 = a.x < b.x ? a.x : b.x, y0 = a.y < b.y ? a.y : b.y;
+    int x1 = a.x + a.w > b.x + b.w ? a.x + a.w : b.x + b.w, y1 = a.y + a.h > b.y + b.h ? a.y + a.h : b.y + b.h;
+    return (rect){x0, y0, x1 - x0, y1 - y0};
 }
 
 /* When apps were last told to draw their next frame (wls_frame_done): no more often than a screen shows them (60 a
@@ -361,9 +410,25 @@ static bool frame_wanted(void) {
  * core, on a screen that shows 60. */
 static uint64_t frames_done_at;
 
+/* A frame at most every FRAME_MS (60 a second, what a screen shows). Drawn back to back, the desktop took a whole
+ * core with Firefox or Prism open (80 and more frames a second, all the screen each time, in software), and apps
+ * waited for it: their messages were read only between frames, and an app opening sends hundreds it waits on the
+ * answers to, a frame's time each (12 ms at full size: full-screen apps opened slowly, small ones at once). Now
+ * between frames each message is answered as it comes, and input waits in the kernel for the next frame. */
+#define FRAME_MS 16
+static uint64_t paced_until;
+
 void main_frame(void) {
     uint64_t frame_t0 = prof_now_us();
     A.now = now_ms();
+    if (A.now < paced_until) { /* between two frames: only the apps answered */
+        PROF("wayland", wls_dispatch());
+        PROF("portal", portal_poll());
+        PROF("app API", appapi_poll());
+        PROF("presence", presence_poll());
+        A.drawing = false;
+        goto drawn;
+    }
     PROF("wm begin", wm_frame_begin());
     PROF("wayland", wls_dispatch());
     PROF("portal", portal_poll()); /* os-portal: file choosers, notifications */
@@ -376,6 +441,12 @@ void main_frame(void) {
         nerve_person_touched(); /* what follows from this is theirs (nerve.c) */
     PROF("text menu", ui_text_menu_input()); /* a text field's right-click menu, when it is up, has the pointer */
     PROF("deciding", A.drawing = frame_wanted());
+    /* only the top app's picture changed, and its window is nothing but that picture: the desktop isn't drawn
+     * (what it does besides drawing still runs), the picture alone is put on (desktop.c) */
+    bool quick = A.drawing && just_apps && !modal && desktop_app_frame_ready();
+    rect quick_r = {0, 0, 0, 0};
+    if (quick)
+        A.drawing = false;
     input_state real = A.in;
     if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
@@ -396,14 +467,30 @@ void main_frame(void) {
         A.in = real;
         modal();
     }
+    if (quick) {
+        if (desktop_app_frame_put(&quick_r))
+            A.drawing = true;
+        else
+            quick = false, A.dirty = true; /* (it changed meanwhile: the whole frame, next) */
+    }
 drawn:
     if (A.drawing) {
-        ui_text_menu_draw();
-        capture_frame(false); /* a recording without the pointer takes this */
+        paced_until = A.now + FRAME_MS;
+        if (!quick) {
+            ui_text_menu_draw();
+            desktop_note_clean(); /* (before the pointer: it isn't part of the window) */
+            capture_frame(false); /* a recording without the pointer takes this */
+            pointer_save(A.in.mx, A.in.my);
+        } else {
+            PROF("app picture", pointer_put_back(quick_r));
+        }
         ui_cursor(A.frame, A.in.mx, A.in.my);
         wm_cursor(A.frame, A.in.mx, A.in.my); /* resize arrows on a window's border */
-        capture_frame(true); /* ...with it, this */
-        if (A.screen != SCR_SPLASH) /* (until there is something to show, the boot screen stays) */
+        if (!quick)
+            capture_frame(true); /* ...with it, this */
+        if (quick)
+            PROF("present", display_present_rect(A.frame, rect_union(quick_r, under_r)));
+        else if (A.screen != SCR_SPLASH) /* (until there is something to show, the boot screen stays) */
             PROF("present", display_present(A.frame));
         last_animating = fm_animating; /* (set while it was styled: @keyframes, transitions) */
         PROF("wm end", wm_frame_end());
@@ -422,7 +509,10 @@ drawn:
 
     /* Sleep until input arrives, an app has something to say, or the
      * next animation frame (~30 fps). */
-    struct pollfd p[160] = {{.fd = frame_fds[0], .events = POLLIN}, {.fd = frame_fds[1], .events = POLLIN}};
+    uint64_t t_poll = now_ms();
+    bool pacing = t_poll < paced_until; /* (input waits for the next frame: not woken for it before) */
+    struct pollfd p[160] = {{.fd = pacing ? -1 : frame_fds[0], .events = POLLIN},
+                            {.fd = pacing ? -1 : frame_fds[1], .events = POLLIN}};
     int wfds[158], nw = wls_fds(wfds, 30);
     nw += portal_fds(wfds + nw, 158 - nw);
     nw += presence_fds(wfds + nw, 158 - nw);
@@ -432,6 +522,8 @@ drawn:
     prof_add("whole frame", prof_now_us() - frame_t0);
     uint64_t slept = prof_now_us();
     int wait_ms = wm_poll_ms(33);
+    if (pacing && (int)(paced_until - t_poll) < wait_ms)
+        wait_ms = (int)(paced_until - t_poll);
     if (wls_frames_waiting()) { /* an app's next turn, when its 16 ms are up */
         int left = 16 - (int)(now_ms() - frames_done_at);
         left = left < 1 ? 1 : left;

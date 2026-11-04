@@ -70,6 +70,7 @@ static struct {
     /* what it was last told */
     int view_w, view_h;
     bool hidden;
+    int calm_said; /* what it was last told of the person working in an app (-1: nothing yet) */
     uint64_t home_at; /* when a home was last drawn */
     rect home;
     float px, py;
@@ -337,11 +338,12 @@ static void heard(char *line) {
         if (P.shown >= 0 && P.shown != s)
             tell("ack %d", P.shown);
         P.shown = s, P.fw = w, P.fh = h, P.hx = hx, P.hy = hy, P.hr = hr;
-        A.dirty = true;
+        A.face_new = true;
         return;
     }
     if (!strncmp(line, "ready", 5)) {
         P.ready = true;
+        P.calm_said = -1;
         P.fails = 0;
         send_look();
         return;
@@ -448,6 +450,11 @@ void presence_poll(void) {
     /* the pointer: it follows it while it moves, then looks around again */
     if (A.in.mx != P.last_mx || A.in.my != P.last_my)
         P.pointer_moved = A.now, P.last_mx = A.in.mx, P.last_my = A.in.my;
+    int calm = desktop_app_in_front();
+    if (calm != P.calm_said) {
+        tell("calm %d", calm);
+        P.calm_said = calm;
+    }
     bool follow = A.now - P.pointer_moved < 6000;
     if (follow && P.home.w > 0 && A.now - P.pointer_sent > 40) {
         float r = P.home.w * 0.5f;

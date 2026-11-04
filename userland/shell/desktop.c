@@ -1840,6 +1840,88 @@ static void app_body(int w, rect body) {
     canvas_clip(A.frame, body);
 }
 
+/* ---- an app's new picture, alone ----
+ * Most frames while an app is busy (opening, loading a page, scrolling) change nothing but its own picture, and
+ * drawing the whole desktop again for each (the wallpaper, every frame and shadow, the panel, the layout, all of
+ * it hidden under the window) took 12 ms of the desktop's one core at full size: apps waited on it, and the
+ * bigger the window the slower they went. So when a full frame shows the top window's body to be exactly the
+ * app's picture (nothing of the design, no caption, no menu over it), the frames after it that bring only a new
+ * picture from that app put just the picture on the screen (main.c). Anything else draws the whole frame. */
+static struct {
+    bool ok;
+    int w;
+    rect body;
+    wl_view *v;
+    uint64_t others; /* what the other windows showed */
+} clean;
+
+static uint64_t views_except(const wl_view *skip) {
+    uint64_t h = 1469598103934665603ull;
+    for (int i = 0; i < wls_view_count(); i++) {
+        wl_view *v = wls_view(i);
+        if (v == skip)
+            continue;
+        uint64_t parts[4] = {(uint64_t)v->id, v->version, (uint64_t)v->mapped, (uint64_t)v->w << 32 | (uint32_t)v->h};
+        for (int k = 0; k < 4; k++)
+            h = (h ^ parts[k]) * 1099511628211ull;
+    }
+    return h;
+}
+
+static bool menus_over(const wl_view *v) {
+    for (int i = 0; i < wls_view_count(); i++) {
+        wl_view *p = wls_view(i);
+        if (p->popup && p->mapped)
+            for (wl_view *q = p->parent; q; q = q->parent)
+                if (q == v)
+                    return true;
+    }
+    return false;
+}
+
+void desktop_note_clean(void) {
+    clean.ok = false;
+    int w = A.screen == SCR_DESKTOP ? focused_window() : -1;
+    if (w < WIN_COUNT)
+        return;
+    struct window *win = &A.win[w];
+    wl_view *v = win->view;
+    rect b = win->body;
+    if (!v || !v->mapped || !v->px || v->w != b.w || v->h != b.h || (long)b.w * b.h * 8 < (long)A.W * A.H ||
+        b.x < 0 || b.y < 0 || b.x + b.w > A.frame->w || b.y + b.h > A.frame->h || menus_over(v))
+        return;
+    for (int y = 0; y < b.h; y++)
+        if (memcmp(A.frame->px + (size_t)(b.y + y) * (size_t)A.frame->w + b.x, v->px + (size_t)y * (size_t)v->w,
+                   (size_t)b.w * 4))
+            return; /* something is drawn over it */
+    clean.ok = true, clean.w = w, clean.body = b, clean.v = v, clean.others = views_except(v);
+}
+
+bool desktop_app_in_front(void) { return focused_window() >= WIN_COUNT; }
+
+bool desktop_app_frame_ready(void) {
+    if (!clean.ok || A.screen != SCR_DESKTOP)
+        return false;
+    struct window *win = &A.win[clean.w];
+    wl_view *v = win->view;
+    return win->open && !win->minimized && v == clean.v && v->mapped && v->px && v->w == clean.body.w &&
+           v->h == clean.body.h && focused_window() == clean.w && views_except(v) == clean.others && !menus_over(v);
+}
+
+bool desktop_app_frame_put(rect *out) {
+    if (!desktop_app_frame_ready()) {
+        clean.ok = false;
+        return false;
+    }
+    rect b = clean.body;
+    canvas_unclip(A.frame);
+    for (int y = 0; y < b.h; y++)
+        memcpy(A.frame->px + (size_t)(b.y + y) * (size_t)A.frame->w + b.x, clean.v->px + (size_t)y * (size_t)clean.v->w,
+               (size_t)b.w * 4);
+    *out = b;
+    return true;
+}
+
 /* The pointer over an app's content and the keyboard in front go to it. */
 static void route_to_apps(int top) {
     uint32_t ms = (uint32_t)A.now;

@@ -249,6 +249,28 @@ void display_present(const canvas *frame) {
     }
 }
 
+void display_present_rect(const canvas *frame, rect r) {
+    if (fb.mem == MAP_FAILED || !fb.mem)
+        return;
+    int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+    if (x1 > fb.w) x1 = fb.w;
+    if (x1 > frame->w) x1 = frame->w;
+    if (y1 > fb.h) y1 = fb.h;
+    if (y1 > frame->h) y1 = frame->h;
+    bool native = fb.rs == 16 && fb.gs == 8 && fb.bs == 0;
+    for (int y = y0; y < y1 && x1 > x0; y++) {
+        const uint32_t *src = &frame->px[(size_t)y * (size_t)frame->w];
+        uint32_t *dst = (uint32_t *)(fb.mem + (size_t)y * (size_t)fb.pitch);
+        if (native)
+            memcpy(dst + x0, src + x0, (size_t)(x1 - x0) * 4);
+        else
+            for (int x = x0; x < x1; x++) {
+                uint32_t p = src[x];
+                dst[x] = C_R(p) << fb.rs | C_G(p) << fb.gs | C_B(p) << fb.bs;
+            }
+    }
+}
+
 /* ---- input ---- */
 
 static struct {
