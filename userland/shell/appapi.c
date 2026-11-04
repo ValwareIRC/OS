@@ -425,7 +425,7 @@ static void models(struct conn *c) {
         sb_json_str(&b, label);
         sb_printf(&b, ",\"tools\":%s", mind_has_tools(p) ? "true" : "false");
         if (!strcmp(p->id, "builtin")) /* the model on this computer: as much as its memory allows */
-            sb_printf(&b, ",\"context\":%d", models_context());
+            sb_printf(&b, ",\"context\":%d", mind_builtin_context() ? mind_builtin_context() : models_context());
         sb_add(&b, "}");
     }
     if (local) {
@@ -434,12 +434,33 @@ static void models(struct conn *c) {
         sb_printf(&b, "%s{\"id\":\"local\",\"object\":\"model\",\"owned_by\":\"os\",\"label\":", p ? "," : "");
         sb_json_str(&b, label);
         bool ready = mind_builtin_ready();
-        sb_printf(&b, ",\"tools\":true,\"context\":%d,\"loaded\":%s,\"load_seconds\":%d}", models_context(),
+        int ctx = mind_builtin_context(); /* running: what it holds; else what it would be started with */
+        sb_printf(&b, ",\"tools\":true,\"context\":%d,\"loaded\":%s,\"load_seconds\":%d}", ctx ? ctx : models_context(),
                   ready ? "true" : "false", ready ? 0 : mind_builtin_load_seconds());
     }
     sb_add(&b, "]}");
     reply(c, 200, b.p);
     sb_free(&b);
+}
+
+/* From appapi_poll: what /v1/models says, in one line; when it changes (the model here started, with the room
+ * it really has, or stopped; the companion's mind changed), apps hear "models" on /events and ask again. */
+static void models_changed_poll(void) {
+    static uint64_t looked;
+    static char was[200];
+    if (A.now - looked < 1000)
+        return;
+    looked = A.now;
+    const struct ai_provider *p = mind();
+    char sig[200];
+    snprintf(sig, sizeof sig, "%s/%s/%d/%d/%d", p ? p->id : "-", p ? A.cfg.model : "-", local_offered(),
+             mind_builtin_ready(), mind_builtin_context());
+    if (!strcmp(sig, was))
+        return;
+    bool first = !was[0];
+    snprintf(was, sizeof was, "%s", sig);
+    if (!first)
+        broadcast("models", "{}", false, -1);
 }
 
 /* From appapi_poll: the model started for apps goes once none has used it for a while (its memory back). */
@@ -2327,6 +2348,7 @@ static void lip_poll(void) {
 void appapi_poll(void) {
     reap();
     local_idle();
+    models_changed_poll();
     if (A.now - last_scan > 3000) {
         scan_apps();
         last_scan = A.now;

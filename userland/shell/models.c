@@ -154,7 +154,8 @@ static uint64_t room_mb(void) { return spec.mem_mb > 1800 ? spec.mem_mb - 1800 :
  * bits: kept at 8, with flash attention, the processor read prompts a quarter slower, measured). */
 static uint64_t kv_kb_per_token(int i) {
     uint64_t mb = catalog[i].bytes >> 20;
-    return mb < 1500 ? 112 : mb < 6000 ? 144 : mb < 10000 ? 160 : 256;
+    uint64_t f16 = mb < 1500 ? 112 : mb < 6000 ? 144 : mb < 10000 ? 160 : 256;
+    return f16 * 17 / 32; /* kept at 8 bits (q8_0: 8.5 bits a value; mind.c starts it so) */
 }
 
 /* Memory a model needs while it runs: its weights, a conversation of
@@ -207,7 +208,10 @@ int models_context(void) {
     char p[256];
     path_of(i, p, sizeof p);
     bool resident = !strncmp(p, "/usr/share/", 11); /* in memory from the boot (or read from the disc into it) */
-    long weights = resident ? 0 : (long)((catalog[i].bytes >> 20) * 110 / 100);
+    /* still on the system's disc: read, it will hold its size in memory too (counted as there, it told an app
+     * 32768 tokens and then started with 12288, and the app's first turn didn't fit) */
+    bool on_disc = resident && access(p, R_OK) != 0;
+    long weights = resident && !on_disc ? 0 : (long)((catalog[i].bytes >> 20) * (on_disc ? 100 : 110) / 100);
     /* llama.cpp's processor code rearranges most weights into a copy as it loads (faster on AVX2): for a model
      * already in memory that copy is extra, the model's size again (uncounted, the built-in model ran out of
      * memory on a 12 GB computer while loading). With room for it, it is made; else the weights are used as

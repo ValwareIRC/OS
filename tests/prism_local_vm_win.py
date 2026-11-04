@@ -32,7 +32,7 @@ open(script, "w", newline="\n").write(
     "CDP=\"ELECTRON_RUN_AS_NODE=1 /app/prism/prism $HOME/cdp.mjs eval\"\n"
     "ID=$(flatpak run --command=sh com.valware.prism -c \"$CDP \\\"\\$(cat $HOME/turn-start.js)\\\"\" 2>/dev/null | tr -d '\"\\n ')\n"
     "echo \"AGENTCHECK session $ID\"\n"
-    "for i in $(seq 1 40); do\n"
+    "for i in $(seq 1 80); do\n"
     "  sleep 15\n"
     "  echo \"prism.sessions.items('$ID').then(i => JSON.stringify(i).slice(-3000))\" > $HOME/turn-items.js\n"
     "  R=$(flatpak run --command=sh com.valware.prism -c \"$CDP \\\"\\$(cat $HOME/turn-items.js)\\\"\" 2>&1 | tr '\\n' ' ')\n"
@@ -57,7 +57,7 @@ try:
         vm.wait_for(r"appapi: com\.valware\.prism asks for the model on this computer", 400))
     results["read from the disc and started"] = bool(vm.wait_for(r"medium: /usr/share/os/mind/model\.gguf read", 300))
     results["Prism's agent asks it"] = bool(vm.wait_for(r"appapi: com\.valware\.prism asks the model on this computer", 600))
-    items = vm.wait_for(r"AGENTCHECK items (.*)", 900)
+    items = vm.wait_for(r"AGENTCHECK items (.*)", 1500)
     results["the agent's turn on it reads the file"] = bool(items) and "Lighthouse keeper notes" in items.group(1)
     vm.shot("2-after.png")
     vm.wait_for(r"AGENTCHECK done", 120)

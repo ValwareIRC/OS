@@ -20,6 +20,7 @@
 #define SERVER "/usr/bin/llama-server"
 
 static int pid;
+static int started_ctx; /* the conversation it was started with room for (tokens) */
 static job *health;      /* asks the server until its model is loaded */
 static bool ready;
 static uint64_t woke_at;
@@ -157,6 +158,9 @@ int mind_builtin_waking_for(void) {
     return pid > 0 && !ready ? (int)((now_ms() - woke_at) / 1000) : 0;
 }
 
+/* The tokens it holds now it runs (what it was started with), or 0 when it doesn't run. */
+int mind_builtin_context(void) { return pid > 0 ? started_ctx : 0; }
+
 /* About how long until it answers, from now: read from the disc first (about 25 s for 5 GB), then loaded (about
  * 30 s); less what has gone by (for an app waiting on it: appapi.c). */
 int mind_builtin_load_seconds(void) {
@@ -231,7 +235,8 @@ void mind_builtin_start(void) {
     snprintf(model, sizeof model, "%s", models_selected_path());
     /* as long a conversation as fits in memory beside the model */
     char ctx[16];
-    snprintf(ctx, sizeof ctx, "%d", models_context());
+    started_ctx = models_context();
+    snprintf(ctx, sizeof ctx, "%d", started_ctx);
     bool repack = models_repack();
     /* The built-in model is already in memory: mapped, it costs nothing.
      * One on the disk loads far faster read in big pieces than page by page. */
@@ -248,9 +253,12 @@ void mind_builtin_start(void) {
             dup2(fileno(log), 2);
         }
         /* it answers only to the system (ai_local_key); its health is open */
-        char *argv[24] = {"llama-server", "-m", model, "-t", threads, "-c", ctx, "--host", "127.0.0.1", "--port",
-                          "8080", "--alias", "os", "--jinja", "--no-webui", "--api-key-file", AI_LOCAL_KEY_FILE};
-        int n = 17;
+        char *argv[32] = {"llama-server", "-m", model, "-t", threads, "-c", ctx, "--host", "127.0.0.1", "--port",
+                          "8080", "--alias", "os", "--jinja", "--no-webui", "--api-key-file", AI_LOCAL_KEY_FILE,
+                          /* its conversation kept at 8 bits (with flash attention): twice the room in the same
+                           * memory, so an app's long first turn fits on a computer of 16 GB (models.c counts so) */
+                          "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0"};
+        int n = 23;
         if (on_disk)
             argv[n++] = "--load-mode", argv[n++] = "none";
         if (!repack)
