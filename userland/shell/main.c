@@ -313,7 +313,8 @@ static bool frame_wanted(void) {
                  A.in.nkeys || A.in.nraw;
     bool why[] = {
         A.dirty || alive_prefs.always_draw, A.screen != SCR_DESKTOP || modal || lock_active(), input, vs != last_views, woke_by_app,
-        wls_frames_waiting(), last_animating, wallpaper_animated(&A.d), wm_poll_ms(33) < 33,
+        false /* (an app waiting for its turn: given it without a frame, below) */, last_animating,
+        wallpaper_animated(&A.d), wm_poll_ms(33) < 33,
         (A.toast[0] && A.now < A.toast_until + 500) || caption_showing(),
         A.companion.pending || agent_busy() || voice_speaking() || voice_listening() || voice_hearing(),
         capture_active() || launcher_active() || preview_showing() || portal_modal() || appapi_modal() || body_asking() ||
@@ -354,6 +355,11 @@ static bool frame_wanted(void) {
     }
     return draw;
 }
+
+/* When apps were last told to draw their next frame (wls_frame_done): no more often than a screen shows them (60 a
+ * second). Told after every frame drawn, Prism drew as fast as the desktop could follow: 83 a second, all of a
+ * core, on a screen that shows 60. */
+static uint64_t frames_done_at;
 
 void main_frame(void) {
     uint64_t frame_t0 = prof_now_us();
@@ -401,7 +407,14 @@ drawn:
             PROF("present", display_present(A.frame));
         last_animating = fm_animating; /* (set while it was styled: @keyframes, transitions) */
         PROF("wm end", wm_frame_end());
-        PROF("frame done", wls_frame_done((uint32_t)A.now)); /* apps draw their next frame now */
+        if (A.now - frames_done_at >= 16) { /* apps draw their next frame now: at most 60 times a second */
+            PROF("frame done", wls_frame_done((uint32_t)A.now));
+            frames_done_at = A.now;
+        }
+    } else if (wls_frames_waiting() && A.now - frames_done_at >= 16) {
+        /* (their last frame is on the screen already: their turn, with nothing to draw) */
+        PROF("frame done", wls_frame_done((uint32_t)A.now));
+        frames_done_at = A.now;
     }
     PROF("save", keep_on_disk());
     PROF("home owner", keep_home_theirs());
@@ -418,7 +431,14 @@ drawn:
         p[2 + i] = (struct pollfd){.fd = wfds[i], .events = POLLIN};
     prof_add("whole frame", prof_now_us() - frame_t0);
     uint64_t slept = prof_now_us();
-    int woke = poll(p, (nfds_t)(2 + nw), wm_poll_ms(33));
+    int wait_ms = wm_poll_ms(33);
+    if (wls_frames_waiting()) { /* an app's next turn, when its 16 ms are up */
+        int left = 16 - (int)(now_ms() - frames_done_at);
+        left = left < 1 ? 1 : left;
+        if (left < wait_ms)
+            wait_ms = left;
+    }
+    int woke = poll(p, (nfds_t)(2 + nw), wait_ms);
     prof_add("asleep", prof_now_us() - slept);
     if (woke > 0)
         for (int i = 2; i < 2 + nw; i++)

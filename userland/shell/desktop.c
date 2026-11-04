@@ -2637,10 +2637,7 @@ void desktop_draw(void) {
         return;
     tray_frame_begin(); /* its popovers and toasts take the pointer first */
     bool cached = wm_scene_cached(); /* while a window is moved, the picture below it is kept */
-    if (!cached && wallpaper_animated(&D))
-        PROF("wallpaper", wallpaper_frame(A.frame, &D, (float)A.now / 1000.0f));
-    else if (!cached)
-        PROF("wallpaper", canvas_blit(A.frame, A.wall, 0, 0));
+    /* (the wallpaper is drawn below, with the desktop's own surfaces: together they may be kept a moment) */
     if (!A.ui)
         desktop_enter();
     fm_doc *ui = A.ui;
@@ -2712,10 +2709,41 @@ void desktop_draw(void) {
                 occ[nocc++] = ow->body;
             }
         }
-        fm_set_occluders(ui, occ, nocc);
-        PROF("desktop layer", fm_render_layer(ui, A.frame, 0));
-        fm_set_occluders(ui, NULL, 0);
-        PROF("companion light", draw_her_free(top, over_ui));
+        /* Windows hiding nearly all of it (Prism, Firefox at full size) and the pointer on one of them: the
+         * picture below (wallpaper, the desktop's surfaces, its light) is drawn four times a second, not at every
+         * frame; the strips of it still showing move a little less smoothly, and nothing else changes. */
+        static canvas *below;
+        static uint64_t below_at;
+        static bool below_ok;
+        long hidden = 0;
+        for (int k = 0; k < nocc; k++)
+            if ((long)occ[k].w * occ[k].h > hidden)
+                hidden = (long)occ[k].w * occ[k].h;
+        bool mostly_hidden = hidden * 10 >= (long)A.W * A.H * 9 && top >= 0 && !over_ui;
+        if (mostly_hidden && below_ok && below && below->w == A.W && below->h == A.H && A.now - below_at < 250) {
+            canvas_unclip(A.frame);
+            memcpy(A.frame->px, below->px, (size_t)A.W * A.H * 4);
+        } else {
+            if (wallpaper_animated(&D))
+                PROF("wallpaper", wallpaper_frame(A.frame, &D, (float)A.now / 1000.0f));
+            else
+                PROF("wallpaper", canvas_blit(A.frame, A.wall, 0, 0));
+            fm_set_occluders(ui, occ, nocc);
+            PROF("desktop layer", fm_render_layer(ui, A.frame, 0));
+            fm_set_occluders(ui, NULL, 0);
+            PROF("companion light", draw_her_free(top, over_ui));
+            below_ok = false;
+            if (mostly_hidden) {
+                if (!below || below->w != A.W || below->h != A.H) {
+                    canvas_free(below);
+                    below = canvas_new(A.W, A.H);
+                }
+                if (below) {
+                    memcpy(below->px, A.frame->px, (size_t)A.W * A.H * 4);
+                    below_at = A.now, below_ok = true;
+                }
+            }
+        }
     }
     presence_draw_corner(A.frame); /* its face, when the design has nowhere for it */
     input_state saved = A.in;
