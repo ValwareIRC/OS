@@ -22,6 +22,8 @@ static inline void regs_set_ip(struct regs *r, uint64_t ip) { r->pc = ip; }
 static inline uint64_t regs_sp(const struct regs *r) { return r->sp; }
 static inline uint64_t regs_syscall_nr(const struct regs *r) { return r->x[8]; }
 static inline bool regs_user_mode(const struct regs *r) { return (r->pstate & 0xf) == 0; }
+/* Interrupts were on where the trap came from (PSTATE.I clear), so no spinlock was held there. */
+static inline bool regs_irqs_on(const struct regs *r) { return !(r->pstate & (1u << 7)); }
 static inline uint64_t regs_return(const struct regs *r) { return r->x[0]; }
 static inline void regs_set_return(struct regs *r, uint64_t v) { r->x[0] = v; }
 static inline uint64_t regs_syscall_arg(const struct regs *r, int i) { return r->x[i]; }

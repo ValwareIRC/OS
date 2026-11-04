@@ -23,3 +23,9 @@ bool medium_find(const char *path, uint64_t size, struct medium_file *f);
 /* `n` bytes of the file from `off` (a multiple of 2048) into `buf`, which has room for `n` rounded up to 2048.
  * 0 or a negative errno. */
 int medium_read(const struct medium_file *f, uint64_t off, void *buf, size_t n);
+
+/* A file on the medium as the source of in-memory files' pages (mm.h): the context is the medium_file (which
+ * must outlive them), the offset where in it each file's bytes are. So the base system's files are read from
+ * the medium as they are used, not all at boot. */
+struct pagesrc;
+extern const struct pagesrc medium_pages;

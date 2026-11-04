@@ -7,7 +7,9 @@
 /* In-memory file system: the root file system until osfs exists, and the
  * home of the unpacked initramfs. All buffers passed in are kernel memory.
  * A regular file's data is a pageobj (v->data), which MAP_SHARED maps
- * directly: that is what /dev/shm (shm_open) relies on. */
+ * directly: that is what /dev/shm (shm_open) relies on. The base system's
+ * files have a source (the medium): their pages are read when first used
+ * (fs/cpio.c, initramfs_from_index). */
 
 struct dirent_node {
     char *name;
@@ -237,13 +239,23 @@ static int64_t r_write(struct vnode *v, struct file *f, const void *buf, size_t 
 }
 
 static int r_truncate(struct vnode *v, uint64_t size) {
-    int r = pageobj_truncate(v->data, size);
+    struct pageobj *o = v->data;
+    /* a file read from the medium as it is used: its contents become memory's own first (what is cut off
+     * isn't read), since past its old end the medium holds the next file, not zeros */
+    int r = o->src ? pageobj_detach(o, size) : 0;
+    if (r == 0)
+        r = pageobj_truncate(o, size);
     sync_size(v);
     return r;
 }
 
 static int r_mmap_shared(struct vnode *v, uint32_t prot, struct pageobj **out) {
-    (void)prot;
+    struct pageobj *o = v->data;
+    if ((prot & PROT_WRITE) && o->src) {
+        int r = pageobj_detach(o, pageobj_size(o)); /* written through memory: memory's own from now on */
+        if (r < 0)
+            return r;
+    }
     pageobj_ref(v->data);
     *out = v->data;
     return 0;
@@ -291,6 +303,17 @@ struct vnode *ramfs_create_root(void) {
     struct vnode *v = vnode_alloc(VN_DIR, 0755, &ramfs_dir_ops);
     if (v)
         v->nlink = 2;
+    return v;
+}
+
+struct vnode *ramfs_source_file(uint32_t mode, uint64_t size, const struct pagesrc *src, void *ctx, uint64_t off) {
+    struct vnode *v = new_file(mode);
+    if (!v)
+        return NULL;
+    struct pageobj *o = v->data;
+    o->size = v->size = size;
+    if (size)
+        pageobj_set_source(o, src, ctx, off);
     return v;
 }
 

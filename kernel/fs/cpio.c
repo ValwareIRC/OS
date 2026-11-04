@@ -1,5 +1,6 @@
 #include <kernel/boot.h>
 #include <kernel/lib.h>
+#include <kernel/medium.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
 #include <kernel/vfs.h>
@@ -213,6 +214,132 @@ static bool unpack(struct src *s) {
 void initramfs_unpack(const void *data, size_t len) {
     struct src s = {.mem = data, .len = len};
     unpack(&s);
+}
+
+/* ---- an archive on the medium, by its index ----
+ * The base system is 1.8 GB in some 15 000 files; unpacking it read all of it at boot (about a minute) and
+ * kept all of it in memory, voices and models nobody had asked for yet. Its index (scripts/cpio-index.py,
+ * built with the image and carried after the placeholder line the bootloader loads) says where each file's
+ * bytes are in the archive: the files are made from that at once, and their pages read from the medium when
+ * first used (drivers/medium.c, mm/pageobj.c), and given back when memory is short and nothing maps them.
+ *
+ * The index, little-endian: "OSIDX1\n\0", u64 the archive's size, u64 where its trailer's header is, u32 the
+ * number of entries, u32 0; then each entry: u32 mode, u32 link group (0: none; the names of a file with
+ * several are one file, made by the first), u64 size, u64 where the bytes are in the archive (regular files),
+ * u16 the name's length, u16 the symlink target's length, u32 0, the name (no leading "./"), the target, and
+ * padding to 4 bytes. */
+
+struct idx_entry {
+    uint32_t mode, group;
+    uint64_t size, data;
+    uint16_t name_len, target_len;
+    uint32_t zero;
+} __attribute__((packed));
+
+static uint64_t le64(const uint8_t *p) {
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; i--)
+        v = v << 8 | p[i];
+    return v;
+}
+
+/* The archive's trailer is where the index says it is: it is this archive's index. */
+static bool trailer_there(const struct medium_file *f, uint64_t at) {
+    uint8_t *b = kmalloc(2 * 2048);
+    if (!b)
+        return false;
+    uint64_t a = ALIGN_DOWN(at, 2048);
+    bool ok = at + 120 <= f->size && medium_read(f, a, b, at + 120 - a) == 0 && !memcmp(b + (at - a), "070701", 6) &&
+              !memcmp(b + (at - a) + 110, "TRAILER!!!", 10);
+    kfree(b);
+    return ok;
+}
+
+bool initramfs_from_index(const void *index, uint64_t len, const struct medium_file *f) {
+    const uint8_t *p = index;
+    if (len < 32 || memcmp(p, "OSIDX1\n", 8))
+        return false;
+    uint64_t size = le64(p + 8), trailer = le64(p + 16);
+    uint32_t count = (uint32_t)le64(p + 24);
+    if (size != f->size || !trailer_there(f, trailer)) {
+        kprintf("initramfs: the index is of another archive (%lu bytes, the medium's is %lu)\n", size, f->size);
+        return false;
+    }
+    uint64_t t0 = time_monotonic_ns();
+    /* check it all before making anything */
+    uint64_t off = 32;
+    for (uint32_t i = 0; i < count; i++) {
+        if (off + sizeof(struct idx_entry) > len)
+            return false;
+        struct idx_entry e;
+        memcpy(&e, p + off, sizeof e);
+        uint64_t next = ALIGN_UP(off + sizeof e + e.name_len + e.target_len, 4);
+        if (next > len || !e.name_len || e.name_len > 400 || e.target_len > 500 ||
+            ((e.mode & S_IFMT) == S_IFREG && (e.data > size || e.size > size - e.data)))
+            return false;
+        off = next;
+    }
+    struct linked **links = kzalloc(sizeof *links * LINK_BUCKETS);
+    char path[512], target[512];
+    int files = 0, failed = 0;
+    off = 32;
+    for (uint32_t i = 0; i < count; i++) {
+        struct idx_entry e;
+        memcpy(&e, p + off, sizeof e);
+        path[0] = '/';
+        memcpy(path + 1, p + off + sizeof e, e.name_len);
+        path[1 + e.name_len] = 0;
+        memcpy(target, p + off + sizeof e + e.name_len, e.target_len);
+        target[e.target_len] = 0;
+        off = ALIGN_UP(off + sizeof e + e.name_len + e.target_len, 4);
+        uint32_t type = e.mode & S_IFMT, perm = e.mode & 07777;
+        int r = 0;
+        if (type == S_IFDIR) {
+            r = vfs_mkdir_p(path, perm);
+        } else if (type == S_IFREG && e.group && links && linked_find(links, e.group)) {
+            struct vnode *dir;
+            char leaf[256];
+            r = vfs_lookup_parent(NULL, path, &dir, leaf, sizeof leaf);
+            if (r == 0) {
+                r = dir->ops->link ? dir->ops->link(dir, leaf, linked_find(links, e.group)) : -EPERM;
+                vnode_put(dir);
+            }
+        } else if (type == S_IFREG) {
+            struct vnode *v = ramfs_source_file(perm, e.size, &medium_pages, (void *)f, e.data);
+            r = v ? vfs_create_node(path, v) : -ENOMEM;
+            if (r == -ENOENT) { /* (its directory wasn't in the archive) */
+                char dir[512];
+                size_t n = ksnprintf(dir, sizeof dir, "%s", path);
+                while (n > 1 && dir[n - 1] != '/')
+                    n--;
+                if (n > 1) {
+                    dir[n - 1] = 0;
+                    vfs_mkdir_p(dir, 0755);
+                    r = vfs_create_node(path, v);
+                }
+            }
+            if (r == 0 && e.group && links)
+                linked_add(links, e.group, v);
+            if (v)
+                vnode_put(v);
+            files++;
+        } else if (type == S_IFLNK) {
+            struct vnode *dir;
+            char leaf[256];
+            r = vfs_lookup_parent(NULL, path, &dir, leaf, sizeof leaf);
+            if (r == 0) {
+                r = dir->ops->symlink(dir, leaf, target);
+                vnode_put(dir);
+            }
+        }
+        if (r < 0 && failed++ < 8)
+            kprintf("initramfs: %s: %d\n", path, r);
+    }
+    if (links)
+        linked_free(links);
+    kprintf("initramfs: %d files from the index, %lu MiB left on the medium until used, in %lu ms\n", files,
+            (unsigned long)(size >> 20), (time_monotonic_ns() - t0) / 1000000);
+    return true;
 }
 
 bool initramfs_unpack_from(cpio_read_fn read, void *ctx, uint64_t len) {

@@ -10,6 +10,7 @@ ISO         := $(BUILD)/os.iso
 KERNEL      := $(BUILD)/kernel.elf
 INITRD      := $(BUILD)/initrd.cpio
 BASE_CPIO   := $(BUILD)/base.cpio
+BASE_IDX    := $(BUILD)/base.idx
 BASE_DIR    ?= $(HOME)/osbuild/base
 # Bundled applications (not part of the core image). Prism is the user's own
 # IDE, shipped as an AppImage; the newest build in its dist folder is used.
@@ -124,9 +125,14 @@ $(BASE_CPIO): $(shell [ -f $(BASE_DIR)/.stamp ] && echo $(BASE_DIR)/.stamp)
 	# through dd in big blocks: cpio writes 512 bytes at a time, which crawls on a Windows drive under WSL
 	if [ -d $(BASE_DIR)/usr ]; then cd $(BASE_DIR) && find . -path ./.stamp -prune -o -print | LC_ALL=C sort | cpio -o -H newc --quiet | dd of=$(abspath $(BASE_CPIO)) bs=4M iflag=fullblock status=none; else : > $@; fi
 
-base: $(BASE_CPIO)
+# Its index (scripts/cpio-index.py): carried after the BIOS placeholder's line, so the kernel makes the files at
+# boot and reads each one's bytes from the disc only when it is first used (kernel/fs/cpio.c).
+$(BASE_IDX): $(BASE_CPIO) scripts/cpio-index.py
+	if [ -s $(BASE_CPIO) ]; then python3 scripts/cpio-index.py $(BASE_CPIO) $@; else : > $@; fi
 
-iso: kernel $(ISO_MODULES) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)
+base: $(BASE_CPIO) $(BASE_IDX)
+
+iso: kernel $(ISO_MODULES) $(BASE_IDX) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)
 	rm -rf $(BUILD)/iso_root
 	mkdir -p $(BUILD)/iso_root/boot/limine $(BUILD)/iso_root/EFI/BOOT
 	cp $(KERNEL) $(BUILD)/iso_root/boot/kernel.elf
@@ -136,7 +142,8 @@ iso: kernel $(ISO_MODULES) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)
 	# where each is on the disc, read by the kernel, many times faster (kernel/main.c, drivers/medium.c).
 	mkdir -p $(BUILD)/iso_root/boot/UEFI $(BUILD)/iso_root/boot/BIOS
 	[ ! -s $(BASE_CPIO) ] || { cp $(BASE_CPIO) $(BUILD)/iso_root/boot/UEFI/base.cpio && \
-		printf 'OS-LAZY /boot/UEFI/base.cpio %s\n' "$$(stat -c %s $(BASE_CPIO))" > $(BUILD)/iso_root/boot/BIOS/base.cpio; }
+		printf 'OS-LAZY /boot/UEFI/base.cpio %s\n' "$$(stat -c %s $(BASE_CPIO))" > $(BUILD)/iso_root/boot/BIOS/base.cpio && \
+		cat $(BASE_IDX) >> $(BUILD)/iso_root/boot/BIOS/base.cpio; }
 	cp boot/limine.conf $(BUILD)/iso_root/boot/limine/
 	[ -s $(BASE_CPIO) ] || sed -i '/base.cpio/d' $(BUILD)/iso_root/boot/limine/limine.conf
 	# The one model that comes with the system, for when there is no
@@ -189,7 +196,7 @@ $(BIG_ISO): $(wildcard $(BASE_CPIO)) $(MODEL)
 
 big-iso: $(BIG_ISO)
 
-dev-iso: kernel initrd $(LIMINE_DIR) $(BIG_ISO)
+dev-iso: kernel initrd $(LIMINE_DIR) $(BIG_ISO) $(BASE_IDX)
 	rm -rf $(BUILD)/dev_root
 	mkdir -p $(BUILD)/dev_root/boot/limine $(BUILD)/dev_root/boot/BIOS
 	cp $(KERNEL) $(BUILD)/dev_root/boot/kernel.elf
@@ -197,6 +204,7 @@ dev-iso: kernel initrd $(LIMINE_DIR) $(BIG_ISO)
 	sed 's/$${FW_TYPE}/BIOS/' boot/limine.conf > $(BUILD)/dev_root/boot/limine/limine.conf
 	if [ -s $(BUILD)/big_root/boot/UEFI/base.cpio ]; then \
 		printf 'OS-LAZY /boot/UEFI/base.cpio %s\n' "$$(stat -c %s $(BUILD)/big_root/boot/UEFI/base.cpio)" > $(BUILD)/dev_root/boot/BIOS/base.cpio; \
+		cat $(BASE_IDX) >> $(BUILD)/dev_root/boot/BIOS/base.cpio; \
 	else sed -i '/base.cpio/d' $(BUILD)/dev_root/boot/limine/limine.conf; fi
 	for part in $(BUILD)/big_root/boot/UEFI/mind.gguf.*; do \
 		[ -e "$$part" ] || continue; name=$$(basename $$part); \

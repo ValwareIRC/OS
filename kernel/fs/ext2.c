@@ -143,6 +143,8 @@ struct enode {
     struct enode *hnext;
     /* readdir in order: where the entry numbered rd_index is */
     uint64_t rd_index, rd_pos;
+    /* its pages, while programs map it (e_mmap_shared); the object holds the vnode, this is only a pointer */
+    struct pageobj *pages;
 };
 
 static struct ext2fs *mounted_fs;
@@ -1695,11 +1697,83 @@ static int64_t e_read(struct vnode *v, struct file *f, void *buf, size_t len, ui
     return r;
 }
 
+/* ---- a file's pages, as programs map them ----
+ * A library mapped by every program (and each of Firefox's dozen processes) is one set of pages, read from the
+ * disk as they are touched (mm/pageobj.c), not a copy of the whole file made for each mapping: that copy was
+ * what made an app's first start take minutes (ldconfig maps every library it indexes; Firefox's own is
+ * 130 MB). The object lives while anything maps it, and holds the vnode so the file does too (unlinked, it
+ * goes once the last mapping does). Writes and truncation go to the disk and then to the pages present, so
+ * they always match the file. Mapped for writing (MAP_SHARED, PROT_WRITE) it is still a copy, as before:
+ * nothing writes such pages back yet. */
+
+static spinlock_t pages_lock = SPINLOCK_INIT;
+
+static int64_t pages_read(void *ctx, uint64_t off, void *buf, size_t len) {
+    struct vnode *v = ctx;
+    struct enode *en = v->data;
+    fs_lock(en->fs);
+    int64_t r = file_rw(en, buf, len, off, false);
+    fs_unlock(en->fs);
+    return r;
+}
+
+static void pages_release(void *ctx, struct pageobj *o) {
+    struct vnode *v = ctx;
+    struct enode *en = v->data;
+    uint64_t f = spin_lock_irqsave(&pages_lock);
+    if (en->pages == o)
+        en->pages = NULL;
+    spin_unlock_irqrestore(&pages_lock, f);
+    vnode_put(v);
+}
+
+static const struct pagesrc pages_src = {.read = pages_read, .release = pages_release, .max_run = 256};
+
+/* A reference to the file's pages if anything maps it, else NULL. */
+static struct pageobj *pages_of(struct enode *en) {
+    uint64_t f = spin_lock_irqsave(&pages_lock);
+    struct pageobj *o = en->pages;
+    if (o && !pageobj_tryget(o))
+        o = NULL;
+    spin_unlock_irqrestore(&pages_lock, f);
+    return o;
+}
+
+static int e_mmap_shared(struct vnode *v, uint32_t prot, struct pageobj **out) {
+    if (prot & PROT_WRITE)
+        return -EOPNOTSUPP;
+    struct enode *en = v->data;
+    fs_lock(en->fs);
+    uint64_t size = isize(&en->in);
+    uint64_t f = spin_lock_irqsave(&pages_lock);
+    struct pageobj *o = en->pages;
+    if (!o || !pageobj_tryget(o)) {
+        o = pageobj_create();
+        if (o) {
+            o->size = size;
+            vnode_ref(v);
+            pageobj_set_source(o, &pages_src, v, 0);
+            en->pages = o;
+        }
+    }
+    spin_unlock_irqrestore(&pages_lock, f);
+    fs_unlock(en->fs);
+    if (!o)
+        return -ENOMEM;
+    *out = o;
+    return 0;
+}
+
 static int64_t e_write(struct vnode *v, struct file *f, const void *buf, size_t len, uint64_t off) {
     (void)f;
     struct enode *en = v->data;
     fs_lock(en->fs);
     int64_t r = file_rw(en, (uint8_t *)buf, len, off, true);
+    struct pageobj *o = r > 0 ? pages_of(en) : NULL;
+    if (o) {
+        pageobj_update(o, buf, (size_t)r, off);
+        pageobj_put(o);
+    }
     fs_unlock(en->fs);
     return r;
 }
@@ -1727,6 +1801,11 @@ static int e_truncate(struct vnode *v, uint64_t size) {
     en->in.mtime = en->in.ctime = (uint32_t)time_realtime_s();
     v->mtime = en->in.mtime;
     r = write_inode(en);
+    struct pageobj *o = pages_of(en);
+    if (o) {
+        pageobj_truncate(o, size);
+        pageobj_put(o);
+    }
     fs_unlock(fs);
     return r;
 }
@@ -1771,7 +1850,8 @@ static const struct vnode_ops dir_ops = {
     .unlink = e_unlink, .rename = e_rename, .readdir = e_readdir, .release = e_release, .fsync = e_fsync,
 };
 static const struct vnode_ops file_ops = {
-    .read = e_read, .write = e_write, .truncate = e_truncate, .release = e_release, .fsync = e_fsync,
+    .read = e_read, .write = e_write, .truncate = e_truncate, .mmap_shared = e_mmap_shared, .release = e_release,
+    .fsync = e_fsync,
 };
 static const struct vnode_ops link_ops = {.readlink = e_readlink, .release = e_release};
 

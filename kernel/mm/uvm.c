@@ -19,6 +19,12 @@
  *       drops it (page_unref). The VMA holds a reference on the object.
  *   VMA_PRIVOBJ: as VMA_SHARED, but every object page is mapped PG_COW: the
  *       first write (or a write allowed later by mprotect) takes a copy.
+ *       Past the object's end, pages are private zeros (as the copies that
+ *       private file maps once were gave).
+ *
+ * An object with a source (a file's pages, mm.h) may not have the page yet:
+ * the fault then lets go of the lock, has the page read (which waits for the
+ * disk), and starts over, since anything may have changed meanwhile.
  *   VMA_PHYS: device memory, never freed. */
 
 static uint64_t pte_flags_for(uint32_t prot) {
@@ -361,6 +367,14 @@ int mm_protect(struct mm *mm, uint64_t start, uint64_t end, uint32_t prot) {
         return -EINVAL;
     end = ALIGN_UP(end, PAGE_SIZE);
     uint64_t f = spin_lock_irqsave(&mm->lock);
+    /* A file's pages that are kept matching the file (an object with a source) can't be written through a
+     * shared mapping: nothing would write them back (mmap refuses that too, or makes the file memory's own). */
+    if (prot & PROT_WRITE)
+        for (struct vma *v = mm->vmas; v; v = v->next)
+            if (v->start < end && v->end > start && (v->flags & VMA_SHARED) && v->obj && v->obj->src) {
+                spin_unlock_irqrestore(&mm->lock, f);
+                return -EACCES;
+            }
     /* Split VMAs at the boundaries, then retag the ones inside. */
     for (struct vma *v = mm->vmas; v; v = v->next) {
         if (v->end <= start || v->start >= end)
@@ -456,9 +470,9 @@ uint64_t mm_map_free(struct mm *mm, uint64_t len, uint64_t hint, uint32_t prot, 
 static int64_t map_object(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
                           uint64_t pgoff, uint32_t vflags);
 
-int64_t mm_map_private_obj(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, struct pageobj *obj,
-                           uint64_t pgoff) {
-    return map_object(mm, addr, len, prot, false, obj, pgoff, VMA_PRIVOBJ);
+int64_t mm_map_private_obj(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed,
+                           struct pageobj *obj, uint64_t pgoff) {
+    return map_object(mm, addr, len, prot, fixed, obj, pgoff, VMA_PRIVOBJ);
 }
 
 int64_t mm_map_shared(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
@@ -584,9 +598,9 @@ int mm_dontneed(struct mm *mm, uint64_t start, uint64_t end) {
     batch.changed = false;
     uint64_t f = spin_lock_irqsave(&mm->lock);
     for (struct vma *v = mm->vmas; v; v = v->next) {
-        /* Private file mappings would have to go back to the file's
-         * contents, not zeros: leave those (and device memory) alone. */
-        if (!(v->flags & (VMA_ANON | VMA_SHARED | VMA_GROWSDOWN)) || (v->flags & VMA_PHYS))
+        /* Private file copies would have to go back to the file's contents, not zeros: leave those (and
+         * device memory) alone. A file's own pages mapped privately go back to them by themselves. */
+        if (!(v->flags & (VMA_ANON | VMA_SHARED | VMA_GROWSDOWN | VMA_PRIVOBJ)) || (v->flags & VMA_PHYS))
             continue;
         uint64_t s = v->start > start ? v->start : start, e = v->end < end ? v->end : end;
         if (s < e)
@@ -599,8 +613,9 @@ int mm_dontneed(struct mm *mm, uint64_t start, uint64_t end) {
 }
 
 /* Makes `va` (inside `v`) present: a zeroed page for private memory, the
- * object's page for shared mappings. Lock held. */
-static uint64_t *fault_in(struct mm *mm, struct vma *v, uint64_t va) {
+ * object's page for shared mappings. NULL with *missing set if the object's
+ * page has to be read from its source first. Lock held. */
+static uint64_t *fault_in(struct mm *mm, struct vma *v, uint64_t va, bool *missing) {
     uint64_t *pte = pte_slot(mm, va, true);
     if (!pte)
         return NULL;
@@ -609,14 +624,22 @@ static uint64_t *fault_in(struct mm *mm, struct vma *v, uint64_t va) {
     uint64_t p;
     if (v->flags & VMA_PRIVOBJ) {
         /* the object's page itself, never writable through here: a write copies it (break_cow) */
-        p = pageobj_map_page(v->obj, v->pgoff + (va - v->start) / PAGE_SIZE);
-        if (!p)
-            return NULL;
-        pte_publish(pte, pte_make(p, (pte_flags_for(v->prot) & ~PG_WRITE) | PG_COW));
-        return pte;
+        uint64_t idx = v->pgoff + (va - v->start) / PAGE_SIZE;
+        p = pageobj_map_page_or_missing(v->obj, idx, missing);
+        if (p) {
+            pte_publish(pte, pte_make(p, (pte_flags_for(v->prot) & ~PG_WRITE) | PG_COW));
+            return pte;
+        }
+        if (*missing || idx < ALIGN_UP(pageobj_size(v->obj), PAGE_SIZE) / PAGE_SIZE)
+            return NULL; /* to be read first, or no memory */
+        p = page_alloc_shared(); /* past the end of the file: zeros of its own */
+        if (p)
+            memset(phys_to_virt(p), 0, PAGE_SIZE);
     } else if (v->flags & VMA_SHARED) {
         /* 0 past the object's end: like Linux's SIGBUS, the access fails. */
-        p = pageobj_map_page(v->obj, v->pgoff + (va - v->start) / PAGE_SIZE);
+        p = pageobj_map_page_or_missing(v->obj, v->pgoff + (va - v->start) / PAGE_SIZE, missing);
+        if (*missing)
+            return NULL;
     } else if (v->flags & VMA_PHYS) {
         p = 0; /* device mappings are filled in completely at mmap time */
     } else {
@@ -630,31 +653,57 @@ static uint64_t *fault_in(struct mm *mm, struct vma *v, uint64_t va) {
     return pte;
 }
 
-bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec) {
+bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec, bool can_wait) {
     if (!mm || addr >= USER_TOP)
         return false;
-    uint64_t f = spin_lock_irqsave(&mm->lock);
-    struct vma *v = mm_find_vma(mm, addr);
-    bool ok = v && (!write || (v->prot & PROT_WRITE)) && (!exec || (v->prot & PROT_EXEC)) &&
-              (v->prot & (PROT_READ | PROT_WRITE | PROT_EXEC));
-    if (ok) {
-        uint64_t *pte = pte_slot(mm, ALIGN_DOWN(addr, PAGE_SIZE), false);
-        if (pte && pte_present(*pte) && write && (pte_flags(*pte) & PG_COW)) {
-            ok = break_cow(mm, v, ALIGN_DOWN(addr, PAGE_SIZE), pte);
-        } else if (pte && pte_present(*pte)) {
-            /* Present but faulted: either a real protection violation, or
-             * this CPU used a stale TLB entry while another thread's mprotect
-             * was widening the page (before its shootdown reached us). In
-             * the latter case the PTE already allows the access: retry. */
-            uint64_t pg = pte_flags(*pte);
-            ok = (!write || (pg & PG_WRITE)) && (!exec || (pg & PG_EXEC));
-            if (ok)
-                arch_tlb_flush_page(ALIGN_DOWN(addr, PAGE_SIZE));
-        } else
-            ok = fault_in(mm, v, ALIGN_DOWN(addr, PAGE_SIZE)) != NULL;
+    for (int tries = 0;; tries++) {
+        struct pageobj *read = NULL;
+        uint64_t idx = 0;
+        uint64_t f = spin_lock_irqsave(&mm->lock);
+        struct vma *v = mm_find_vma(mm, addr);
+        bool ok = v && (!write || (v->prot & PROT_WRITE)) && (!exec || (v->prot & PROT_EXEC)) &&
+                  (v->prot & (PROT_READ | PROT_WRITE | PROT_EXEC));
+        if (ok) {
+            uint64_t *pte = pte_slot(mm, ALIGN_DOWN(addr, PAGE_SIZE), false);
+            if (pte && pte_present(*pte) && write && (pte_flags(*pte) & PG_COW)) {
+                ok = break_cow(mm, v, ALIGN_DOWN(addr, PAGE_SIZE), pte);
+            } else if (pte && pte_present(*pte)) {
+                /* Present but faulted: either a real protection violation, or
+                 * this CPU used a stale TLB entry while another thread's mprotect
+                 * was widening the page (before its shootdown reached us). In
+                 * the latter case the PTE already allows the access: retry. */
+                uint64_t pg = pte_flags(*pte);
+                ok = (!write || (pg & PG_WRITE)) && (!exec || (pg & PG_EXEC));
+                if (ok)
+                    arch_tlb_flush_page(ALIGN_DOWN(addr, PAGE_SIZE));
+            } else {
+                bool missing = false;
+                ok = fault_in(mm, v, ALIGN_DOWN(addr, PAGE_SIZE), &missing) != NULL;
+                if (missing) {
+                    read = v->obj;
+                    pageobj_ref(read);
+                    idx = v->pgoff + (ALIGN_DOWN(addr, PAGE_SIZE) - v->start) / PAGE_SIZE;
+                }
+            }
+        }
+        spin_unlock_irqrestore(&mm->lock, f);
+        if (!read)
+            return ok;
+        /* The page is on the disk: read it with nothing held, interrupts on (as they were where the fault came
+         * from), then the fault again from the start. */
+        int r = -EFAULT;
+        if (can_wait && tries < 64) {
+            uint64_t fl = irq_save();
+            irq_enable();
+            r = pageobj_fill(read, idx, 0);
+            pageobj_put(read);
+            irq_restore(fl);
+        } else {
+            pageobj_put(read);
+        }
+        if (r < 0)
+            return false;
     }
-    spin_unlock_irqrestore(&mm->lock, f);
-    return ok;
 }
 
 static int copy_pages(struct mm *mm, uint64_t dst, const void *src, size_t len) {
@@ -665,9 +714,10 @@ static int copy_pages(struct mm *mm, uint64_t dst, const void *src, size_t len) 
         struct vma *v = mm_find_vma(mm, page);
         if (!v)
             return -EFAULT;
-        uint64_t *pte = fault_in(mm, v, page);
+        bool missing = false;
+        uint64_t *pte = fault_in(mm, v, page, &missing);
         if (!pte)
-            return -ENOMEM;
+            return missing ? -EFAULT : -ENOMEM; /* (a file's page not read yet: not from here, under the lock) */
         if ((pte_flags(*pte) & PG_COW) && !break_cow(mm, v, page, pte)) /* written below, through the kernel's view */
             return -ENOMEM;
         uint8_t *kva = (uint8_t *)phys_to_virt(pte_phys(*pte)) + off;

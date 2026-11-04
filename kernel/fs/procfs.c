@@ -1393,11 +1393,16 @@ static void meminfo_row(struct sbuf *b, const char *name, uint64_t kb) {
 static int show_meminfo(struct snode *n, struct sbuf *b) {
     (void)n;
     uint64_t total = pmm_total_pages() * (PAGE_SIZE / 1024), free = pmm_free_pages() * (PAGE_SIZE / 1024);
+    /* file pages read once and kept (the base system's, the disk's mapped ones): given back when memory runs
+     * short, so they count as available, as Linux's page cache does */
+    uint64_t cached = pageobj_cached_pages() * (PAGE_SIZE / 1024);
     meminfo_row(b, "MemTotal", total);
     meminfo_row(b, "MemFree", free);
-    meminfo_row(b, "MemAvailable", free);
+    meminfo_row(b, "MemAvailable", free + cached);
+    meminfo_row(b, "Buffers", 0);
+    meminfo_row(b, "Cached", cached);
     static const char *const zero[] = {
-        "Buffers", "Cached", "SwapCached", "Active", "Inactive", "Active(anon)", "Inactive(anon)", "Active(file)",
+        "SwapCached", "Active", "Inactive", "Active(anon)", "Inactive(anon)", "Active(file)",
         "Inactive(file)", "Unevictable", "Mlocked", "SwapTotal", "SwapFree", "Dirty", "Writeback", "AnonPages",
         "Mapped", "Shmem", "KReclaimable", "Slab", "SReclaimable", "SUnreclaim", "KernelStack", "PageTables",
         "NFS_Unstable", "Bounce", "WritebackTmp",

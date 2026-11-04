@@ -1,3 +1,4 @@
+#include <kernel/boot.h>
 #include <kernel/lib.h>
 #include <kernel/medium.h>
 #include <kernel/mm.h>
@@ -169,3 +170,102 @@ int medium_read(const struct medium_file *f, uint64_t off, void *buf, size_t n) 
     uint32_t count = (uint32_t)((n + BLOCK - 1) / BLOCK);
     return count ? read_blocks(f->drive, f->lba + (uint32_t)(off / BLOCK), count, buf) : 0;
 }
+
+/* ---- files read from the medium as they are used ----
+ * Any bytes of a file on it, as the pages of in-memory files want them (the base system's, fs/cpio.c). The drive
+ * reads whole blocks and each trip to it costs, while the small files of a directory lie side by side: so the
+ * last few stretches read are kept (WINDOWS of WIN bytes each) and the next small file mostly comes from one.
+ * Long reads (a run of a big file) go through a buffer of their own instead, not crowding the small ones out. */
+
+#define WIN (256u << 10)
+#define WINDOWS 8
+#define LONG_READ (1u << 20) /* + a page, for the blocks at either end */
+
+static struct window {
+    const struct medium_file *f;
+    uint64_t off, len, used;
+    uint8_t *data;
+} windows[WINDOWS];
+static uint8_t *long_buf;
+static uint64_t win_clock;
+static volatile int win_busy; /* the windows and the long buffer are one reader's at a time */
+
+static struct window *window_at(const struct medium_file *f, uint64_t start, int *err) {
+    struct window *w = NULL, *old = &windows[0];
+    for (int i = 0; i < WINDOWS; i++) {
+        if (windows[i].f == f && windows[i].off == start && windows[i].len)
+            w = &windows[i];
+        if (windows[i].used < old->used)
+            old = &windows[i];
+    }
+    if (!w) {
+        w = old;
+        if (!w->data) {
+            uint64_t p = pmm_alloc(WIN / PAGE_SIZE);
+            if (!p) {
+                *err = -ENOMEM;
+                return NULL;
+            }
+            w->data = phys_to_virt(p);
+        }
+        w->f = NULL;
+        uint64_t len = f->size - start < WIN ? f->size - start : WIN;
+        int r = medium_read(f, start, w->data, len);
+        if (r < 0) {
+            *err = r;
+            return NULL;
+        }
+        w->f = f, w->off = start, w->len = len;
+    }
+    w->used = ++win_clock;
+    return w;
+}
+
+static int64_t medium_pages_read(void *ctx, uint64_t off, void *buf, size_t len) {
+    const struct medium_file *f = ctx;
+    if (off >= f->size)
+        return 0;
+    if (len > f->size - off)
+        len = f->size - off;
+    while (__atomic_exchange_n(&win_busy, 1, __ATOMIC_ACQUIRE))
+        thread_yield();
+    uint8_t *dst = buf;
+    size_t done = 0;
+    int err = 0;
+    while (done < len && !err) {
+        uint64_t pos = off + done;
+        size_t left = len - done;
+        if (left >= WIN) {
+            if (!long_buf) {
+                uint64_t p = pmm_alloc(LONG_READ / PAGE_SIZE + 1);
+                if (!p) {
+                    err = -ENOMEM;
+                    break;
+                }
+                long_buf = phys_to_virt(p);
+            }
+            uint64_t a = ALIGN_DOWN(pos, BLOCK);
+            size_t n = left < LONG_READ ? left : LONG_READ;
+            int r = medium_read(f, a, long_buf, pos - a + n);
+            if (r < 0) {
+                err = r;
+                break;
+            }
+            memcpy(dst + done, long_buf + (pos - a), n);
+            done += n;
+            continue;
+        }
+        struct window *w = window_at(f, ALIGN_DOWN(pos, WIN), &err);
+        if (!w)
+            break;
+        size_t n = w->off + w->len - pos;
+        if (n > left)
+            n = left;
+        memcpy(dst + done, w->data + (pos - w->off), n);
+        done += n;
+    }
+    __atomic_store_n(&win_busy, 0, __ATOMIC_RELEASE);
+    return done ? (int64_t)done : err;
+}
+
+const struct pagesrc medium_pages = {.read = medium_pages_read, .max_run = 256};

@@ -165,6 +165,10 @@ struct vnode *ramfs_create_root(void);
 int ramfs_add_node(struct vnode *dir, const char *name, struct vnode *node);
 struct pageobj;
 int ramfs_add_object_file(const char *path, struct pageobj *o, uint32_t mode);
+/* A new file (not yet in any directory: vfs_create_node) of `size` bytes whose contents are in `src` at `off`,
+ * read as they are used. */
+struct pagesrc;
+struct vnode *ramfs_source_file(uint32_t mode, uint64_t size, const struct pagesrc *src, void *ctx, uint64_t off);
 
 /* Mounts the file system whose root is `fsroot` on the directory at `path`
  * (boot-time mounts in the first namespace: /proc, /sys). */
@@ -230,6 +234,11 @@ void initramfs_unpack(const void *data, size_t len);
  * `n` bytes from `off` (a multiple of 2048) into `buf` (room for n rounded up to 2048), returning 0. */
 typedef int (*cpio_read_fn)(void *ctx, uint64_t off, void *buf, size_t n);
 bool initramfs_unpack_from(cpio_read_fn read, void *ctx, uint64_t len);
+/* The files of an archive on the medium made from its index (scripts/cpio-index.py) rather than from the archive:
+ * the tree at once, each file's bytes read from `f` when first used. False (nothing made) if the index isn't
+ * one, or isn't this archive's. */
+struct medium_file;
+bool initramfs_from_index(const void *index, uint64_t len, const struct medium_file *f);
 
 /* pipes */
 int pipe_create(struct file **read_end, struct file **write_end);

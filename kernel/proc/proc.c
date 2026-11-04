@@ -919,21 +919,31 @@ bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     struct thread *t = thread_current();
     struct mm *mm = t && t->user ? t->user->proc->mm : NULL;
     uint64_t fails = __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED);
-    if (mm && mm_handle_fault(mm, addr, write, exec))
+    bool can_wait = regs_irqs_on(r);
+    if (mm && mm_handle_fault(mm, addr, write, exec, can_wait))
         return true;
     if (regs_user_mode(r) && mm && __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED) != fails) {
-        /* no page left: room is made, then again (for up to 10 s) */
+        /* no page left: room is made, then again (for up to 10 s). First from the file pages kept only
+         * because they were read once (they can be read again), and only then by ending someone. */
         struct process *self = t->user->proc;
         for (int tries = 0; tries < 500; tries++) {
+            irq_enable(); /* (a fault taken with interrupts on: they can be again while it waits) */
+            if (pageobj_reclaim(4096)) {
+                fails = __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED);
+                if (mm_handle_fault(mm, addr, write, exec, can_wait))
+                    return true;
+                if (__atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED) == fails)
+                    break;
+                continue;
+            }
             int victim = oom_make_room(self);
             if (!victim || victim == self->pid)
                 break;
-            irq_enable(); /* (a fault taken with interrupts on: they can be again while it waits) */
             thread_sleep_ms(20);
             if (self->group_exit || (__atomic_load_n(&self->pending_signals, __ATOMIC_ACQUIRE) & sigbit(SIGKILL)))
                 break; /* (it was ended meanwhile, for memory or otherwise) */
             fails = __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED);
-            if (mm_handle_fault(mm, addr, write, exec))
+            if (mm_handle_fault(mm, addr, write, exec, can_wait))
                 return true;
             if (__atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED) == fails)
                 break; /* (it failed for another reason this time) */

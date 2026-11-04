@@ -67,14 +67,14 @@ SYSCALL(mmap) {
             file_put(f);
             return -ENODEV;
         }
-        if (!shared && !fixed && len >= (64u << 20) && f->vnode->ops->mmap_shared) {
-            /* A big private map of an in-memory file (a model's weights, read in place): the file's own
-             * pages, copy-on-write, rather than a copy of gigabytes made now. Small ones (libraries, which
-             * the loader maps over and protects piece by piece) stay plain copies. */
+        if (!shared && f->vnode->ops->mmap_shared) {
+            /* A private map of a file (a library, a model's weights): the file's own pages, copy-on-write,
+             * rather than a copy of all of it made now. So every program that maps a library shares one copy,
+             * and only the pages touched are ever read from the disk (the file cache, mm/pageobj.c). */
             int r = f->vnode->ops->mmap_shared(f->vnode, PROT_READ, &obj);
             if (r == 0) {
                 file_put(f);
-                int64_t a = mm_map_private_obj(mm, addr, len, (uint32_t)prot, obj, off / PAGE_SIZE);
+                int64_t a = mm_map_private_obj(mm, addr, len, (uint32_t)prot, fixed, obj, off / PAGE_SIZE);
                 pageobj_put(obj);
                 if (name) {
                     if (a >= 0)
@@ -93,13 +93,17 @@ SYSCALL(mmap) {
                 r = -EACCES;
             else
                 r = f->vnode->ops->mmap_shared(f->vnode, (uint32_t)prot, &obj);
-            file_put(f);
-            if (r < 0) {
-                if (name)
-                    vma_name_put(name);
-                return r;
+            if (r == -EOPNOTSUPP) {
+                obj = NULL; /* not this way (a disk file mapped for writing): a copy, as below */
+            } else {
+                file_put(f);
+                if (r < 0) {
+                    if (name)
+                        vma_name_put(name);
+                    return r;
+                }
+                f = NULL;
             }
-            f = NULL;
         }
     } else if (shared) {
         /* Shared anonymous memory: an object of its own, so fork shares it. */

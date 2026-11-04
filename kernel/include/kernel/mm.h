@@ -30,16 +30,42 @@ void page_adopt(uint64_t phys); /* boot-module memory now owned by a file: freed
  * on first write or first mapping fault. Holes read as zeros. The object
  * holds one reference on each of its pages and every page-table entry
  * mapping one holds another, so a mapped page outlives truncation and the
- * file itself. Buffers passed in are kernel memory. */
+ * file itself. Buffers passed in are kernel memory.
+ *
+ * An object may have a source: where its contents are kept when they aren't in memory (a file on the disk, the
+ * base system on the medium). A missing page of such an object is read from the source when it is first wanted
+ * (by a read or a mapping fault), not made of zeros, and a page that nothing but the object holds may be dropped
+ * when memory runs short, since it can be read again. So every page of it always matches the source: what
+ * changes the source changes the pages too (pageobj_update), and a write that only the object would hold ends
+ * the source first, the whole contents read in (pageobj_detach). */
+struct pageobj;
+struct pagesrc {
+    /* `len` bytes (whole pages) at `off` in the source into `buf` (contiguous kernel memory): the number of bytes
+     * there were (fewer at its end; the rest is zeroed for it) or a negative errno. It may wait for the device,
+     * so it is never called with a spinlock held. */
+    int64_t (*read)(void *ctx, uint64_t off, void *buf, size_t len);
+    /* The object is gone (optional; called later, from a thread of its own, never under a lock). */
+    void (*release)(void *ctx, struct pageobj *o);
+    uint32_t max_run; /* pages read at once at most (the read-ahead of a reader going straight through) */
+};
 struct pageobj {
     int refcount;
     spinlock_t lock;
     uint64_t size;   /* bytes */
     uint64_t nslots; /* entries in `pages` */
-    uint64_t *pages; /* physical address per page index, 0 = hole */
+    uint64_t *pages; /* physical address per page index, 0 = hole (or, with a source, not read yet) */
+    const struct pagesrc *src; /* NULL: none */
+    void *src_ctx;
+    uint64_t src_off;          /* where in the source the object's first byte is */
+    uint32_t gen;              /* changes when pages change or go: a read begun before is stale */
+    uint32_t ra;               /* pages the next fill reads, if it continues the last one */
+    uint64_t ra_next;          /* the page after the last fill */
+    uint64_t held;             /* pages present (objects with a source) */
+    struct pageobj *cnext, *cprev; /* objects with a source, oldest-reclaimed first */
 };
 struct pageobj *pageobj_create(void);
 void pageobj_ref(struct pageobj *o);
+bool pageobj_tryget(struct pageobj *o); /* a reference, unless the last one already went */
 void pageobj_put(struct pageobj *o);
 uint64_t pageobj_size(struct pageobj *o);
 int64_t pageobj_read(struct pageobj *o, void *buf, size_t len, uint64_t off);
@@ -48,9 +74,30 @@ int64_t pageobj_write(struct pageobj *o, const void *buf, size_t len, uint64_t o
 int pageobj_truncate(struct pageobj *o, uint64_t size);
 /* The page holding page index `idx`, allocated if it is a hole, with a new
  * reference for the caller (a page-table entry). 0 if `idx` lies wholly
- * past the end of the object, or memory ran out. */
+ * past the end of the object, or memory ran out, or (with a source) it hasn't
+ * been read yet: pageobj_missing says which, pageobj_fill reads it. */
 uint64_t pageobj_map_page(struct pageobj *o, uint64_t idx);
+/* The same, and if it is 0 whether that is because the page is the source's to read first: one look, under the
+ * lock (two looks would miss a page read by another in between, and take it for no memory). */
+uint64_t pageobj_map_page_or_missing(struct pageobj *o, uint64_t idx, bool *missing);
 struct pageobj *pageobj_adopt(struct pageobj *o, uint64_t phys, uint64_t size); /* boot memory as (part of) a file */
+/* Gives `o` (no pages yet, its size set) its source. */
+void pageobj_set_source(struct pageobj *o, const struct pagesrc *src, void *ctx, uint64_t off);
+/* True if page `idx` is the source's to read before it can be used. */
+bool pageobj_missing(struct pageobj *o, uint64_t idx);
+/* Reads page `idx` from the source, with the pages after it (at least `want` in all, if the source allows):
+ * 0 (also when there was nothing to read) or a negative errno. May wait; no spinlock may be held. */
+int pageobj_fill(struct pageobj *o, uint64_t idx, uint64_t want);
+/* The source itself was just written (`len` bytes at `off`): the pages present take the bytes too. */
+void pageobj_update(struct pageobj *o, const void *buf, size_t len, uint64_t off);
+/* Ends the source: the pages below `keep` bytes are read in first (the rest are going anyway), and from then on
+ * the object is an ordinary one. 0 or a negative errno. */
+int pageobj_detach(struct pageobj *o, uint64_t keep);
+/* Drops up to `want` pages that are only kept because they were read once (nothing maps them; their source
+ * still has them). Returns how many went. Never under a spinlock. */
+uint64_t pageobj_reclaim(uint64_t want);
+uint64_t pageobj_cached_pages(void); /* pages objects with a source hold: what reclaim could free, at most */
+void pageobj_keeper_start(void);     /* the thread that frees them when memory runs short, and ends sources */
 
 /* Generic page mapping flags; <asm/pgtable.h> turns them into entries.
  * Leaf mappings are always present and readable. */

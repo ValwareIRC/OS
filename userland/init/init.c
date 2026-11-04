@@ -1983,6 +1983,7 @@ static void ramfs_perf_test(void) {
 #include "lock_tests.inc"
 #include "inotify_tests.inc"
 #include "fd_tests.inc"
+#include "filecache_tests.inc"
 #include "oom_tests.inc"
 #include "perm_tests.inc"
 
@@ -2132,6 +2133,7 @@ static void tests(void) {
     ns_tests();
     base_tests();
     ext2_tests();
+    filecache_tests();
     lock_tests();
     inotify_tests();
     fd_tests();
@@ -2633,15 +2635,16 @@ static void setup_data_disk(void) {
         }
     }
     /* With the journal a power cut is mended by replaying it (the kernel keeps the disk "valid": e2fsck -p
-     * then only replays, in seconds, instead of reading the whole disk); the whole of it is still checked every
-     * 30 starts (its maximum mount count, at byte 1024 + 54). */
+     * then only replays, in seconds, instead of reading the whole disk). No whole check every so many starts
+     * or days either (its maximum mount count at byte 1024 + 54, -1: never): it made one start in thirty take
+     * minutes for nothing the journal doesn't already cover; a disk found damaged is still checked whole. */
     int16_t max_mounts = 0;
     int sfd = open(DATA_DEV, O_RDONLY);
-    if (sfd >= 0 && pread(sfd, &max_mounts, 2, 1024 + 54) == 2 && max_mounts != 30 && data_disk_journaled()) {
+    if (sfd >= 0 && pread(sfd, &max_mounts, 2, 1024 + 54) == 2 && max_mounts != -1 && data_disk_journaled()) {
         close(sfd), sfd = -1;
-        char *tc[] = {"/usr/sbin/tune2fs", "-c", "30", DATA_DEV, NULL};
+        char *tc[] = {"/usr/sbin/tune2fs", "-c", "-1", "-i", "0", DATA_DEV, NULL};
         int tr = run(tc, out, sizeof out);
-        printf("init: " DATA_DEV " checked whole every 30 starts: %s\n", tr == 0 ? "ok" : out);
+        printf("init: " DATA_DEV " no longer checked whole on a count: %s\n", tr == 0 ? "ok" : out);
     }
     if (sfd >= 0)
         close(sfd);

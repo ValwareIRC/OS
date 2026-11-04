@@ -115,9 +115,10 @@ struct vma *mm_find_vma(struct mm *mm, uint64_t addr);
  * (replacing what is there) if `fixed`, else at a free range near `addr`.
  * The mapping takes its own reference on `obj`. Returns the address or a
  * negative errno. */
-/* `obj`'s pages mapped privately (VMA_PRIVOBJ). */
-int64_t mm_map_private_obj(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, struct pageobj *obj,
-                           uint64_t pgoff);
+/* `obj`'s pages mapped privately (VMA_PRIVOBJ): copy-on-write, so all who map a file share its pages until
+ * they write. As mm_map_shared otherwise. */
+int64_t mm_map_private_obj(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed,
+                           struct pageobj *obj, uint64_t pgoff);
 int64_t mm_map_shared(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot, bool fixed, struct pageobj *obj,
                       uint64_t pgoff);
 /* mremap for anonymous and shared mappings: grows in place when the space
@@ -125,15 +126,17 @@ int64_t mm_map_shared(struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot,
  * `may_move`. Returns the new address or a negative errno. */
 int64_t mm_remap(struct mm *mm, uint64_t old_addr, uint64_t old_len, uint64_t new_len, bool may_move);
 /* madvise(MADV_DONTNEED): anonymous private pages in the range are dropped
- * (they read as zeros on next touch); shared ones are only unmapped (the
- * next touch maps the object's page again). Other mappings are left alone. */
+ * (they read as zeros on next touch); shared ones and a file's private ones
+ * are only unmapped (the next touch maps the object's page again, the file's
+ * contents). Other mappings are left alone. */
 int mm_dontneed(struct mm *mm, uint64_t start, uint64_t end);
 /* Copy into another address space through the direct map (used by exec
  * before the new address space is live). Allocates pages as needed. */
 int mm_copy_out(struct mm *mm, uint64_t dst, const void *src, size_t len);
 int mm_zero(struct mm *mm, uint64_t dst, size_t len);
-/* Handles a page fault; returns true if resolved. */
-bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec);
+/* Handles a page fault; returns true if resolved. A page of a file not read yet is read, which waits for the
+ * disk: only if `can_wait` (the fault came with interrupts on, so with no spinlock held), else it fails. */
+bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec, bool can_wait);
 /* Labels the VMAs lying wholly inside [start, end) with `name` (a new
  * reference each) and, for private ones, the file page of their start. */
 void mm_set_name(struct mm *mm, uint64_t start, uint64_t end, struct vma_name *name, uint64_t pgoff);

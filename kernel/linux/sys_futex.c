@@ -118,9 +118,13 @@ static int64_t futex_wait(struct mm *mm, uint64_t uaddr, uint32_t val, uint32_t 
 
     /* Check the value and queue up under the bucket lock. A waker changes
      * the value first and then takes this lock to wake, so either we see
-     * the new value (EAGAIN) or it sees us on the queue: no lost wakeup. A
-     * fault while reading is resolved without sleeping, so it is fine here. */
+     * the new value (EAGAIN) or it sees us on the queue: no lost wakeup. The
+     * word is touched first with no lock held: a page of a file not read yet
+     * (a library's data) is read then, since under the lock nothing may wait
+     * for the disk; under it the fault only maps the page. */
     uint32_t cur;
+    if (copy_from_user(&cur, uaddr, sizeof cur) < 0)
+        return -EFAULT;
     uint64_t f = spin_lock_irqsave(&b->lock);
     int r = copy_from_user(&cur, uaddr, sizeof cur);
     if (r < 0 || cur != val) {
@@ -158,6 +162,9 @@ static int64_t futex_wait(struct mm *mm, uint64_t uaddr, uint32_t val, uint32_t 
 static int64_t futex_requeue(struct mm *mm, uint64_t uaddr, uint64_t uaddr2, int nwake, int nrequeue, bool cmp,
                              uint32_t val3) {
     struct futex_bucket *b1 = bucket_for(mm, uaddr), *b2 = bucket_for(mm, uaddr2);
+    uint32_t touch;
+    if (cmp && copy_from_user(&touch, uaddr, sizeof touch) < 0) /* (read in first, as in futex_wait) */
+        return -EFAULT;
     uint64_t f = lock_pair(b1, b2);
     if (cmp) {
         uint32_t cur;
@@ -197,8 +204,10 @@ static int64_t futex_wake_op(struct mm *mm, uint64_t uaddr, uint64_t uaddr2, int
         return -ENOSYS;
 
     struct futex_bucket *b1 = bucket_for(mm, uaddr), *b2 = bucket_for(mm, uaddr2);
-    uint64_t f = lock_pair(b1, b2);
     uint32_t old, cur;
+    if (copy_from_user(&old, uaddr2, sizeof old) < 0) /* (read in first, as in futex_wait) */
+        return -EFAULT;
+    uint64_t f = lock_pair(b1, b2);
     int r = copy_from_user(&old, uaddr2, sizeof old);
     while (r == 0) {
         uint32_t nv = op == 0 ? (uint32_t)oparg

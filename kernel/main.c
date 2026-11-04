@@ -160,19 +160,32 @@ void fpu_capture_clean_state(void);
  * starts, the model in the background, its file appearing once it is whole (PATH.coming meanwhile). With
  * UEFI (a real computer, from a USB stick the kernel can't read yet) the files come whole, as before. */
 
+/* The placeholder's line (an index may follow it: the base system's, scripts/cpio-index.py). */
 static bool lazy_stub(const struct limine_file *m, char *path, size_t pn, uint64_t *size) {
     const char *s = m->address;
-    if (m->size < 9 || m->size > 400 || memcmp(s, "OS-LAZY ", 8))
+    if (m->size < 9 || memcmp(s, "OS-LAZY ", 8))
         return false;
-    size_t i = 8, k = 0;
-    while (i < m->size && s[i] != ' ' && k + 1 < pn)
+    size_t end = m->size < 400 ? m->size : 400, i = 8, k = 0;
+    while (i < end && s[i] != ' ' && k + 1 < pn)
         path[k++] = s[i++];
     path[k] = 0;
     uint64_t v = 0;
-    for (i++; i < m->size && s[i] >= '0' && s[i] <= '9'; i++)
+    for (i++; i < end && s[i] >= '0' && s[i] <= '9'; i++)
         v = v * 10 + (uint64_t)(s[i] - '0');
     *size = v;
     return k > 0 && v > 0;
+}
+
+/* What the placeholder carries after its line, or NULL. */
+static const void *stub_tail(const struct limine_file *m, uint64_t *len) {
+    const char *s = m->address;
+    for (size_t i = 0; i < m->size && i < 400; i++)
+        if (s[i] == '\n') {
+            *len = m->size - i - 1;
+            return *len ? s + i + 1 : NULL;
+        }
+    *len = 0;
+    return NULL;
 }
 
 static int medium_reader(void *ctx, uint64_t off, void *buf, size_t n) {
@@ -181,13 +194,20 @@ static int medium_reader(void *ctx, uint64_t off, void *buf, size_t n) {
     return medium_read(f, off, buf, n);
 }
 
-static bool unpack_from_medium(const char *path, uint64_t size) {
-    struct medium_file f;
-    if (!medium_find(path, size, &f)) {
+/* The base system on the medium: its files are read from it as they are used (so it lives as long as they do). */
+static struct medium_file base_file;
+
+static bool unpack_from_medium(const char *path, uint64_t size, const void *index, uint64_t index_len,
+                               bool *lazily) {
+    if (!medium_find(path, size, &base_file)) {
         kprintf("medium: %s isn't on any drive the kernel can read: the base system is missing\n", path);
         return false;
     }
-    return initramfs_unpack_from(medium_reader, &f, size);
+    if (index && initramfs_from_index(index, index_len, &base_file))
+        return *lazily = true;
+    if (index)
+        kprintf("medium: the base system's index doesn't fit it: read whole instead\n");
+    return initramfs_unpack_from(medium_reader, &base_file, size);
 }
 
 /* "1.8 GB", "640 MB" */
@@ -566,6 +586,7 @@ static void init_main(void *arg) {
     fpu_capture_clean_state();
 
     vfs_init();
+    pageobj_keeper_start(); /* (file pages given back when memory is short) */
     devfs_init();
     pci_init(); /* before input_init, since we find virtio input devices on PCI */
     fbdev_init();
@@ -595,11 +616,17 @@ static void init_main(void *arg) {
     char bpath[128];
     uint64_t bsize;
     boot_step_start("base");
-    char bsz[24] = "";
+    char bsz[40] = "";
     if (base && lazy_stub(base, bpath, sizeof bpath, &bsize)) {
-        if (unpack_from_medium(bpath, bsize))
-            size_words(bsize, bsz, sizeof bsz), boot_step_done("base", bsz);
-        else
+        uint64_t ilen;
+        const void *index = stub_tail(base, &ilen);
+        bool lazily = false;
+        if (unpack_from_medium(bpath, bsize, index, ilen, &lazily)) {
+            size_words(bsize, bsz, sizeof bsz);
+            if (lazily)
+                ksnprintf(bsz + strlen(bsz), sizeof bsz - strlen(bsz), ", read as used");
+            boot_step_done("base", bsz);
+        } else
             boot_step_failed("base", "not on any drive the system can read");
     } else if (base) {
         initramfs_unpack(base->address, base->size);
