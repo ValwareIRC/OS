@@ -87,6 +87,12 @@ desktop OS (Windows, macOS, GNOME) checked one by one against what exists.
 14j. **Apps couldn't see files change**: no inotify, so GLib had no file monitor (folders didn't refresh, settings
     files weren't reread). The kernel has inotify now; `gio monitor` sees files made, changed, renamed and
     deleted. 18 self-tests.
+14k. **Their files lived in memory**: the home was held in RAM and written whole into the store at every change,
+    128 MB at most, no file over 32 MB kept (a 50 MB download was gone after a restart). It lives on the disk
+    now, in an area with ext3's journal (the kernel writes it, e2fsck replays it), so a power cut loses nothing
+    already saved. tests/journal_crash_win.py pulls the power at random moments while files are written (3 of 3
+    rounds: every file there byte for byte); tests/home_disk_vm_win.py moves a home from before onto the disk
+    and keeps a 50 MB file through a power cut (9 of 9).
 
 ## To fix (in this order)
 
