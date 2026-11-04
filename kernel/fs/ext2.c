@@ -16,9 +16,17 @@
  * Linux does (installing an app writes thousands of small files; one disk
  * trip per bitmap bit and inode made that take hours). Before the first
  * batch after a clean point, the superblock on the disk says "not cleanly
- * unmounted", so a crash leaves at most a few seconds of changes for the boot
- * check (e2fsck) to sort out. A sync (and power-off) writes everything and
- * marks it clean, so the boot check is short when the last shutdown was.
+ * unmounted". A sync (and power-off) writes everything and marks it clean.
+ *
+ * With a journal (ext3's, in JBD2's format, which e2fsck replays), each batch
+ * is one transaction, as ext3's ordered mode: files' data goes to its place,
+ * the file system's own blocks (inodes, bitmaps, folders, block maps, the
+ * descriptors, the superblock) to the journal with a commit record, and only
+ * then to their places. A power cut at any moment leaves the disk as it was
+ * before a batch or after it, never half way: e2fsck replays the last
+ * transaction at the next start. The journal's superblock always names the
+ * latest committed transaction alone, so nothing older is ever replayed over
+ * what came after it (and replaying the latest again writes the same blocks).
  *
  * One lock per file system (it may be taken again by the same thread). Each
  * inode in use has exactly one vnode (the inode cache), so mounts, parents
@@ -27,6 +35,18 @@
 #define EXT2_MAGIC 0xEF53
 #define ROOT_INO 2
 #define INCOMPAT_FILETYPE 0x0002
+#define INCOMPAT_RECOVER 0x0004  /* the journal may hold a transaction to replay (set while mounted) */
+#define COMPAT_HAS_JOURNAL 0x0004
+#define JBD2_MAGIC 0xC03B3998u
+#define JBD2_DESCRIPTOR 1
+#define JBD2_COMMIT 2
+#define JBD2_SUPER_V1 3
+#define JBD2_SUPER_V2 4
+#define JBD2_FLAG_ESCAPE 1
+#define JBD2_FLAG_SAME_UUID 2
+#define JBD2_FLAG_LAST_TAG 8
+#define JBD2_INCOMPAT_REVOKE 0x1
+#define JBD2_INCOMPAT_64BIT 0x2
 #define RO_COMPAT_SPARSE 0x0001
 #define RO_COMPAT_LARGE_FILE 0x0002
 #define RO_COMPAT_HUGE_FILE 0x0008 /* i_blocks in fs blocks: refused */
@@ -69,6 +89,7 @@ struct enode;
 struct bbuf {
     uint32_t blk;
     bool dirty;
+    bool is_data; /* a file's contents (to its place first), not the file system's own (to the journal) */
     uint8_t *data;
     struct bbuf *hnext, *prev, *next; /* hash chain; recently used list */
 };
@@ -102,6 +123,16 @@ struct ext2fs {
     bool sb_dirty, gd_dirty;
     bool disk_clean; /* what the superblock on the disk says */
     uint8_t *stage;  /* for writing runs of neighbouring blocks at once */
+    /* the journal: its length and first log block, the next transaction's sequence and place, the last
+     * transaction's place and length (not to be written over), where each log block is on the disk */
+    bool jon;
+    uint32_t jmax, jfirst, jseq, jhead, jlast_len, jtag;
+    uint32_t *jmap;
+    uint8_t *jsb;    /* the journal's superblock block, as on the disk */
+    uint8_t *jblk;   /* a block for descriptors and commit records */
+    uint8_t *sbblk;  /* the block holding the superblock (the rest of it as on the disk) */
+    uint32_t sbblk_no;
+    bool jwarned;
 };
 
 struct enode {
@@ -158,10 +189,14 @@ static void sb_state(struct ext2fs *fs, bool clean) {
 
 /* The superblock to the disk now, saying clean or not. */
 static int super_out(struct ext2fs *fs, bool clean) {
+    if (fs->jon && clean)
+        sb32_set(fs, 96, sb32(fs, 96) & ~(uint32_t)INCOMPAT_RECOVER);
     sb_state(fs, clean);
     sb32_set(fs, 48, (uint32_t)time_realtime_s()); /* s_wtime */
     int r = blkdev_write(fs->dev, fs->sb, 1024, 1024) == 1024 ? 0 : -EIO;
     sb_state(fs, false); /* in memory it is in use for as long as it is mounted */
+    if (fs->jon)
+        sb32_set(fs, 96, sb32(fs, 96) | INCOMPAT_RECOVER);
     if (r == 0)
         fs->disk_clean = clean;
     return r;
@@ -208,6 +243,88 @@ static void bforget(struct ext2fs *fs, struct bbuf *b) {
 }
 
 static int bflush(struct ext2fs *fs, bool clean);
+static int write_runs(struct ext2fs *fs, struct bbuf **list, uint32_t n);
+
+static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+static void put_be32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24), p[1] = (uint8_t)(v >> 16), p[2] = (uint8_t)(v >> 8), p[3] = (uint8_t)v; }
+static void put_be16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)(v >> 8), p[1] = (uint8_t)v; }
+
+static uint32_t jnext(struct ext2fs *fs, uint32_t pos) { return pos + 1 >= fs->jmax ? fs->jfirst : pos + 1; }
+
+static int jwrite(struct ext2fs *fs, uint32_t pos, const void *data) {
+    return blkdev_write(fs->dev, data, fs->bs, (uint64_t)fs->jmap[pos] * fs->bs) == (int64_t)fs->bs ? 0 : -EIO;
+}
+
+/* The journal's superblock names where its live transaction starts (0: none) and that transaction's sequence. */
+static int journal_point(struct ext2fs *fs, uint32_t start, uint32_t seq) {
+    put_be32(fs->jsb + 24, seq);   /* s_sequence */
+    put_be32(fs->jsb + 28, start); /* s_start */
+    return jwrite(fs, 0, fs->jsb);
+}
+
+/* n blocks (where they go, what is in them) as one transaction: written to the log with its descriptors, then
+ * its commit record, then the journal pointed at it. After this, a crash at any moment replays all of them. */
+static int journal_commit(struct ext2fs *fs, const uint32_t *blks, uint8_t *const *datas, uint32_t n) {
+    uint32_t per = (fs->bs - 12 - 16) / fs->jtag; /* tags in a descriptor (the first carries the journal's UUID) */
+    uint32_t need = n + (n + per - 1) / per + 1;
+    if (need + fs->jlast_len + 1 >= fs->jmax - fs->jfirst)
+        return -ENOSPC; /* (bigger than the journal can hold beside the last: written without it) */
+    uint32_t seq = fs->jseq, start = fs->jhead, pos = start;
+    for (uint32_t i = 0; i < n;) {
+        uint8_t *d = fs->jblk;
+        memset(d, 0, fs->bs);
+        put_be32(d, JBD2_MAGIC), put_be32(d + 4, JBD2_DESCRIPTOR), put_be32(d + 8, seq);
+        uint8_t *t = d + 12, *last = NULL;
+        uint32_t k = 0;
+        for (; i + k < n && k < per; k++) {
+            uint16_t flags = k ? JBD2_FLAG_SAME_UUID : 0;
+            if (be32(datas[i + k]) == JBD2_MAGIC)
+                flags |= JBD2_FLAG_ESCAPE; /* (a block that looks like the journal's own: written with that word 0) */
+            put_be32(t, blks[i + k]);
+            put_be16(t + 4, 0);
+            put_be16(t + 6, flags);
+            last = t;
+            t += fs->jtag;
+            if (!k) {
+                memcpy(t, fs->jsb + 48, 16); /* s_uuid */
+                t += 16;
+            }
+        }
+        put_be16(last + 6, (uint16_t)(last[7] | last[6] << 8 | JBD2_FLAG_LAST_TAG));
+        if (jwrite(fs, pos, d) < 0)
+            return -EIO;
+        pos = jnext(fs, pos);
+        for (uint32_t j = 0; j < k; j++) {
+            const uint8_t *src = datas[i + j];
+            if (be32(src) == JBD2_MAGIC) {
+                memcpy(fs->stage, src, fs->bs);
+                memset(fs->stage, 0, 4);
+                src = fs->stage;
+            }
+            if (jwrite(fs, pos, src) < 0)
+                return -EIO;
+            pos = jnext(fs, pos);
+        }
+        i += k;
+    }
+    blkdev_flush(fs->dev); /* what it is made of, on the disk before the record that it is whole */
+    uint8_t *c = fs->jblk;
+    memset(c, 0, fs->bs);
+    put_be32(c, JBD2_MAGIC), put_be32(c + 4, JBD2_COMMIT), put_be32(c + 8, seq);
+    uint64_t now = (uint64_t)time_realtime_s();
+    put_be32(c + 48, (uint32_t)(now >> 32)), put_be32(c + 52, (uint32_t)now); /* h_commit_sec */
+    if (jwrite(fs, pos, c) < 0)
+        return -EIO;
+    pos = jnext(fs, pos);
+    if (journal_point(fs, start, seq) < 0)
+        return -EIO;
+    blkdev_flush(fs->dev);
+    fs->jlast_len = need;
+    fs->jhead = pos;
+    fs->jseq = seq + 1;
+    return 0;
+}
+
 
 /* Shell sort, by block number: the batch goes out in disk order. */
 static void sort_bufs(struct bbuf **a, uint32_t n) {
@@ -272,6 +389,35 @@ static void bdirty(struct ext2fs *fs, struct bbuf *b) {
         bflush(fs, false);
 }
 
+/* Sorted dirty blocks to their places, neighbours in one request; written ones are clean. */
+static int write_runs(struct ext2fs *fs, struct bbuf **list, uint32_t n) {
+    int r = 0;
+    uint32_t per = fs->stage ? (256u * 1024) / fs->bs : 1;
+    for (uint32_t i = 0; i < n;) {
+        uint32_t run = 1;
+        while (i + run < n && run < per && list[i + run]->blk == list[i]->blk + run)
+            run++;
+        int64_t want = (int64_t)run * fs->bs, got;
+        uint64_t off = (uint64_t)list[i]->blk * fs->bs;
+        if (run == 1) {
+            got = blkdev_write(fs->dev, list[i]->data, fs->bs, off);
+        } else {
+            for (uint32_t k = 0; k < run; k++)
+                memcpy(fs->stage + (size_t)k * fs->bs, list[i + k]->data, fs->bs);
+            got = blkdev_write(fs->dev, fs->stage, (size_t)want, off);
+        }
+        if (got != want) {
+            r = -EIO;
+        } else {
+            for (uint32_t k = 0; k < run; k++)
+                list[i + k]->dirty = false;
+            fs->ndirty -= run;
+        }
+        i += run;
+    }
+    return r;
+}
+
 /* Everything changed, to the disk: the superblock first says "in use" (if it
  * said clean), then the blocks in disk order, neighbours in one request, then
  * the descriptors and the superblock with the new counts, then the drive's
@@ -283,8 +429,8 @@ static int bflush(struct ext2fs *fs, bool clean) {
     int r = 0;
     if (any && fs->disk_clean)
         r = super_out(fs, false);
-    if (fs->ndirty) {
-        struct bbuf **list = kmalloc(sizeof *list * fs->ndirty);
+    if (fs->ndirty || (fs->jon && any)) {
+        struct bbuf **list = kmalloc(sizeof *list * (fs->ndirty + 1));
         if (!list)
             return -ENOMEM;
         uint32_t n = 0;
@@ -292,6 +438,44 @@ static int bflush(struct ext2fs *fs, bool clean) {
             if (b->dirty)
                 list[n++] = b;
         sort_bufs(list, n);
+        if (fs->jon) {
+            /* files' data to its places first; the file system's own blocks, the descriptors and the superblock
+             * to the journal as one transaction, then to their places (n sorted: both halves stay sorted) */
+            uint32_t nd = 0;
+            for (uint32_t i = 0; i < n; i++)
+                if (list[i]->is_data) {
+                    struct bbuf *t = list[i];
+                    memmove(list + nd + 1, list + nd, sizeof *list * (i - nd));
+                    list[nd++] = t;
+                }
+            r |= write_runs(fs, list, nd);
+            uint32_t ngd = (uint32_t)(((size_t)fs->groups * sizeof(struct ext2_gd) + fs->bs - 1) / fs->bs);
+            uint32_t nm = n - nd, total = nm + ngd + 1;
+            uint32_t *blks = kmalloc(sizeof *blks * total);
+            uint8_t **datas = kmalloc(sizeof *datas * total);
+            uint8_t *gdimg = kzalloc((size_t)ngd * fs->bs);
+            int jr = -ENOMEM;
+            if (blks && datas && gdimg) {
+                for (uint32_t i = 0; i < nm; i++)
+                    blks[i] = list[nd + i]->blk, datas[i] = list[nd + i]->data;
+                memcpy(gdimg, fs->gd, (size_t)fs->groups * sizeof(struct ext2_gd));
+                for (uint32_t i = 0; i < ngd; i++)
+                    blks[nm + i] = fs->gdt_block + i, datas[nm + i] = gdimg + (size_t)i * fs->bs;
+                memcpy(fs->sbblk + 1024 % fs->bs, fs->sb, 1024); /* (in use, RECOVER: as mounted) */
+                blks[nm + ngd] = fs->sbblk_no, datas[nm + ngd] = fs->sbblk;
+                jr = journal_commit(fs, blks, datas, total);
+            }
+            kfree(blks), kfree(datas), kfree(gdimg);
+            if (jr < 0 && !fs->jwarned) {
+                fs->jwarned = true;
+                kprintf("ext2: %s: a batch went to the disk without the journal (%d)\n", fs->dev->name, jr);
+            }
+            r |= write_runs(fs, list + nd, nm); /* then to their places: a power cut now is replayed */
+            fs->gd_dirty = fs->sb_dirty = true;  /* (written below, after them) */
+            kfree(list);
+            n = 0;
+            list = NULL;
+        }
         uint32_t per = fs->stage ? (256u * 1024) / fs->bs : 1;
         for (uint32_t i = 0; i < n;) {
             uint32_t run = 1;
@@ -324,6 +508,14 @@ static int bflush(struct ext2fs *fs, bool clean) {
         else
             r = -EIO;
     }
+    if (fs->jon && clean && r == 0) {
+        /* everything is in its place: the journal holds nothing to replay, and the superblock says so */
+        blkdev_flush(fs->dev);
+        if (journal_point(fs, 0, fs->jseq) < 0)
+            r = -EIO;
+        fs->jhead = fs->jfirst, fs->jlast_len = 0;
+        blkdev_flush(fs->dev);
+    }
     if (fs->sb_dirty || clean) {
         if (super_out(fs, clean && r == 0) == 0)
             fs->sb_dirty = false;
@@ -344,16 +536,19 @@ static int bread(struct ext2fs *fs, uint32_t blk, void *buf) {
     return 0;
 }
 
-static int bwrite(struct ext2fs *fs, uint32_t blk, const void *buf) {
+static int bwrite_kind(struct ext2fs *fs, uint32_t blk, const void *buf, bool is_data) {
     if (blk == 0 || blk >= fs->blocks_count)
         return -EIO;
     struct bbuf *b = bget(fs, blk, false);
     if (!b)
         return -EIO;
     memcpy(b->data, buf, fs->bs);
+    b->is_data = is_data;
     bdirty(fs, b);
     return 0;
 }
+
+static int bwrite(struct ext2fs *fs, uint32_t blk, const void *buf) { return bwrite_kind(fs, blk, buf, false); }
 
 static int bzero_block(struct ext2fs *fs, uint32_t blk) {
     if (blk == 0 || blk >= fs->blocks_count)
@@ -362,6 +557,7 @@ static int bzero_block(struct ext2fs *fs, uint32_t blk) {
     if (!b)
         return -EIO;
     memset(b->data, 0, fs->bs);
+    b->is_data = false;
     bdirty(fs, b);
     return 0;
 }
@@ -754,7 +950,7 @@ static int64_t file_rw(struct enode *en, uint8_t *buf, size_t len, uint64_t off,
             }
         } else {
             if (whole) {
-                if (bwrite(fs, (uint32_t)pb, buf + done) < 0) {
+                if (bwrite_kind(fs, (uint32_t)pb, buf + done, true) < 0) {
                     err = -EIO;
                     break;
                 }
@@ -764,7 +960,7 @@ static int64_t file_rw(struct enode *en, uint8_t *buf, size_t len, uint64_t off,
                     break;
                 }
                 memcpy(blk + in, buf + done, n);
-                if (bwrite(fs, (uint32_t)pb, blk) < 0) {
+                if (bwrite_kind(fs, (uint32_t)pb, blk, true) < 0) {
                     err = -EIO;
                     break;
                 }
@@ -1612,6 +1808,71 @@ static void flush_main(void *arg) {
     }
 }
 
+/* The journal of a file system that has one (inode s_journal_inum): where its blocks are, what it says. A
+ * journal holding a transaction not yet replayed (e2fsck replays it before mounting) means nothing may be
+ * written: -EIO. Features this writer doesn't know: written without the journal, as plain ext2. */
+static int journal_open(struct ext2fs *fs) {
+    if (!(sb32(fs, 92) & COMPAT_HAS_JOURNAL))
+        return 0;
+    uint32_t jino = sb32(fs, 224);
+    struct enode tmp = {0};
+    tmp.fs = fs, tmp.ino = jino;
+    if (!jino || read_inode(fs, jino, &tmp.in) < 0) {
+        kprintf("ext2: %s: its journal is elsewhere or unreadable: written without it\n", fs->dev->name);
+        return 0;
+    }
+    uint32_t nblk = (uint32_t)(isize(&tmp.in) / fs->bs);
+    int64_t b0 = nblk >= 1024 ? bmap(&tmp, 0, false, false) : 0;
+    fs->jsb = kmalloc(fs->bs), fs->jblk = kmalloc(fs->bs), fs->sbblk = kmalloc(fs->bs);
+    if (b0 <= 0 || !fs->jsb || !fs->jblk || !fs->sbblk ||
+        blkdev_read(fs->dev, fs->jsb, fs->bs, (uint64_t)b0 * fs->bs) != (int64_t)fs->bs)
+        goto plain;
+    uint32_t type = be32(fs->jsb + 4), jbs = be32(fs->jsb + 12), maxlen = be32(fs->jsb + 16);
+    uint32_t first = be32(fs->jsb + 20), incompat = type == JBD2_SUPER_V2 ? be32(fs->jsb + 40) : 0;
+    if (be32(fs->jsb) != JBD2_MAGIC || (type != JBD2_SUPER_V1 && type != JBD2_SUPER_V2) || jbs != fs->bs ||
+        maxlen > nblk || first < 1 || first >= maxlen) {
+        kprintf("ext2: %s: its journal isn't one this system reads: written without it\n", fs->dev->name);
+        goto plain;
+    }
+    if (be32(fs->jsb + 28)) { /* s_start: a transaction to replay first */
+        kprintf("ext2: %s: its journal has changes to replay (e2fsck does it): not mounted\n", fs->dev->name);
+        kfree(fs->jsb), kfree(fs->jblk), kfree(fs->sbblk);
+        fs->jsb = fs->jblk = fs->sbblk = NULL;
+        return -EIO;
+    }
+    if (incompat & ~(uint32_t)(JBD2_INCOMPAT_REVOKE | JBD2_INCOMPAT_64BIT)) {
+        kprintf("ext2: %s: its journal uses features (%x) this system doesn't write: written without it\n",
+                fs->dev->name, incompat);
+        goto plain;
+    }
+    fs->jmap = kmalloc(sizeof *fs->jmap * maxlen);
+    if (!fs->jmap)
+        goto plain;
+    for (uint32_t i = 0; i < maxlen; i++) {
+        int64_t b = bmap(&tmp, i, false, false);
+        if (b <= 0) {
+            kfree(fs->jmap);
+            fs->jmap = NULL;
+            goto plain;
+        }
+        fs->jmap[i] = (uint32_t)b;
+    }
+    fs->sbblk_no = 1024 / fs->bs;
+    if (blkdev_read(fs->dev, fs->sbblk, fs->bs, (uint64_t)fs->sbblk_no * fs->bs) != (int64_t)fs->bs)
+        goto plain;
+    fs->jmax = maxlen, fs->jfirst = first, fs->jhead = first, fs->jlast_len = 0;
+    fs->jseq = be32(fs->jsb + 24);
+    fs->jtag = (incompat & JBD2_INCOMPAT_64BIT) ? 12 : 8;
+    fs->jon = true;
+    sb32_set(fs, 96, sb32(fs, 96) | INCOMPAT_RECOVER); /* in use: e2fsck looks at the journal after a crash */
+    kprintf("ext2: %s: journal of %u MiB\n", fs->dev->name, (uint32_t)((uint64_t)maxlen * fs->bs >> 20));
+    return 0;
+plain:
+    kfree(fs->jsb), kfree(fs->jblk), kfree(fs->sbblk);
+    fs->jsb = fs->jblk = fs->sbblk = NULL;
+    return 0;
+}
+
 /* The root of the ext2 file system on `dev` (referenced): mounted once, the
  * same tree for every mount of it. */
 int ext2_mount(struct blkdev *dev, struct vnode **out) {
@@ -1652,7 +1913,7 @@ int ext2_mount(struct blkdev *dev, struct vnode **out) {
         memcpy(&isz, fs->sb + 88, 2);
     fs->inode_size = isz;
     fs->first_ino = rev >= 1 ? sb32(fs, 84) : 11;
-    if (incompat & ~(uint32_t)INCOMPAT_FILETYPE) {
+    if (incompat & ~(uint32_t)(INCOMPAT_FILETYPE | INCOMPAT_RECOVER)) {
         kprintf("ext2: %s uses features this system doesn't support (incompat %x)\n", dev->name, incompat);
         kfree(fs);
         return -EINVAL;
@@ -1701,6 +1962,17 @@ int ext2_mount(struct blkdev *dev, struct vnode **out) {
     fs->maxbufs = BCACHE_BYTES / fs->bs;
     fs->maxdirty = BDIRTY_BYTES / fs->bs;
     fs->stage = kmalloc(256 * 1024);
+    int jr = fs->stage ? journal_open(fs) : 0;
+    if (jr == 0 && (incompat & INCOMPAT_RECOVER) && !fs->jon)
+        jr = -EIO; /* it says a journal may need replaying, and there is none this system can read */
+    if (jr < 0) {
+        kfree(fs->stage);
+        kfree(fs->bhint);
+        kfree(fs->ihint);
+        kfree(fs->gd);
+        kfree(fs);
+        return jr;
+    }
 
     int r = iget(fs, ROOT_INO, &fs->root);
     if (r < 0) {

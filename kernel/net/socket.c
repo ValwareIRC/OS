@@ -132,7 +132,21 @@ static int sock_wait(struct sock *s, int what, bool nonblock) {
         return 0;
     if (nonblock)
         return -EAGAIN;
-    return waitq_wait_cond(&s->wq, sock_ready, &w);
+    /* a read or a write that may wait only so long (SO_RCVTIMEO, SO_SNDTIMEO): EAGAIN after it, as Linux */
+    uint64_t limit = what == 0 ? s->rcvtimeo_ms : what == 1 ? s->sndtimeo_ms : 0;
+    if (!limit)
+        return waitq_wait_cond(&s->wq, sock_ready, &w);
+    uint64_t deadline = time_monotonic_ns() + limit * 1000000ULL;
+    for (;;) {
+        f = spin_lock_irqsave(&net_lock);
+        ready = sock_ready(&w);
+        net_unlock(f);
+        if (ready)
+            return 0;
+        int r = waitq_wait_until(&s->wq, sock_ready, &w, deadline);
+        if (r < 0)
+            return r;
+    }
 }
 
 static int64_t sock_recv(struct sock *s, void *buf, size_t len, bool nonblock, uint32_t *from, uint16_t *fport,
@@ -890,7 +904,22 @@ SYSCALL(setsockopt) {
     /* Everything is accepted. SO_REUSEADDR needs no action (see port_taken)
      * and TCP_NODELAY none either: there is no Nagle delay, every write is
      * sent at once. They are remembered so getsockopt reports them back. */
-    if (a2 == SOL_SOCKET && a3 == SO_REUSEADDR)
+    if (a2 == SOL_SOCKET && (a3 == SO_RCVTIMEO || a3 == SO_SNDTIMEO)) {
+        int64_t tv[2] = {0, 0}; /* struct timeval */
+        if (a5 < sizeof tv || copy_from_user(tv, a4, sizeof tv) < 0) {
+            file_put(file);
+            return a5 < sizeof tv ? -EINVAL : -EFAULT;
+        }
+        if (tv[0] < 0 || tv[1] < 0 || tv[1] >= 1000000) {
+            file_put(file);
+            return -EINVAL;
+        }
+        uint64_t ms = (uint64_t)tv[0] * 1000 + (uint64_t)(tv[1] + 999) / 1000;
+        if (a3 == SO_RCVTIMEO)
+            s->rcvtimeo_ms = ms;
+        else
+            s->sndtimeo_ms = ms;
+    } else if (a2 == SOL_SOCKET && a3 == SO_REUSEADDR)
         s->reuseaddr = value != 0;
     else if (a2 == SOL_SOCKET && a3 == SO_KEEPALIVE)
         s->keepalive = value != 0;
@@ -909,6 +938,15 @@ SYSCALL(getsockopt) {
     if (!s)
         return -ENOTSOCK;
     int value = 0;
+    if (a2 == SOL_SOCKET && (a3 == SO_RCVTIMEO || a3 == SO_SNDTIMEO)) {
+        uint64_t ms = a3 == SO_RCVTIMEO ? s->rcvtimeo_ms : s->sndtimeo_ms;
+        int64_t tv[2] = {(int64_t)(ms / 1000), (int64_t)(ms % 1000) * 1000};
+        file_put(file);
+        uint32_t tl = sizeof tv;
+        if (copy_to_user(a4, tv, sizeof tv) < 0 || copy_to_user(a5, &tl, sizeof tl) < 0)
+            return -EFAULT;
+        return 0;
+    }
     if (a2 == SOL_SOCKET && a3 == SO_ERROR) {
         uint64_t f = spin_lock_irqsave(&net_lock);
         value = s->error;

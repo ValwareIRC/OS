@@ -96,9 +96,11 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
       copy-on-write, about 200 Linux system calls (threads, futexes, signals, epoll, eventfd, timerfd, signalfd,
       memfd, AF_UNIX with SCM_RIGHTS, ptys, /proc and /sys, namespaces and seccomp for sandboxes); musl and glibc
       programs, and Flatpak apps, run unmodified. 205 self-tests (`tests/selftest_win.py`)
-- [x] Storage: AHCI and virtio-blk; the person's state and home kept on the disk in a crash-safe two-slot store
-      (`shell/store.c`), apps in an ext2 area beside it, checked and repaired at every start
-- [x] Networking: e1000, IPv4/TCP/UDP/DHCP in the kernel, mbed TLS in user space; the clock set from the network
+- [x] Storage: AHCI and virtio-blk; the person's home and the apps on the disk in a journaled ext3 area (the kernel
+      writes ext3's journal, e2fsck replays it: a power cut never leaves it half written), the system's own state
+      in a crash-safe two-slot store beside it (`shell/store.c`)
+- [x] Networking: e1000/e1000e (with interrupts), IPv4/TCP/UDP/DHCP in the kernel (window scaling, SACK, segments
+      kept ahead of a gap), mbed TLS in user space; the clock set from the network
 - [x] Apps: the base system is the Freedesktop Platform with Flatpak, the portals and PulseAudio; Flathub apps
       install from the launcher and run in their sandbox (Firefox, Chromium, Prism, MarkText, AbiWord, DOSBox);
       the OS's own Wayland compositor frames their windows in the person's design

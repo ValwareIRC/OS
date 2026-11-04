@@ -36,6 +36,7 @@ struct sock {
     bool shut_rd, shut_wr;
     bool file_open; /* still referenced by a file */
     bool reuseaddr, nodelay, keepalive; /* accepted and reported back; see setsockopt */
+    uint64_t rcvtimeo_ms, sndtimeo_ms;  /* SO_RCVTIMEO, SO_SNDTIMEO: how long a read or a write may wait (0: no limit) */
     struct waitq wq;
 
     /* stream receive ring (in-order bytes) */
@@ -64,6 +65,8 @@ struct sock {
     uint64_t rto_ms, rto_deadline, timewait_deadline;
     int retries;
     int dupacks;                            /* ACKs in a row that acknowledged nothing new */
+    bool recovering;                        /* after a fast retransmit, until everything then in flight is ACKed */
+    uint32_t recover;                       /* (snd_nxt when it began: RFC 6582, NewReno) */
     uint64_t persist_ms, persist_deadline;  /* probing a closed peer window */
     uint64_t challenge_ack_ms;              /* last ACK sent for an out-of-window segment */
 

@@ -469,6 +469,8 @@ struct linux_sysinfo {
 #define SOL_SOCKET 1
 #define SO_TYPE 3
 #define SO_ERROR 4
+#define SO_RCVTIMEO 20
+#define SO_SNDTIMEO 21
 #define SO_SNDBUF 7
 #define SO_RCVBUF 8
 #define SO_PASSCRED 16

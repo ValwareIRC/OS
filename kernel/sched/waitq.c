@@ -100,6 +100,29 @@ void multiwait_end(struct multiwait *m) {
     m->added = m->unwaitable = false;
 }
 
+int waitq_wait_until(struct waitq *wq, bool (*cond)(void *), void *arg, uint64_t deadline_ns) {
+    if (!deadline_ns)
+        return waitq_wait_cond(wq, cond, arg);
+    struct waitq_entry e = {.t = thread_current()};
+    uint64_t f = spin_lock_irqsave(&wq->lock);
+    e.next = wq->head;
+    wq->head = &e;
+    spin_unlock_irqrestore(&wq->lock, f);
+    int r = 0;
+    if (!cond(arg)) {
+        if (signal_pending_current())
+            r = -EINTR;
+        else if (time_monotonic_ns() >= deadline_ns)
+            r = -EAGAIN;
+        else
+            thread_block_until_ns(deadline_ns);
+    }
+    f = spin_lock_irqsave(&wq->lock);
+    unlink_entry(wq, &e);
+    spin_unlock_irqrestore(&wq->lock, f);
+    return r;
+}
+
 void waitq_wake_all(struct waitq *wq) {
     uint64_t f = spin_lock_irqsave(&wq->lock);
     wq->seq++;

@@ -183,8 +183,10 @@ bool store_save(void) {
         skip_app_data = pass == 1;
         free(o.buf);
         o = (struct out){0};
+        bool home_on_disk = access("/run/os/home-on-disk", F_OK) == 0; /* (init: the home is on the disk itself) */
         for (int i = 0; roots[i]; i++)
-            walk(&o, roots[i]);
+            if (!(home_on_disk && !strcmp(roots[i], "/home")))
+                walk(&o, roots[i]);
         put(&o, "END!", 4);
         if (!o.full)
             break;

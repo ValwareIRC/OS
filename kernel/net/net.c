@@ -276,12 +276,13 @@ static int lo_send(uint32_t src, uint32_t dst, uint8_t proto, const void *payloa
     p->next = NULL;
     const uint8_t *tp = payload;
     if (lo_chaos >= 4 && proto == PROTO_TCP && len >= 20 && len > (size_t)(tp[12] >> 4) * 4) {
-        unsigned n = ++lo_chaos_n % (unsigned)lo_chaos;
+        lo_chaos_n = lo_chaos_n * 1103515245u + 12345u; /* at random, one in N of each (not every Nth: a sender's */
+        unsigned n = (lo_chaos_n >> 16) % (unsigned)lo_chaos; /* rounds could fall in step with that) */
         if (n == 0) { /* lost */
             kfree(p);
             return 0;
         }
-        if (n == (unsigned)lo_chaos / 2 && !lo_held) { /* late: after the next one */
+        if (n == 1 && !lo_held) { /* late: after the next one */
             lo_held = p;
             return 0;
         }

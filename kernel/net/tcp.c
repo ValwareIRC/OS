@@ -272,8 +272,29 @@ void tcp_output(struct sock *s) {
     }
 }
 
+/* Three duplicate ACKs: the segment at the oldest unacknowledged byte was lost. That one alone is sent again
+ * (what came after it is kept by the receiver: ours keeps segments ahead of a gap, as every TCP does); a timeout
+ * still goes back over everything (go_back). Resending all that was in flight lost the same segment again and
+ * again when losses fell in step with it. */
+extern int lo_chaos;
+static void resend_first(struct sock *s) {
+    uint32_t inflight = s->snd_nxt - s->snd_una;
+    if (lo_chaos) /* (tests: what recovers from what) */
+        kprintf("tcp: %llu: fast resend at %u, %u in flight, window %u, %s\n", (unsigned long long)now_ms(),
+                s->snd_una - s->iss, inflight, s->snd_wnd, s->recovering ? "recovering" : "three duplicates");
+    bool fin_in_flight = s->fin_sent && inflight == (uint32_t)s->tx_len + 1;
+    uint64_t data = fin_in_flight ? inflight - 1 : inflight;
+    size_t n = data < s->mss ? (size_t)data : s->mss;
+    if (n)
+        send_segment(s, ACK | PSH, s->snd_una, 0, n);
+    else if (fin_in_flight)
+        send_segment(s, FIN | ACK, s->snd_una, 0, 0);
+    s->dupacks = 0;
+}
+
 /* Resends from the oldest unacknowledged byte. */
 static void go_back(struct sock *s) {
+    s->recovering = false;
     bool fin_was_sent = s->fin_sent && s->snd_nxt == s->snd_una + (uint32_t)s->tx_len + 1;
     s->snd_nxt = s->snd_una;
     s->dupacks = 0;
@@ -572,12 +593,23 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
         s->snd_wnd = (uint32_t)ntohs(h->wnd) << s->snd_wscale;
         if (advanced) {
             s->dupacks = 0;
+            /* NewReno (RFC 6582): an ACK short of what was in flight when the loss was found means the next
+             * segment was lost too: sent again now, not a whole timeout later (several losses in one window used
+             * to cost a second each) */
+            if (s->recovering && seq_lt(s->snd_una, s->recover) && s->snd_una != s->snd_nxt)
+                resend_first(s);
+            else
+                s->recovering = false;
+        } else if (s->recovering) {
+            /* (duplicates while it recovers: what is missing was sent again already) */
         } else if (ack == s->snd_una && !dlen && !(flags & (SYN | FIN)) && s->snd_nxt != s->snd_una &&
                    ++s->dupacks == DUPACK_THRESHOLD) {
             /* Acknowledgments that keep naming the same byte while more is in
              * flight: what follows it was lost, or dropped by a receiver that
-             * ran out of room. Resend now rather than after a whole RTO. */
-            go_back(s);
+             * ran out of room. Resend it now rather than after a whole RTO. */
+            resend_first(s);
+            s->recovering = true;
+            s->recover = s->snd_nxt;
         }
     }
 
@@ -623,8 +655,13 @@ void tcp_input(struct netif *nif, uint32_t src, uint32_t dst, const uint8_t *seg
                 flags |= FIN, take = dlen; /* the FIN that came ahead of the gap */
             if (!need_ack)
                 need_ack = (flags & FIN) || take < dlen; /* a FIN, or no room: told now; plain data: at the batch's end */
+            /* the reader is told of what came in either way: at the batch's end, or now with the ACK (a gap just
+             * filled, a full buffer): left out here, the reader slept on data it had (a stall, a hang without a
+             * timeout) */
             if (!need_ack && take)
                 tcp_defer(s);
+            else if (take)
+                waitq_wake_all(&s->wq);
             if ((flags & FIN) && take == dlen) {
                 s->rcv_nxt++;
                 s->rx_eof = true;
@@ -685,6 +722,9 @@ void tcp_timers(uint64_t now) {
              * retry: a peer may keep its window shut as long as its reader
              * is busy, and that is no reason to drop the connection. */
             send_segment(s, ACK, s->snd_una - 1, 0, 0);
+            if (lo_chaos)
+                kprintf("tcp: %llu: window shut, probing (after %llu ms) at %u, %llu waiting\n", (unsigned long long)now,
+                        (unsigned long long)s->persist_ms, s->snd_una - s->iss, (unsigned long long)s->tx_len);
             s->persist_ms = s->persist_ms * 2 > PERSIST_MAX ? PERSIST_MAX : s->persist_ms * 2;
             s->persist_deadline = now + s->persist_ms;
         }
@@ -696,6 +736,10 @@ void tcp_timers(uint64_t now) {
             sock_free_if_done(s);
             continue;
         }
+        if (lo_chaos)
+            kprintf("tcp: %llu: timeout (%llu ms) at %u, %u in flight, window %u, state %d\n", (unsigned long long)now,
+                    (unsigned long long)s->rto_ms, s->snd_una - s->iss, s->snd_nxt - s->snd_una, s->snd_wnd,
+                    (int)s->state);
         s->rto_ms = s->rto_ms * 2 > RTO_MAX ? RTO_MAX : s->rto_ms * 2;
         arm_rto(s);
         if (s->state == TCP_SYN_SENT)

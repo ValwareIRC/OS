@@ -29,6 +29,8 @@ void waitq_init(struct waitq *wq);
  * still false. Returns -EINTR if a signal is pending, 0 otherwise. */
 int waitq_wait_cond(struct waitq *wq, bool (*cond)(void *), void *arg);
 void waitq_wake_all(struct waitq *wq);
+/* As waitq_wait_cond, giving up at `deadline_ns` (0: never): -EAGAIN then, -EINTR for a signal, 0 when woken. */
+int waitq_wait_until(struct waitq *wq, bool (*cond)(void *), void *arg, uint64_t deadline_ns);
 
 /* Waiting on many wait queues at once (poll, select, epoll_wait): each queue a file's poll op names is added once
  * (with a reference to the file, so neither goes away meanwhile), then the caller looks at everything again and

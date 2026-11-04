@@ -215,7 +215,9 @@ static void keep_on_disk(void) {
         usable = false;
         return;
     }
-    uint64_t sig = tree_sig(home_dir(), tree_sig(STATE_DIR, 1469598103934665603ull));
+    /* (the home on the disk itself: its own file system keeps it; only the state is the store's) */
+    uint64_t sig = access("/run/os/home-on-disk", F_OK) == 0 ? tree_sig(STATE_DIR, 1469598103934665603ull)
+                                                             : tree_sig(home_dir(), tree_sig(STATE_DIR, 1469598103934665603ull));
     if (!primed) {
         primed = true;
         saved_sig = sig;

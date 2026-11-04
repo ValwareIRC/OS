@@ -314,6 +314,9 @@ static void lo_chaos_test(void) {
         ssize_t n;
         uint32_t h = 2166136261u, rcvbuf = 0;
         socklen_t sl = sizeof rcvbuf;
+        struct timeval tv = {20, 0}; /* (a stalled connection fails the test, it doesn't hang it) */
+        if (c >= 0)
+            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
         while (c >= 0 && total < LO_ECHO_BYTES && (n = read(c, buf, sizeof buf)) > 0) {
             for (ssize_t i = 0; i < n; i++)
                 h = (h ^ buf[i]) * 16777619u;
@@ -332,12 +335,20 @@ static void lo_chaos_test(void) {
     struct timespec t0;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     char k = 0;
-    bool sent = c >= 0 && write_all(c, lo_data, LO_ECHO_BYTES) && read(c, &k, 1) == 1;
+    struct timeval tv = {25, 0};
+    if (c >= 0)
+        setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv), setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    bool wrote = c >= 0 && write_all(c, lo_data, LO_ECHO_BYTES);
+    long wrote_ms = ms_since(&t0);
+    bool sent = wrote && read(c, &k, 1) == 1;
     long ms = ms_since(&t0);
+    printf("utest: lo: (all of it handed to TCP after %ld ms, the receiver's answer after %ld)\n", wrote_ms, ms);
     if (c >= 0)
         close(c);
-    if (pid > 0)
+    if (pid > 0) {
+        kill(pid, SIGKILL); /* (gone already, unless it stalled) */
         waitpid(pid, NULL, 0);
+    }
     cf = open("/proc/sys/net/ipv4/os_loopback_chaos", O_WRONLY);
     if (cf >= 0) {
         if (write(cf, "0", 1) != 1)
@@ -2503,6 +2514,80 @@ static bool factory_reset_asked(void) {
     return asked;
 }
 
+/* Their home on the disk itself (the apps' area, journaled: kernel/fs/ext2.c), shown at /home/<name> by a bind
+ * mount: no size limit, no file too big to keep, nothing rewritten whole at each save (the store kept the home
+ * in memory and wrote all of it to its slot at every change, 128 MiB at most, files over 32 MiB not at all). The
+ * first time, what the store kept (restored into memory a moment ago) is copied there and checked; the store's
+ * copy stays as it was, and from then on the store keeps the system's state alone (HOME_ON_DISK says so). */
+#define HOME_ON_DISK "/run/os/home-on-disk"
+const char *account_name(void);
+static void home_to_disk(void) {
+    struct stat st;
+    if (access(HOME_ON_DISK, F_OK) == 0 || stat(DATA_DIR "/lost+found", &st) != 0) /* done, or no disk mounted */
+        return;
+    const char *home = home_dir(), *name = account_name();
+    char disk_home[300];
+    snprintf(disk_home, sizeof disk_home, DATA_DIR "/home/%s", name);
+    mkdir(DATA_DIR "/home", 0755);
+    if (stat(disk_home, &st) != 0) {
+        /* a home there under an older name (the account renamed): it takes the new one, as /home does */
+        DIR *d = opendir(DATA_DIR "/home");
+        char old[300] = "";
+        for (struct dirent *e; d && (e = readdir(d));)
+            if (e->d_name[0] != '.' && snprintf(old, sizeof old, DATA_DIR "/home/%s", e->d_name) > 0)
+                break;
+        if (d)
+            closedir(d);
+        if (old[0] && rename(old, disk_home) == 0) {
+            printf("init: their home on the disk is now %s (it was %s)\n", disk_home, old);
+        } else {
+            /* the first time: what the store kept, copied onto the disk, then checked against it */
+            if (mkdir(disk_home, 0700) != 0) {
+                printf("init: couldn't make %s (%s): the home stays in memory\n", disk_home, strerror(errno));
+                return;
+            }
+            char src[320], out[1024];
+            snprintf(src, sizeof src, "%s/.", home);
+            char *cp[] = {"/bin/cp", "-a", src, disk_home, NULL};
+            int r = run(cp, out, sizeof out);
+            char *cmp[] = {"/bin/diff", "-rq", (char *)home, disk_home, NULL};
+            int same = r == 0 ? run(cmp, out, sizeof out) : -1;
+            if (r != 0 || same != 0) {
+                printf("init: their home couldn't be moved onto the disk (%s): it stays in memory\n", out);
+                char *rm[] = {"/bin/rm", "-r", disk_home, NULL};
+                run(rm, out, sizeof out);
+                return;
+            }
+            sync();
+            printf("init: their home moved onto the disk (%s)\n", disk_home);
+        }
+    }
+    if (chown(disk_home, SESSION_UID, SESSION_UID) != 0 || chmod(disk_home, 0700) != 0) {
+    }
+    mkdir(home, 0700);
+    if (mount(disk_home, home, NULL, MS_BIND, NULL) != 0) {
+        printf("init: couldn't show %s at %s (%s): the home stays in memory\n", disk_home, home, strerror(errno));
+        return;
+    }
+    mkdir("/run/os", 0755);
+    FILE *f = fopen(HOME_ON_DISK, "w");
+    if (f) {
+        fprintf(f, "%s\n", disk_home);
+        fclose(f);
+    }
+    printf("init: their home is on the disk (%s, journaled)\n", disk_home);
+}
+
+/* Whether the apps' area has a journal (the superblock's has_journal feature, at byte 1024 + 92). */
+static bool data_disk_journaled(void) {
+    int fd = open(DATA_DEV, O_RDONLY);
+    uint32_t compat = 0;
+    bool ok = fd >= 0 && pread(fd, &compat, 4, 1024 + 92) == 4;
+    if (fd >= 0)
+        close(fd);
+    return ok && (compat & 0x4);
+}
+
 static void setup_data_disk(void) {
     if (access(DATA_DEV, F_OK) != 0) {
         printf("init: no disk area for apps (" DATA_DEV "): apps from Flathub won't be kept\n");
@@ -2513,8 +2598,10 @@ static void setup_data_disk(void) {
     if (reset)
         printf("init: reset to factory: the apps' area is made new\n");
     if (reset || !data_disk_formatted()) {
-        char *mk[] = {"/usr/sbin/mke2fs", "-q", "-F", "-t", "ext2", "-O", "^dir_index,^resize_inode,^ext_attr",
-                      "-b", "4096", "-L", "os-data", DATA_DEV, NULL};
+        /* with a journal (ext3's): a power cut never leaves it half written (kernel/fs/ext2.c) */
+        char *mk[] = {"/usr/sbin/mke2fs", "-q", "-F", "-t", "ext2", "-O",
+                      "^dir_index,^resize_inode,^ext_attr,has_journal", "-J", "size=64", "-b", "4096", "-L", "os-data",
+                      DATA_DEV, NULL};
         int r = run(mk, out, sizeof out);
         printf("init: formatted " DATA_DEV " for apps (%s)\n", r == 0 ? "ok" : out);
         if (r != 0)
@@ -2534,6 +2621,12 @@ static void setup_data_disk(void) {
         }
         if (r >= 4)
             return; /* not mounted: better no apps than a damaged disk made worse */
+        /* a disk from before the journal: given one (checked and clean, nothing mounted: what tune2fs needs) */
+        if (!data_disk_journaled()) {
+            char *tj[] = {"/usr/sbin/tune2fs", "-O", "has_journal", "-J", "size=64", DATA_DEV, NULL};
+            int tr = run(tj, out, sizeof out);
+            printf("init: " DATA_DEV " given a journal: %s\n", tr == 0 ? "ok" : out);
+        }
     }
     mkdir("/var/lib", 0755);
     mkdir(DATA_DIR, 0755);
@@ -2729,6 +2822,75 @@ int main(void) {
         reboot(RB_POWER_OFF);
         return 1;
     }
+    /* OS_MODE=journal-write, then journal-check:N (tests/journal_crash_win.py): files written and made sure of in
+     * batches until the power is pulled mid-write; the next start replays the journal (e2fsck), the disk must
+     * check clean, and every file said to be made sure of must be there, byte for byte. */
+    if (mode && !strcmp(mode, "journal-write")) {
+        setup_data_disk();
+        mkdir(DATA_DIR "/jtest", 0755);
+        static uint8_t blk[65536];
+        for (int i = 0;; i++) {
+            char p[96];
+            snprintf(p, sizeof p, DATA_DIR "/jtest/f%05d", i);
+            int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            size_t n = 4096 + (size_t)(i * 7919) % 60000; /* sizes of all kinds: small files, a few blocks */
+            for (size_t k = 0; k < n; k++)
+                blk[k] = (uint8_t)(i * 31 + k * 7);
+            if (fd < 0 || write(fd, blk, n) != (ssize_t)n) {
+                printf("journal-write: couldn't write %s\n", p);
+                break;
+            }
+            if (i % 10 == 9) /* made sure of: this one, and the whole file system with it */
+                fsync(fd);
+            close(fd);
+            if (i % 3 == 2) { /* folders and renames too: the file system's own blocks change */
+                char q[96];
+                snprintf(q, sizeof q, DATA_DIR "/jtest/r%05d", i);
+                rename(p, q);
+                rename(q, p);
+            }
+            if (i % 10 == 9) {
+                printf("journal-write: synced %d\n", i + 1);
+                fflush(stdout);
+            }
+        }
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
+    if (mode && !strncmp(mode, "journal-check:", 14)) {
+        int n = atoi(mode + 14);
+        char out[4096];
+        char *ck[] = {"/usr/sbin/e2fsck", "-p", DATA_DEV, NULL};
+        int r = run(ck, out, sizeof out);
+        printf("journal-check: e2fsck -p: %d\n%s\n", r, out);
+        char *full[] = {"/usr/sbin/e2fsck", "-fn", DATA_DEV, NULL};
+        int fr = run(full, out, sizeof out);
+        printf("journal-check: e2fsck -fn (a full check, nothing changed): %d%s%s\n", fr, fr ? "\n" : "", fr ? out : "");
+        setup_data_disk();
+        static uint8_t want[65536], got[65536];
+        int bad = 0, missing = 0;
+        for (int i = 0; i < n; i++) {
+            char p[96];
+            snprintf(p, sizeof p, DATA_DIR "/jtest/f%05d", i);
+            size_t len = 4096 + (size_t)(i * 7919) % 60000;
+            for (size_t k = 0; k < len; k++)
+                want[k] = (uint8_t)(i * 31 + k * 7);
+            int fd = open(p, O_RDONLY);
+            if (fd < 0) {
+                missing++;
+                continue;
+            }
+            ssize_t g = read(fd, got, sizeof got);
+            close(fd);
+            if (g != (ssize_t)len || memcmp(got, want, len))
+                bad++;
+        }
+        printf("journal-check: %d files made sure of: %d missing, %d different; the disk %s\n", n, missing, bad,
+               fr == 0 ? "checks clean" : "had problems");
+        fflush(stdout);
+        reboot(RB_POWER_OFF);
+        return 1;
+    }
     if (mode && !strcmp(mode, "wake-latency")) {
         wake_latency_mode();
         reboot(RB_POWER_OFF);
@@ -2795,6 +2957,7 @@ int main(void) {
     start_boot_screen();
     boot_step("apps", "active");
     setup_data_disk(); /* apps from Flathub live there */
+    home_to_disk();    /* and their home */
     boot_step("apps", "done");
     boot_step("services", "active");
     start_buses();
