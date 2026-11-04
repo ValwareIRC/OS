@@ -3,6 +3,73 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ---- the hot loops, twice: for any x86-64, and for processors with AVX2 (eight pixels an instruction), the
+ * second chosen when the desktop starts if the processor has it. Written without branches, so the compiler can
+ * keep eight pixels in flight; blending on a 0..256 scale (shifts, not divisions: at most 1 in 255 off). ---- */
+
+static inline uint32_t blend256(uint32_t d, uint32_t s_rb, uint32_t s_g, uint32_t a /* 0..256 */) {
+    uint32_t ia = 256 - a;
+    uint32_t rb = ((s_rb * a + (d & 0x00ff00ffu) * ia) >> 8) & 0x00ff00ffu;
+    uint32_t g = ((s_g * a + ((d >> 8) & 0xffu) * ia) >> 8) & 0xffu;
+    return 0xff000000u | rb | g << 8;
+}
+
+/* n pixels of `row` under one colour of alpha a (0..256) */
+#define FILL_ALPHA_BODY                                                                                          \
+    uint32_t s_rb = col & 0x00ff00ffu, s_g = (col >> 8) & 0xffu;                                                 \
+    for (int i = 0; i < n; i++)                                                                                  \
+        row[i] = blend256(row[i], s_rb, s_g, a);
+
+/* a radial glow's pixels x0..x1 on one row: (1 - d^2)^2 of the colour's alpha */
+#define GLOW_BODY                                                                                                \
+    uint32_t s_rb = col & 0x00ff00ffu, s_g = (col >> 8) & 0xffu;                                                 \
+    float sa = (float)((col >> 24) & 0xff) * (256.0f / 255.0f);                                                  \
+    for (int x = x0; x < x1; x++) {                                                                              \
+        float dx = (float)x + 0.5f - cx, t = 1.0f - (dx * dx + dy2) * inv;                                       \
+        t = t > 0 ? t : 0;                                                                                       \
+        row[x] = blend256(row[x], s_rb, s_g, (uint32_t)(t * t * sa));                                            \
+    }
+
+/* n pixels of `row`, each under the colour with its own alpha a[i] (0..256) */
+#define BLEND_COV_BODY                                                                                           \
+    uint32_t s_rb = col & 0x00ff00ffu, s_g = (col >> 8) & 0xffu;                                                 \
+    for (int i = 0; i < n; i++)                                                                                  \
+        row[i] = blend256(row[i], s_rb, s_g, a[i]);
+
+#if defined(__x86_64__)
+#define AVX2 __attribute__((target("avx2,fma")))
+#else
+#define AVX2
+#endif
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+static void fill_alpha_generic(uint32_t *row, int n, uint32_t col, uint32_t a) { FILL_ALPHA_BODY }
+static void glow_row_generic(uint32_t *row, int x0, int x1, float cx, float dy2, float inv, uint32_t col) { GLOW_BODY }
+static void blend_cov_generic(uint32_t *row, int n, uint32_t col, const uint32_t *a) { BLEND_COV_BODY }
+#if defined(__x86_64__)
+AVX2 static void fill_alpha_avx2(uint32_t *row, int n, uint32_t col, uint32_t a) { FILL_ALPHA_BODY }
+AVX2 static void glow_row_avx2(uint32_t *row, int x0, int x1, float cx, float dy2, float inv, uint32_t col) { GLOW_BODY }
+AVX2 static void blend_cov_avx2(uint32_t *row, int n, uint32_t col, const uint32_t *a) { BLEND_COV_BODY }
+#endif
+#pragma GCC pop_options
+
+static void (*k_fill_alpha)(uint32_t *, int, uint32_t, uint32_t) = fill_alpha_generic;
+static void (*k_glow_row)(uint32_t *, int, int, float, float, float, uint32_t) = glow_row_generic;
+static void (*k_blend_cov)(uint32_t *, int, uint32_t, const uint32_t *) = blend_cov_generic;
+
+const char *gfx_init(void) {
+#if defined(__x86_64__)
+    __builtin_cpu_init();
+    if (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma")) {
+        k_fill_alpha = fill_alpha_avx2;
+        k_glow_row = glow_row_avx2;
+        k_blend_cov = blend_cov_avx2;
+        return "avx2";
+    }
+#endif
+    return "baseline";
+}
+
 canvas *canvas_new(int w, int h) {
     canvas *c = calloc(1, sizeof *c);
     if (!c)
@@ -206,24 +273,30 @@ static void fill_round_rows(canvas *c, rect r, float radius, color top, color bo
     int ia = r.x + rad > x0 ? r.x + rad : x0, ib = r.x + r.w - rad < x1 ? r.x + r.w - rad : x1;
     for (int y = y0; y < y1; y++) {
         color col = top == bottom ? top : color_mix(top, bottom, r.h > 1 ? (float)(y - r.y) / (float)(r.h - 1) : 0);
-        uint32_t a = C_A(col), na = 255 - a;
+        uint32_t a = C_A(col);
         if (!a)
             continue;
-        uint32_t pr = C_R(col) * a + 127, pg = C_G(col) * a + 127, pb = C_B(col) * a + 127;
         bool edge_row = y < r.y + rad || y >= r.y + r.h - rad;
         uint32_t *row = &c->px[(size_t)y * (size_t)c->w];
-        for (int x = x0; x < x1; x++) {
-            if (edge_row || x < ia || x >= ib) {
-                float cov = round_cov(r, radius, x + 0.5f, y + 0.5f);
-                if (cov > 0)
-                    row[x] = blend(row[x], col, (uint32_t)(cov * 255));
-            } else if (a == 255) {
-                row[x] = col;
-            } else {
-                uint32_t d = row[x];
-                row[x] = 0xff000000u | ((pr + C_R(d) * na) / 255) << 16 | ((pg + C_G(d) * na) / 255) << 8 |
-                         ((pb + C_B(d) * na) / 255);
-            }
+        int sa = edge_row ? x1 : (ia > x0 ? ia : x0), sb = edge_row ? x1 : (ib < x1 ? ib : x1);
+        if (sb < sa)
+            sa = sb = x1;
+        for (int x = x0; x < sa; x++) { /* the rounded ends: coverage worked out per pixel */
+            float cov = round_cov(r, radius, x + 0.5f, y + 0.5f);
+            if (cov > 0)
+                row[x] = blend(row[x], col, (uint32_t)(cov * 255));
+        }
+        if (sb > sa) { /* the middle: a whole span */
+            if (a == 255)
+                for (int x = sa; x < sb; x++)
+                    row[x] = col;
+            else
+                k_fill_alpha(row + sa, sb - sa, col, a + (a >> 7));
+        }
+        for (int x = sb; x < x1; x++) {
+            float cov = round_cov(r, radius, x + 0.5f, y + 0.5f);
+            if (cov > 0)
+                row[x] = blend(row[x], col, (uint32_t)(cov * 255));
         }
     }
 }
@@ -242,20 +315,29 @@ void fill_vgradient(canvas *c, rect r, color top, color bottom) {
 void stroke_round(canvas *c, rect r, float radius, float width, color col) {
     int x0 = r.x - 1 < c->cx0 ? c->cx0 : r.x - 1, y0 = r.y - 1 < c->cy0 ? c->cy0 : r.y - 1;
     int x1 = r.x + r.w + 1 > c->cx1 ? c->cx1 : r.x + r.w + 1, y1 = r.y + r.h + 1 > c->cy1 ? c->cy1 : r.y + r.h + 1;
-    rect inner = {r.x, r.y, r.w, r.h};
-    float ir = radius - width;
-    for (int y = y0; y < y1; y++)
+    rect in = {r.x + (int)width, r.y + (int)width, r.w - 2 * (int)width, r.h - 2 * (int)width};
+    float ir = radius - width > 0 ? radius - width : 0;
+    /* The line is only near the edge: rows by the corners are looked at whole, the others only at their two ends
+     * (every pixel of the box used to be worked out, twice, for a one-pixel border around a window). */
+    int rad = (int)ceilf(radius) + (int)ceilf(width) + 2, band = (int)ceilf(width) + 2;
+    for (int y = y0; y < y1; y++) {
+        bool edge_row = y < r.y + rad || y >= r.y + r.h - rad;
+        int skip_a = edge_row ? x1 : r.x + band, skip_b = edge_row ? x1 : r.x + r.w - band;
         for (int x = x0; x < x1; x++) {
+            if (x >= skip_a && x < skip_b) {
+                x = skip_b - 1;
+                continue;
+            }
             float px = x + 0.5f, py = y + 0.5f;
             float outer = round_cov(r, radius, px, py);
             if (outer <= 0)
                 continue;
-            rect in = {inner.x + (int)width, inner.y + (int)width, inner.w - 2 * (int)width, inner.h - 2 * (int)width};
-            float inn = in.w > 0 && in.h > 0 ? round_cov(in, ir > 0 ? ir : 0, px, py) : 0;
+            float inn = in.w > 0 && in.h > 0 ? round_cov(in, ir, px, py) : 0;
             float cov = outer - inn;
             if (cov > 0)
                 plot(c, x, y, col, (uint32_t)(cov * 255));
         }
+    }
 }
 
 void fill_circle(canvas *c, float cx, float cy, float radius, color col) {
@@ -272,6 +354,12 @@ void fill_circle(canvas *c, float cx, float cy, float radius, color col) {
 
 /* Soft shadow: rounded rect with a smooth falloff of width `blur`. */
 void shadow_round(canvas *c, rect r, float radius, float blur, color col) {
+    shadow_round_hollow(c, r, radius, blur, col, (rect){0, 0, 0, 0});
+}
+
+/* As shadow_round, leaving out `hole`: what an opaque box drawn over it next would cover anyway (a window's
+ * shadow was painted across the whole window, a million pixels a frame, then hidden by it). */
+void shadow_round_hollow(canvas *c, rect r, float radius, float blur, color col, rect hole) {
     int b = (int)ceilf(blur);
     int x0 = r.x - b, y0 = r.y - b, x1 = r.x + r.w + b, y1 = r.y + r.h + b;
     float hx = r.w * 0.5f, hy = r.h * 0.5f, cx = r.x + hx, cy = r.y + hy;
@@ -289,18 +377,68 @@ void shadow_round(canvas *c, rect r, float radius, float blur, color col) {
     if (ia < x0) ia = x0;
     if (ib > x1) ib = x1;
     if (ib < ia) ia = ib = x1;
+    /* Along the straight sides (rows where qy <= 0) the falloff depends on the column alone: worked out once per
+     * column, then each such row is blended in two runs. */
+    int nl = ia - x0, nr = x1 - ib;
+    uint32_t *side = (nl > 0 || nr > 0) ? malloc((size_t)(nl + nr) * 4) : NULL;
+    uint32_t sa256 = C_A(col) + (C_A(col) >> 7);
+    for (int i = 0; side && i < nl + nr; i++) {
+        int x = i < nl ? x0 + i : ib + (i - nl);
+        float qx = fabsf(x + 0.5f - cx) - (hx - radius);
+        float d = (qx > 0 ? qx : 0) + fminf(qx, 0.0f) - radius;
+        float t = d >= blur ? 0 : d <= 0 ? 1 : 1 - d / blur;
+        t = t * t * (3 - 2 * t);
+        side[i] = (uint32_t)(t * (float)sa256);
+    }
     for (int y = y0; y < y1; y++) {
         float qy = fabsf(y + 0.5f - cy) - (hy - radius);
+        if (side && qy <= 0) {
+            uint32_t *row = &c->px[(size_t)y * (size_t)c->w];
+            if (nl > 0)
+                k_blend_cov(row + x0, nl, col, side);
+            if (nr > 0)
+                k_blend_cov(row + ib, nr, col, side + nl);
+            if (ib > ia) { /* the middle: the shadow's full colour there, but for the hole */
+                uint32_t a = C_A(col);
+                int ha = ia, hb = ia;
+                if (hole.w > 0 && y >= hole.y && y < hole.y + hole.h) {
+                    ha = hole.x > ia ? hole.x : ia, hb = hole.x + hole.w < ib ? hole.x + hole.w : ib;
+                    if (hb < ha)
+                        ha = hb = ia;
+                }
+                if (a && hb == ha) {
+                    k_fill_alpha(row + ia, ib - ia, col, a + (a >> 7));
+                } else if (a) {
+                    if (ha > ia)
+                        k_fill_alpha(row + ia, ha - ia, col, a + (a >> 7));
+                    if (ib > hb)
+                        k_fill_alpha(row + hb, ib - hb, col, a + (a >> 7));
+                }
+            }
+            continue;
+        }
         for (int x = x0; x < x1; x++) {
             if (x == ia && ib > ia) {
                 float d = qy > 0 ? qy - radius : -1;
                 if (d < blur) {
                     float t = d <= 0 ? 1 : 1 - d / blur;
                     t = t * t * (3 - 2 * t);
-                    uint32_t cov = (uint32_t)(t * 255);
+                    uint32_t cov = (uint32_t)(t * 255), a = (C_A(col) * cov + 127) / 255;
                     uint32_t *row = &c->px[(size_t)y * (size_t)c->w];
-                    for (int k = ia; k < ib; k++)
-                        row[k] = blend(row[k], col, cov);
+                    int ha = ia, hb = ia; /* the part the box will cover: left out */
+                    if (hole.w > 0 && y >= hole.y && y < hole.y + hole.h) {
+                        ha = hole.x > ia ? hole.x : ia, hb = hole.x + hole.w < ib ? hole.x + hole.w : ib;
+                        if (hb < ha)
+                            ha = hb = ia;
+                    }
+                    if (a && hb == ha) { /* no hole on this row */
+                        k_fill_alpha(row + ia, ib - ia, col, a + (a >> 7));
+                    } else if (a) { /* either side of it */
+                        if (ha > ia)
+                            k_fill_alpha(row + ia, ha - ia, col, a + (a >> 7));
+                        if (ib > hb)
+                            k_fill_alpha(row + hb, ib - hb, col, a + (a >> 7));
+                    }
                 }
                 x = ib - 1;
                 continue;
@@ -315,6 +453,7 @@ void shadow_round(canvas *c, rect r, float radius, float blur, color col) {
             plot(c, x, y, col, (uint32_t)(t * 255));
         }
     }
+    free(side);
 }
 
 /* Box blur, three passes approximate a gaussian; used for frosted panels. */
@@ -424,18 +563,19 @@ void glow_circle(canvas *c, float cx, float cy, float radius, color col) {
     if (y0 < c->cy0) y0 = c->cy0;
     if (x1 > c->cx1) x1 = c->cx1;
     if (y1 > c->cy1) y1 = c->cy1;
+    if (!C_A(col) || radius <= 0)
+        return;
     float inv = 1.0f / (radius * radius);
     for (int y = y0; y < y1; y++) {
-        float dy = y + 0.5f - cy;
-        uint32_t *row = &c->px[(size_t)y * (size_t)c->w];
-        for (int x = x0; x < x1; x++) {
-            float dx = x + 0.5f - cx, d2 = (dx * dx + dy * dy) * inv;
-            if (d2 >= 1)
-                continue;
-            float t = 1 - d2;
-            t = t * t; /* smooth falloff */
-            row[x] = blend(row[x], col, (uint32_t)(t * 255));
-        }
+        float dy = y + 0.5f - cy, half = radius * radius - dy * dy;
+        if (half <= 0)
+            continue;
+        float span = sqrtf(half); /* (1 - d^2)^2 falloff, zero outside the circle: only what is inside is visited */
+        int a = (int)floorf(cx - span), b = (int)ceilf(cx + span) + 1;
+        if (a < x0) a = x0;
+        if (b > x1) b = x1;
+        if (b > a)
+            k_glow_row(&c->px[(size_t)y * (size_t)c->w], a, b, cx, dy * dy, inv, col);
     }
 }
 
@@ -451,8 +591,10 @@ void stroke_round_vgradient(canvas *c, rect r, float radius, float width, color 
         color col = color_mix(top, bottom, r.h > 1 ? (float)(y - r.y) / (float)(r.h - 1) : 0);
         bool edge_row = y < r.y + rad || y >= r.y + r.h - rad;
         for (int x = x0; x < x1; x++) {
-            if (!edge_row && x > r.x + (int)width + 1 && x < r.x + r.w - (int)width - 2)
-                continue; /* interior of a straight run: skip quickly */
+            if (!edge_row && x > r.x + (int)width + 1 && x < r.x + r.w - (int)width - 2) {
+                x = r.x + r.w - (int)width - 3; /* the inside of a straight run: over it in one step */
+                continue;
+            }
             float px = x + 0.5f, py = y + 0.5f;
             float outer = round_cov(r, radius, px, py);
             if (outer <= 0)
@@ -602,7 +744,88 @@ static void box_blur3(uint32_t *px, uint32_t *tmp, uint32_t *acc, int w, int h, 
 #undef AVG
 }
 
+/* Glass over a backdrop that didn't change (the same sky behind the dock, frame after frame) blurs to the same
+ * picture: what was under each recent blur is kept with what it became, and when the pixels under it now are the
+ * same, byte for byte (a fraction of a blur to check), the picture is put back instead. */
+#define BLUR_CACHE 6
+static struct blur_memo {
+    rect r;
+    float radius;
+    int strength;
+    int w, h;
+    uint32_t *under, *out;
+    uint64_t used;
+} blur_memo[BLUR_CACHE];
+static uint64_t blur_tick;
+static size_t blur_memo_bytes;
+#define BLUR_CACHE_BYTES (48u << 20) /* (two copies of what is under each: a few full-screen panes at most) */
+
+static void blur_fast_now(canvas *c, rect r, float radius, int strength);
+
 void blur_fast(canvas *c, rect r, float radius, int strength) {
+    int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y;
+    int x1 = r.x + r.w > c->w ? c->w : r.x + r.w, y1 = r.y + r.h > c->h ? c->h : r.y + r.h;
+    int w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0)
+        return;
+    if (w / 2 < 4 || h / 2 < 4) { /* (a small one is blurred another way, from beyond its box: not kept) */
+        blur_fast_now(c, r, radius, strength);
+        return;
+    }
+    blur_tick++;
+    struct blur_memo *m = NULL, *victim = &blur_memo[0];
+    for (int i = 0; i < BLUR_CACHE; i++) {
+        struct blur_memo *e = &blur_memo[i];
+        if (e->under && !memcmp(&e->r, &r, sizeof r) && e->radius == radius && e->strength == strength &&
+            e->w == w && e->h == h) {
+            m = e;
+            break;
+        }
+        if (e->used < victim->used)
+            victim = e;
+    }
+    if (m) {
+        bool same = true;
+        for (int y = 0; y < h && same; y++)
+            same = !memcmp(m->under + (size_t)y * (size_t)w, &c->px[(size_t)(y0 + y) * (size_t)c->w + (size_t)x0],
+                           (size_t)w * 4);
+        if (same) {
+            for (int y = 0; y < h; y++)
+                memcpy(&c->px[(size_t)(y0 + y) * (size_t)c->w + (size_t)x0], m->out + (size_t)y * (size_t)w,
+                       (size_t)w * 4);
+            m->used = blur_tick;
+            return;
+        }
+    } else { /* a new one, in the place of the least recently used */
+        m = victim;
+        size_t need = (size_t)w * (size_t)h * 4 * 2;
+        if (m->under)
+            blur_memo_bytes -= (size_t)m->w * (size_t)m->h * 4 * 2;
+        free(m->under), free(m->out);
+        m->under = m->out = NULL;
+        if (blur_memo_bytes + need <= BLUR_CACHE_BYTES) {
+            m->under = malloc(need / 2), m->out = malloc(need / 2);
+            if (!m->under || !m->out) {
+                free(m->under), free(m->out);
+                m->under = m->out = NULL;
+            } else {
+                blur_memo_bytes += need;
+            }
+        }
+        m->r = r, m->radius = radius, m->strength = strength, m->w = w, m->h = h;
+    }
+    if (m->under)
+        for (int y = 0; y < h; y++)
+            memcpy(m->under + (size_t)y * (size_t)w, &c->px[(size_t)(y0 + y) * (size_t)c->w + (size_t)x0], (size_t)w * 4);
+    blur_fast_now(c, r, radius, strength);
+    if (m->under) {
+        for (int y = 0; y < h; y++)
+            memcpy(m->out + (size_t)y * (size_t)w, &c->px[(size_t)(y0 + y) * (size_t)c->w + (size_t)x0], (size_t)w * 4);
+        m->used = blur_tick;
+    }
+}
+
+static void blur_fast_now(canvas *c, rect r, float radius, int strength) {
     int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y;
     int x1 = r.x + r.w > c->w ? c->w : r.x + r.w, y1 = r.y + r.h > c->h ? c->h : r.y + r.h;
     int w = (x1 - x0) / 2, h = (y1 - y0) / 2;

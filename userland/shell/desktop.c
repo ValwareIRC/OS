@@ -1495,12 +1495,12 @@ static void draw_window(int w, bool focused) {
         shadow_round(A.frame, r, 8, 28, RGBA(0, 0, 0, focused ? 110 : 70));
         body = r;
     } else {
-        fm_render_window_frame(A.ui, A.frame, w, r, focused, &body);
+        PROF("window frames", fm_render_window_frame(A.ui, A.frame, w, r, focused, &body));
     }
     canvas_clip(A.frame, body);
     switch (w) {
-    case WIN_FILES: files_body(body); break;
-    case WIN_COMPANION: companion_body(body); break;
+    case WIN_FILES: PROF("Files", files_body(body)); break;
+    case WIN_COMPANION: PROF("companion window", companion_body(body)); break;
     case WIN_NOTES: notes_draw(body); break;
     case WIN_SETTINGS: settings_body(body); break;
     case WIN_ABOUT: about_body(body); break;
@@ -2617,9 +2617,9 @@ void desktop_draw(void) {
     tray_frame_begin(); /* its popovers and toasts take the pointer first */
     bool cached = wm_scene_cached(); /* while a window is moved, the picture below it is kept */
     if (!cached && wallpaper_animated(&D))
-        wallpaper_frame(A.frame, &D, (float)A.now / 1000.0f);
+        PROF("wallpaper", wallpaper_frame(A.frame, &D, (float)A.now / 1000.0f));
     else if (!cached)
-        canvas_blit(A.frame, A.wall, 0, 0);
+        PROF("wallpaper", canvas_blit(A.frame, A.wall, 0, 0));
     if (!A.ui)
         desktop_enter();
     fm_doc *ui = A.ui;
@@ -2627,8 +2627,8 @@ void desktop_draw(void) {
     float dt = last ? (float)(A.now - last) : 16;
     last = A.now;
     ui->in = &A.in;
-    fm_layout(ui, (rect){0, 0, A.W, A.H});
-    fm_animate(ui, dt);
+    PROF("layout", fm_layout(ui, (rect){0, 0, A.W, A.H}));
+    PROF("animate", fm_animate(ui, dt));
     launcher_input(ui); /* while the launcher is up, input is its own */
 
     /* windows in z order */
@@ -2672,8 +2672,8 @@ void desktop_draw(void) {
         explain_why(ui->hovered);
 
     if (!cached) {
-        fm_render_layer(ui, A.frame, 0);
-        draw_her_free(top, over_ui);
+        PROF("desktop layer", fm_render_layer(ui, A.frame, 0));
+        PROF("companion light", draw_her_free(top, over_ui));
     }
     presence_draw_corner(A.frame); /* its face, when the design has nowhere for it */
     input_state saved = A.in;
@@ -2694,14 +2694,13 @@ void desktop_draw(void) {
             if (!(A.win[w].view && A.win[w].view->client_frame))
                 fm_window_input(ui, w, A.win[w].r, w == focused);
         }
-        wm_draw_window(w, w == focused, draw_window);
+        PROF("windows", wm_draw_window(w, w == focused, draw_window));
         A.in = saved;
     }
     wm_draw_ghosts(); /* closing, or flying to the taskbar */
-    fm_render_layer(ui, A.frame, 1);
-    fm_render_layer(ui, A.frame, 2);
-    tray_frame_end();
-    launcher_draw(); /* above everything, the tray's popovers too */
+    PROF("layers above", fm_render_layer(ui, A.frame, 1); fm_render_layer(ui, A.frame, 2));
+    PROF("tray", tray_frame_end());
+    PROF("launcher", launcher_draw()); /* above everything, the tray's popovers too */
 
     static uint64_t last_log, last_hash;
     if (A.now - last_log > 500) {
@@ -2745,8 +2744,8 @@ void desktop_draw(void) {
             if (A.in.keys[i] == K_ESC)
                 A.confirm_power = false;
     }
-    caption_draw();
-    alive_draw(); /* the senses panel, or a command waiting for their yes */
+    PROF("caption", caption_draw());
+    PROF("senses panel", alive_draw()); /* the senses panel, or a command waiting for their yes */
     voice_indicator(A.W / 2, A.H - 96, D.accent);
     if (A.toast[0] && A.now < A.toast_until) {
         font *f = BF(D.body_px);
@@ -2769,3 +2768,17 @@ void desktop_draw(void) {
 }
 
 uint64_t fm_host_time_ms(void) { return A.now; }
+fm_doc *fm_host_desktop_doc(void) { return A.ui; }
+
+/* The wallpaper as a number: which picture, its size and the design; a living wallpaper changes every frame, so
+ * nothing over it is kept. */
+uint64_t fm_host_backdrop_sig(void) {
+    if (wallpaper_animated(&D) || !A.wall || wm_scene_cached())
+        return 0;
+    uint64_t h = 1469598103934665603ull;
+    uint64_t parts[3] = {(uint64_t)(uintptr_t)A.wall, (uint64_t)A.wall->w << 32 | (uint32_t)A.wall->h,
+                         (uint64_t)(uintptr_t)A.ui};
+    for (int i = 0; i < 3; i++)
+        h = (h ^ parts[i]) * 1099511628211ull;
+    return h | 1;
+}

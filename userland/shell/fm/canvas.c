@@ -29,7 +29,18 @@ struct cv {
     lua_State *L;
     bool broken;
     char error[160];
+    /* what it last drew over (the desktop's backdrop, see fmi_canvas_backdrop), kept and shown again for up to
+     * CACHE_MS when nothing beneath it changed: a full-screen sky of glows and twinkling stars took 16 ms to draw,
+     * and a window dragged over it was redrawn sixty times a second */
+    uint32_t *cache;
+    rect cache_r;
+    float cache_op;
+    uint64_t cache_ms, cache_under;
 };
+
+#define CACHE_MS 100 /* a slow twinkle, ten pictures a second: as alive as before, a sixth of the drawing */
+uint64_t fmi_canvas_backdrop; /* set by the renderer: non-zero (what lies beneath, as a number) while it draws a
+                                 canvas straight over the wallpaper, which can be kept; 0 for any other */
 
 static struct cv cvs[16];
 static canvas *cur_c;
@@ -399,6 +410,21 @@ void fmi_canvas_draw(fm_doc *d, canvas *cv, fm_node *n, rect r, float op) {
         lua_pop(L, 1);
         return;
     }
+    uint64_t now = fm_host_time_ms(), under = fmi_canvas_backdrop;
+    rect vis = r; /* what of it is on the canvas (and inside the clip) */
+    if (vis.x < cv->cx0) vis.w -= cv->cx0 - vis.x, vis.x = cv->cx0;
+    if (vis.y < cv->cy0) vis.h -= cv->cy0 - vis.y, vis.y = cv->cy0;
+    if (vis.x + vis.w > cv->cx1) vis.w = cv->cx1 - vis.x;
+    if (vis.y + vis.h > cv->cy1) vis.h = cv->cy1 - vis.y;
+    if (vis.w <= 0 || vis.h <= 0)
+        return;
+    if (under && c->cache && c->cache_under == under && now - c->cache_ms < CACHE_MS && c->cache_op == op &&
+        !memcmp(&c->cache_r, &vis, sizeof vis)) {
+        for (int y = 0; y < vis.h; y++)
+            memcpy(cv->px + (size_t)(vis.y + y) * (size_t)cv->w + vis.x, c->cache + (size_t)y * (size_t)vis.w,
+                   (size_t)vis.w * 4);
+        return;
+    }
     cur_c = cv, cur_r = r, cur_s = n->vscale > 0 ? n->vscale : 1, cur_op = op, cur_d = d;
     lua_pushnumber(L, r.w / cur_s);
     lua_pushnumber(L, r.h / cur_s);
@@ -409,6 +435,22 @@ void fmi_canvas_draw(fm_doc *d, canvas *cv, fm_node *n, rect r, float op) {
         fm_report(d, n->line, false, "canvas draw: %s", c->error);
         fprintf(stderr, "fm: canvas (line %d) stopped: %s\n", n->line, c->error);
         c->broken = true;
+        return;
+    }
+    if (!under) {
+        free(c->cache);
+        c->cache = NULL;
+        return;
+    }
+    if (!c->cache || c->cache_r.w * c->cache_r.h != vis.w * vis.h) {
+        free(c->cache);
+        c->cache = malloc((size_t)vis.w * (size_t)vis.h * 4);
+    }
+    if (c->cache) { /* what it drew, over what was beneath: shown again while nothing beneath changes */
+        for (int y = 0; y < vis.h; y++)
+            memcpy(c->cache + (size_t)y * (size_t)vis.w, cv->px + (size_t)(vis.y + y) * (size_t)cv->w + vis.x,
+                   (size_t)vis.w * 4);
+        c->cache_r = vis, c->cache_op = op, c->cache_ms = now, c->cache_under = under;
     }
 }
 
@@ -416,6 +458,7 @@ bool fmi_canvas_click(fm_doc *d, fm_node *n, int x, int y) {
     struct cv *c = find_cv(n, false);
     if (!c || !c->L || c->broken)
         return false;
+    c->cache_ms = 0; /* (a click may change what it draws: drawn afresh) */
     lua_getglobal(c->L, "click");
     if (!lua_isfunction(c->L, -1)) {
         lua_pop(c->L, 1);

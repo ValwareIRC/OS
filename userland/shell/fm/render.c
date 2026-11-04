@@ -866,6 +866,8 @@ static void draw_sides(canvas *c, rect r, const fm_style *s, float sc, float op)
 }
 
 static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha);
+uint64_t prof_now_us(void);
+void prof_add(const char *name, uint64_t us);
 
 static void draw_children(fm_doc *d, canvas *c, fm_node *n, float op) {
     if (n->rich_on && n->rich) { /* a paragraph: its words, whoever they belong to */
@@ -894,7 +896,7 @@ static void draw_children(fm_doc *d, canvas *c, fm_node *n, float op) {
     }
     for (int i = 0; i < nk; i++) {
         if (kids[i]->kind == FM_TEXT)
-            draw_text_node(c, kids[i], op);
+            { uint64_t pt0 = prof_now_us(); draw_text_node(c, kids[i], op); prof_add("text", prof_now_us() - pt0); }
         else
             draw_node(d, c, kids[i], op);
     }
@@ -1256,8 +1258,13 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
                 shadow_round(c, sr, rr, s->sh_blur[i] * sc, col);
         }
     } else if (s->shadow_blur > 0 && C_A(sh)) {
-        shadow_round(c, (rect){r.x + (int)(s->shadow_x * sc), r.y + (int)(s->shadow_y * sc), r.w, r.h}, r0,
-                     s->shadow_blur * sc, color_alpha(sh, op));
+        /* an opaque box covers its own middle: its shadow there would be painted for nothing */
+        bool opaque = bg.kind == FM_BG_SOLID && C_A(bg.a) == 255 && op >= 0.999f && s->blur <= 0.5f && !s->bg_img[0];
+        int in = (int)ceilf(r0) + 1;
+        rect hole = opaque && r.w > 2 * in && r.h > 2 * in ? (rect){r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in}
+                                                           : (rect){0, 0, 0, 0};
+        shadow_round_hollow(c, (rect){r.x + (int)(s->shadow_x * sc), r.y + (int)(s->shadow_y * sc), r.w, r.h}, r0,
+                            s->shadow_blur * sc, color_alpha(sh, op), hole);
     }
     double t1 = pnow(); fm_pacc[0] += t1 - t0;
     float gs = anim ? n->av.glow_size : s->glow_size;
@@ -1317,7 +1324,7 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
 
     /* content */
     if (tag_is(n, "icon")) {
-        draw_icon_el(c, n, op);
+        { uint64_t pt0 = prof_now_us(); draw_icon_el(c, n, op); prof_add("icons", prof_now_us() - pt0); }
     } else if (tag_is(n, "orb")) {
         fm_host_draw_orb(r, n->hover || n->open);
     } else if (tag_is(n, "avatar")) {
@@ -1451,6 +1458,11 @@ static void draw_popovers(fm_doc *d, canvas *c, fm_node *n) {
     }
 }
 
+uint64_t prof_now_us(void);
+void prof_add(const char *name, uint64_t us);
+fm_doc *fm_host_desktop_doc(void);
+uint64_t fm_host_backdrop_sig(void); /* what lies under the desktop's surfaces, as a number (0: nothing to keep by) */
+
 void fm_render_layer(fm_doc *d, canvas *c, int layer) {
     if (!d->desktop)
         return;
@@ -1485,7 +1497,16 @@ void fm_render_layer(fm_doc *d, canvas *c, int layer) {
         if (e <= 0)
             continue;
         fmi_transform(surf[i], 1, 0, (1 - e) * 14);
+        uint64_t t0 = prof_now_us();
+        /* the lowest surface of the desktop, nothing but the wallpaper beneath: a canvas there may keep its picture */
+        extern uint64_t fmi_canvas_backdrop;
+        fmi_canvas_backdrop = layer == 0 && i == 0 && ds->bg.kind == FM_BG_NONE && e >= 1 && d == fm_host_desktop_doc()
+                                  ? fm_host_backdrop_sig()
+                                  : 0;
         draw_node(d, c, surf[i], e);
+        fmi_canvas_backdrop = 0;
+        if (d == fm_host_desktop_doc()) /* (the desktop's own surfaces, by id, for the log's "time:" line) */
+            prof_add(surf[i]->id[0] ? surf[i]->id : surf[i]->tag, prof_now_us() - t0);
     }
 }
 

@@ -25,6 +25,8 @@ typedef struct rect {
     int x, y, w, h;
 } rect;
 
+/* Picks the fastest drawing loops this processor has (once, at start); says which ("avx2", "baseline"). */
+const char *gfx_init(void);
 canvas *canvas_new(int w, int h);
 void canvas_free(canvas *c);
 void canvas_clip(canvas *c, rect r);
@@ -43,6 +45,7 @@ void stroke_round(canvas *c, rect r, float radius, float width, color col);
 void fill_circle(canvas *c, float cx, float cy, float radius, color col);
 void fill_vgradient(canvas *c, rect r, color top, color bottom);
 void fill_round_vgradient(canvas *c, rect r, float radius, color top, color bottom);
+void shadow_round_hollow(canvas *c, rect r, float radius, float blur, color col, rect hole);
 void shadow_round(canvas *c, rect r, float radius, float blur, color col);
 void blur_region(canvas *c, rect r, int radius); /* frosted glass under panels */
 void blur_round(canvas *c, rect r, float corner_radius, int strength);

@@ -69,7 +69,16 @@ struct thread *thread_current(void) {
     return this_cpu_read(current);
 }
 
+static struct thread *kthreads;
+
 static void thread_free(struct thread *t) {
+    uint64_t f = spin_lock_irqsave(&rq_lock); /* off the list perfwatch reads (a program's first thread is on it) */
+    for (struct thread **pp = &kthreads; *pp; pp = &(*pp)->next_kthread)
+        if (*pp == t) {
+            *pp = t->next_kthread;
+            break;
+        }
+    spin_unlock_irqrestore(&rq_lock, f);
     if (t->user) {
         fpu_free(t->user->fpu);
         kfree(t->user);
@@ -170,8 +179,6 @@ void thread_start(void) {
     thread_exit();
 }
 
-static struct thread *kthreads; /* (they never exit) */
-
 struct thread *thread_create(const char *name, void (*entry)(void *), void *arg) {
     struct thread *t = thread_create_ex(name, entry, arg, 0, NULL);
     if (t) {
@@ -185,8 +192,10 @@ struct thread *thread_create(const char *name, void (*entry)(void *), void *arg)
 }
 
 void sched_each_kthread(void (*fn)(struct thread *t, void *arg), void *arg) {
-    for (struct thread *t = __atomic_load_n(&kthreads, __ATOMIC_ACQUIRE); t; t = t->next_kthread)
+    uint64_t f = spin_lock_irqsave(&rq_lock); /* (fn only reads and formats: nothing that could sleep) */
+    for (struct thread *t = kthreads; t; t = t->next_kthread)
         fn(t, arg);
+    spin_unlock_irqrestore(&rq_lock, f);
 }
 
 struct thread *thread_create_ex(const char *name, void (*entry)(void *), void *arg, uint64_t reserve,

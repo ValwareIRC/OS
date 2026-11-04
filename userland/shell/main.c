@@ -275,6 +275,14 @@ static void prof_log(uint64_t span_ms) {
         prof[best].calls = 0;
     }
     LOG("time: %s (of one core)\n", line[0] ? line : "nothing to speak of");
+    extern double fm_pacc[8]; /* the renderer's own: per stage of painting a box, every document (ms) */
+    if (span_ms)
+        LOG("time: painting boxes: shadows %.1f%%, glows %.1f%%, glass %.1f%%, saturation %.1f%%, backgrounds %.1f%%, "
+            "window frame layout %.1f%%\n", fm_pacc[0] * 100 / span_ms, fm_pacc[1] * 100 / span_ms,
+            fm_pacc[2] * 100 / span_ms, fm_pacc[3] * 100 / span_ms, fm_pacc[4] * 100 / span_ms,
+            fm_pacc[5] * 100 / span_ms);
+    for (int i = 0; i < 8; i++)
+        fm_pacc[i] = 0;
     for (int i = 0; i < 48; i++)
         prof[i].us = prof[i].calls = 0;
 }
@@ -464,6 +472,7 @@ static void log_to_file_too(void) {
 
 int main(void) {
     log_to_file_too();
+    LOG("gfx: drawing with the %s loops\n", gfx_init());
     if (!display_open()) {
         fprintf(stderr, "os-shell: no framebuffer\n");
         return 1;
