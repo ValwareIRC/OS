@@ -356,6 +356,15 @@ static void compose(struct wl_surf *root) {
         memset(v->px, 0, (size_t)w * (size_t)h * 4);
         draw_tree(root, v->px, w, h, -x0, -y0, 0);
     }
+    /* opaque all over (most apps: Firefox, Chromium, Electron's)? Then nothing behind it shows, and its frame's
+     * glass needs no blur there (desktop.c). Two pixels at a time; a fraction of a millisecond a frame. */
+    uint64_t all = ~0ull;
+    const uint64_t *p2 = (const uint64_t *)v->px;
+    size_t pairs = (size_t)w * (size_t)h / 2;
+    for (size_t i = 0; i < pairs; i++)
+        all &= p2[i];
+    v->opaque = (all & 0xff000000ff000000ull) == 0xff000000ff000000ull &&
+                (((size_t)w * (size_t)h) % 2 == 0 || (v->px[(size_t)w * (size_t)h - 1] >> 24) == 0xff);
     v->version++;
     if (!v->mapped) {
         v->mapped = true;

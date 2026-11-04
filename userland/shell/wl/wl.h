@@ -15,6 +15,7 @@ typedef struct wl_view {
     char title[128], app_id[64];
     int w, h;          /* size of the last frame */
     uint32_t *px;      /* its pixels (ARGB, w*h), owned by the compositor */
+    bool opaque;       /* every one of them opaque (nothing behind the window shows through it) */
     bool mapped;       /* has shown a frame */
     bool want_close;   /* the app asked to be closed (or crashed) */
     uint64_t version;  /* bumps on every new frame */

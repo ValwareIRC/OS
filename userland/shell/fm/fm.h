@@ -259,6 +259,8 @@ struct fm_doc {
     fm_node *root;          /* <facet> */
     fm_node *desktop;       /* <desktop> */
     fm_node *window_tpl;    /* <template id="window"> */
+    rect occ[24];           /* what windows hide completely, while the layer below them is drawn (fm_set_occluders) */
+    int nocc;
     struct fm_rule *rules;
     int nrules;
     char *vars[64][2];      /* custom properties: name, value */
@@ -360,9 +362,14 @@ void fm_type_inherit(fm_style *st, const fm_style *parent);
 /* Layout and drawing. Layers: 0 = below windows, 1 = above windows. */
 void fm_layout(fm_doc *d, rect screen);
 void fm_render_layer(fm_doc *d, canvas *c, int layer);
-void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out,
-                            bool opaque_body); /* opaque_body: an app fills its content next (no glass blur there) */
+void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out, int opaque_w,
+                            int opaque_h); /* opaque_w 0: an app fills its content next (no glass blur there); >0: its opaque picture's size; -1: none */
 int fm_layer_of(const fm_node *n);
+/* What the windows hide completely, for the next fm_render_layer(0): what lies wholly inside one isn't drawn
+ * (NULL, 0: nothing hidden). */
+void fm_set_occluders(fm_doc *d, const rect *r, int n);
+/* Whether the design's window frame paints itself opaque (solid, no glass, not faded): its radius out. */
+bool fm_frame_opaque(fm_doc *d, float *radius);
 
 /* Input. Returns true if the pointer is over something in that layer. */
 bool fm_hit_layer(fm_doc *d, int layer, int x, int y);

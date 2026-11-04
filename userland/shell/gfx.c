@@ -705,20 +705,36 @@ static void *scratch(int slot, size_t bytes) {
 /* Three box blurs of a w x h picture (close to a gaussian), the same sums
  * as blur_region but read in memory order: rows with a running sum, then
  * columns a whole row at a time with a running sum per column. */
-static void box_blur3(uint32_t *px, uint32_t *tmp, uint32_t *acc, int w, int h, int radius) {
+/* Three box blurs (close to a gaussian). [sx0,sx1) x [sy0,sy1), when not empty, is a middle whose result isn't
+ * wanted and that is further from anything wanted than the three passes reach (blur_hole's deep middle): the
+ * passes go around it, their running sums started again past it, so what is wanted comes out the same. */
+static void box_blur3_around(uint32_t *px, uint32_t *tmp, uint32_t *acc, int w, int h, int radius, int sx0, int sx1,
+                             int sy0, int sy1) {
     int n = 2 * radius + 1;
     uint32_t inv = (65536u + (uint32_t)n / 2) / (uint32_t)n;
+    bool skip = sx0 < sx1 && sy0 < sy1;
 #define AVG(s) ((((s) * inv) + 32768u) >> 16)
     for (int pass = 0; pass < 3; pass++) {
         for (int y = 0; y < h; y++) { /* horizontal: px -> tmp */
             const uint32_t *row = &px[(size_t)y * (size_t)w];
             uint32_t *out = &tmp[(size_t)y * (size_t)w];
+            bool deep = skip && y >= sy0 && y < sy1;
             uint32_t sr = 0, sg = 0, sb = 0;
             for (int i = -radius; i <= radius; i++) {
                 int k = i < 0 ? 0 : i >= w ? w - 1 : i;
                 sr += C_R(row[k]), sg += C_G(row[k]), sb += C_B(row[k]);
             }
             for (int x = 0; x < w; x++) {
+                if (deep && x == sx0) { /* past the middle, the sum started again there */
+                    x = sx1;
+                    if (x >= w)
+                        break;
+                    sr = sg = sb = 0;
+                    for (int i = -radius; i <= radius; i++) {
+                        int k = x + i < 0 ? 0 : x + i >= w ? w - 1 : x + i;
+                        sr += C_R(row[k]), sg += C_G(row[k]), sb += C_B(row[k]);
+                    }
+                }
                 out[x] = 0xff000000u | AVG(sr) << 16 | AVG(sg) << 8 | AVG(sb);
                 int o = x - radius < 0 ? 0 : x - radius, in = x + radius + 1 >= w ? w - 1 : x + radius + 1;
                 sr += C_R(row[in]) - C_R(row[o]), sg += C_G(row[in]) - C_G(row[o]), sb += C_B(row[in]) - C_B(row[o]);
@@ -732,16 +748,34 @@ static void box_blur3(uint32_t *px, uint32_t *tmp, uint32_t *acc, int w, int h, 
                 ar[x] += C_R(row[x]), ag[x] += C_G(row[x]), ab[x] += C_B(row[x]);
         }
         for (int y = 0; y < h; y++) {
+            bool deep = skip && y >= sy0 && y < sy1;
+            if (skip && y == sy1) /* the middle's columns, past it: their sums started again here */
+                for (int x = sx0; x < sx1 && x < w; x++) {
+                    ar[x] = ag[x] = ab[x] = 0;
+                    for (int i = -radius; i <= radius; i++) {
+                        int k = y + i < 0 ? 0 : y + i >= h ? h - 1 : y + i;
+                        uint32_t v = tmp[(size_t)k * (size_t)w + (size_t)x];
+                        ar[x] += C_R(v), ag[x] += C_G(v), ab[x] += C_B(v);
+                    }
+                }
             uint32_t *out = &px[(size_t)y * (size_t)w];
-            for (int x = 0; x < w; x++)
-                out[x] = 0xff000000u | AVG(ar[x]) << 16 | AVG(ag[x]) << 8 | AVG(ab[x]);
             int o = y - radius < 0 ? 0 : y - radius, in = y + radius + 1 >= h ? h - 1 : y + radius + 1;
             const uint32_t *ri = &tmp[(size_t)in * (size_t)w], *ro = &tmp[(size_t)o * (size_t)w];
-            for (int x = 0; x < w; x++)
+            for (int x = 0; x < w; x++) {
+                if (deep && x == sx0) {
+                    x = sx1 - 1;
+                    continue;
+                }
+                out[x] = 0xff000000u | AVG(ar[x]) << 16 | AVG(ag[x]) << 8 | AVG(ab[x]);
                 ar[x] += C_R(ri[x]) - C_R(ro[x]), ag[x] += C_G(ri[x]) - C_G(ro[x]), ab[x] += C_B(ri[x]) - C_B(ro[x]);
+            }
         }
     }
 #undef AVG
+}
+
+static void box_blur3(uint32_t *px, uint32_t *tmp, uint32_t *acc, int w, int h, int radius) {
+    box_blur3_around(px, tmp, acc, w, h, radius, 0, 0, 0, 0);
 }
 
 /* Glass over a backdrop that didn't change (the same sky behind the dock, frame after frame) blurs to the same
@@ -869,7 +903,7 @@ static void blur_fast_now(canvas *c, rect r, float radius, int strength) {
                 0xff000000u | (((C_R(a) + C_R(b) + C_R(d) + C_R(e)) / 4) << 16) |
                 (((C_G(a) + C_G(b) + C_G(d) + C_G(e)) / 4) << 8) | ((C_B(a) + C_B(b) + C_B(d) + C_B(e)) / 4);
         }
-    box_blur3(small, tmp, acc, w, h, strength / 2 > 1 ? strength / 2 : 1);
+    box_blur3_around(small, tmp, acc, w, h, strength / 2 > 1 ? strength / 2 : 1, dx0, dx1, dy0, dy1);
     /* Back up to full size with bilinear filtering (the mapping canvas_scale
      * uses), straight into the canvas, keeping the rounded corners crisp. */
     float sx = (float)(w - 1) / (float)(bw - 1), sy = (float)(h - 1) / (float)(bh - 1);

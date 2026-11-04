@@ -1207,9 +1207,14 @@ static void draw_node(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     draw_node_now(d, c, n, alpha);
 }
 
+static fm_node *frame_timed; /* an app's window frame, or a desktop surface, being drawn: its parts in the log */
+static const char *const frame_parts[4] = {"frame shadow", "frame glass", "frame background", "frame contents"};
+static const char *const surface_parts[4] = {"surface shadow", "surface glass", "surface background", "surface contents"};
+static const char *const *timed_parts = frame_parts;
 static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     const fm_style *s = &n->st;
     double t0 = pnow();
+    bool timed = n == frame_timed;
     if (s->hidden || !n->laid_out)
         return;
     bool anim = n->av.init;
@@ -1271,12 +1276,14 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     if (gs > 0.5f)
         glow_round(c, r, r0, gs * sc, color_alpha(anim ? n->av.glow : s->glow, op));
 
-    /* glass: blur and lift what's behind */
+    /* glass: blur and lift what's behind; not when its own background covers it all, opaque (a design's solid
+     * frame over the built-in "blur: 18": a blur nobody could see, a fifth of a core with a big window open) */
     double t2 = pnow(); fm_pacc[1] += t2 - t1;
-    if (s->blur > 0.5f && op > 0.3f)
+    bool covers = bg.kind == FM_BG_SOLID && C_A(bg.a) == 255 && op >= 0.999f && !s->bg_img[0];
+    if (s->blur > 0.5f && op > 0.3f && !covers)
         blur_fast(c, r, r0, (int)fminf(s->blur, 40));
     double t3 = pnow(); fm_pacc[2] += t3 - t2;
-    if (s->saturate > 1.02f && op > 0.3f)
+    if (s->saturate > 1.02f && op > 0.3f && !covers)
         vibrancy(c, r, r0, s->saturate, 0.02f);
     double t4 = pnow(); fm_pacc[3] += t4 - t3;
     if (s->bg_img[0] && !s->bg_img_over) { /* the colour under the picture, then the picture */
@@ -1285,10 +1292,34 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
     } else if (s->bg_img[0]) { /* the picture, a gradient over it */
         paint_pic(c, r, rad, s, op);
         paint_bg(c, r, rad, bg, op);
+    } else if (blur_hole.w > 0 && blur_hole.x >= r.x && blur_hole.y >= r.y && blur_hole.x + blur_hole.w <= r.x + r.w &&
+               blur_hole.y + blur_hole.h <= r.y + r.h) {
+        /* a window's frame, its app painted over its middle next: the background only around that (the same
+         * paint, clipped to the four sides: a gradient stays one gradient), not 1.4 million pixels for nothing */
+        rect h = blur_hole, side[4] = {{r.x, r.y, r.w, h.y - r.y},
+                                       {r.x, h.y + h.h, r.w, r.y + r.h - (h.y + h.h)},
+                                       {r.x, h.y, h.x - r.x, h.h},
+                                       {h.x + h.w, h.y, r.x + r.w - (h.x + h.w), h.h}};
+        int cx0 = c->cx0, cy0 = c->cy0, cx1 = c->cx1, cy1 = c->cy1;
+        for (int k = 0; k < 4; k++) {
+            rect b = side[k];
+            int x0 = b.x > cx0 ? b.x : cx0, y0 = b.y > cy0 ? b.y : cy0;
+            int x1 = b.x + b.w < cx1 ? b.x + b.w : cx1, y1 = b.y + b.h < cy1 ? b.y + b.h : cy1;
+            if (x1 <= x0 || y1 <= y0)
+                continue;
+            c->cx0 = x0, c->cy0 = y0, c->cx1 = x1, c->cy1 = y1;
+            paint_bg(c, r, rad, bg, op);
+        }
+        c->cx0 = cx0, c->cy0 = cy0, c->cx1 = cx1, c->cy1 = cy1;
     } else {
         paint_bg(c, r, rad, bg, op);
     }
     double t5 = pnow(); fm_pacc[4] += t5 - t4;
+    if (timed) {
+        prof_add(timed_parts[0], (uint64_t)((t1 - t0) * 1e3));
+        prof_add(timed_parts[1], (uint64_t)((t3 - t2) * 1e3));
+        prof_add(timed_parts[2], (uint64_t)((t5 - t4) * 1e3));
+    }
     /* glass catches light along its top edge */
     if (s->blur > 0.5f && op > 0.3f && r.h > 12)
         stroke_round_vgradient(c, rect_inset(r, 1), r0 > 1 ? r0 - 1 : 0, 1, RGBA(255, 255, 255, (int)(46 * op)),
@@ -1383,7 +1414,10 @@ static void draw_node_now(fm_doc *d, canvas *c, fm_node *n, float alpha) {
         for (fm_node *k = n->first; k; k = k->next)
             if (k->kind == FM_TEXT && k->generated && k->app == -1)
                 k->app = -3;
+    uint64_t ct0 = timed ? prof_now_us() : 0;
     draw_children(d, c, n, op);
+    if (timed)
+        prof_add(timed_parts[3], prof_now_us() - ct0);
     if (editing)
         for (fm_node *k = n->first; k; k = k->next)
             if (k->app == -3)
@@ -1497,20 +1531,60 @@ void fm_render_layer(fm_doc *d, canvas *c, int layer) {
         if (e <= 0)
             continue;
         fmi_transform(surf[i], 1, 0, (1 - e) * 14);
+        if (layer == 0 && d->nocc && e >= 1) { /* wholly under a window that hides it (with its shadow and glow) */
+            const fm_style *s = &surf[i]->st;
+            float sc = surf[i]->vscale > 0 ? surf[i]->vscale : 1;
+            int m = (int)(fmaxf(s->shadow_blur + fmaxf(fabsf(s->shadow_x), fabsf(s->shadow_y)), s->glow_size) * sc) + 4;
+            for (int k = 0; k < s->nshadow; k++)
+                m = (int)fmaxf((float)m, (s->sh_blur[k] + s->sh_spread[k] + fmaxf(fabsf(s->sh_x[k]), fabsf(s->sh_y[k]))) * sc + 4);
+            rect v = surf[i]->vis;
+            v = (rect){v.x - m, v.y - m, v.w + 2 * m, v.h + 2 * m};
+            bool hidden = false;
+            for (int k = 0; k < d->nocc && !hidden; k++) {
+                rect o = d->occ[k];
+                hidden = v.x >= o.x && v.y >= o.y && v.x + v.w <= o.x + o.w && v.y + v.h <= o.y + o.h;
+            }
+            if (hidden)
+                continue;
+        }
         uint64_t t0 = prof_now_us();
         /* the lowest surface of the desktop, nothing but the wallpaper beneath: a canvas there may keep its picture */
         extern uint64_t fmi_canvas_backdrop;
         fmi_canvas_backdrop = layer == 0 && i == 0 && ds->bg.kind == FM_BG_NONE && e >= 1 && d == fm_host_desktop_doc()
                                   ? fm_host_backdrop_sig()
                                   : 0;
+        if (d == fm_host_desktop_doc() && layer == 0)
+            frame_timed = surf[i], timed_parts = surface_parts;
         draw_node(d, c, surf[i], e);
+        frame_timed = NULL, timed_parts = frame_parts;
         fmi_canvas_backdrop = 0;
         if (d == fm_host_desktop_doc()) /* (the desktop's own surfaces, by id, for the log's "time:" line) */
             prof_add(surf[i]->id[0] ? surf[i]->id : surf[i]->tag, prof_now_us() - t0);
     }
 }
 
+void fm_set_occluders(fm_doc *d, const rect *r, int n) {
+    if (!d)
+        return;
+    d->nocc = r && n > 0 ? (n < 24 ? n : 24) : 0;
+    for (int i = 0; i < d->nocc; i++)
+        d->occ[i] = r[i];
+}
+
 /* ---- window frames ---- */
+
+bool fm_frame_opaque(fm_doc *d, float *radius) {
+    fm_node *root = d && d->window_tpl ? fmi_tpl_root(d) : NULL;
+    if (!root || !root->laid_out)
+        return false;
+    const fm_style *s = &root->st;
+    float rmax = 0;
+    for (int k = 0; k < 4; k++)
+        rmax = fmaxf(rmax, s->radius[k]);
+    *radius = rmax;
+    /* (a blur under an opaque background shows nothing: glass or not, it hides what's behind) */
+    return s->bg.kind == FM_BG_SOLID && C_A(s->bg.a) == 255 && s->opacity >= 0.999f && !s->bg_img[0];
+}
 
 static const char *const default_frame =
     "<frame>"
@@ -1659,18 +1733,23 @@ bool fm_window_slot(fm_doc *d, rect *frame, float radius[4], float *border, rect
     return true;
 }
 
-void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out,
-                            bool opaque_body) {
+void fm_render_window_frame(fm_doc *d, canvas *c, int win, rect r, bool focused, rect *content_out, int opaque_w,
+                            int opaque_h) {
     double l0 = pnow();
     rect content = {0, 0, 0, 0};
     fm_node *root = fmi_frame_layout(d, win, r, focused, &content);
     fm_pacc[5] += pnow() - l0;
     if (content_out)
         *content_out = content;
-    if (opaque_body) /* what the app fills next: its glass is blurred only around it (gfx.c) */
+    if (opaque_w == 0) /* what the app fills next: its glass is blurred only around it (gfx.c) */
         blur_hole = content;
+    else if (opaque_w > 0) /* as far as its opaque picture reaches, from the content's corner */
+        blur_hole = (rect){content.x, content.y, opaque_w < content.w ? opaque_w : content.w,
+                           opaque_h < content.h ? opaque_h : content.h};
+    frame_timed = opaque_w >= 0 ? root : NULL;
     if (root)
         draw_node(d, c, root, 1);
+    frame_timed = NULL;
     blur_hole = (rect){0, 0, 0, 0};
     d->cur_win = -1;
 }

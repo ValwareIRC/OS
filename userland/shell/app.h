@@ -69,6 +69,8 @@ struct window {
     uint64_t opened_at; /* for the arrival animation */
     bool minimized, maximized;
     rect restore;       /* size before maximizing */
+    int glass_said;     /* (what the log was last told of its frame's glass) */
+    bool body_opaque;   /* last frame, nothing behind showed through its body (the layer below may skip it) */
 };
 
 typedef struct app {

@@ -1495,14 +1495,27 @@ static void draw_window(int w, bool focused) {
     float e = ease_out((float)(A.now - win->opened_at) / 320.0f);
     r.y += (int)((1 - e) * 36 * (0.3f + D.motion));
     rect body;
+    win->body_opaque = false;
     if (win->view && win->view->client_frame) {
         /* the app draws its own title bar and frame: only a shadow from us */
         shadow_round(A.frame, r, 8, 28, RGBA(0, 0, 0, focused ? 110 : 70));
         body = r;
     } else {
-        /* an app's body is painted opaque (app_body): its frame's glass is blurred only around it */
-        bool opaque_body = w >= WIN_COUNT && !win->fx && win->view && C_A(D.surface) == 255;
-        PROF("window frames", fm_render_window_frame(A.ui, A.frame, w, r, focused, &body, opaque_body));
+        /* an app's body is opaque (app_body paints the surface colour, then the app; or the app's picture is
+         * opaque all over and fills it): its frame's glass is blurred only around it */
+        wl_view *av = win->view;
+        bool app = w >= WIN_COUNT && !win->fx && av;
+        /* (opaque: the whole body when the surface colour is; else as far as the app's opaque picture reaches) */
+        int ow = !app ? -1 : C_A(D.surface) == 255 ? 0 : av->opaque ? av->w : -1, oh = ow > 0 ? av->h : 0;
+        /* (apps' frames and the system's own windows' apart, in the log's "time:" line; and once, whether the
+         * glass under an app is left out) */
+        PROF(app ? "app frames" : "window frames", fm_render_window_frame(A.ui, A.frame, w, r, focused, &body, ow, oh));
+        win->body_opaque = app && (ow == 0 || (ow > 0 && av->w >= body.w && av->h >= body.h));
+        if (app && win->glass_said != ow + 2) {
+            win->glass_said = ow + 2;
+            LOG("glass: window %d: %s (surface alpha %d, its picture %s)\n", w,
+                ow < 0 ? "blurred whole" : "blurred only around the app", C_A(D.surface), av->opaque ? "opaque" : "not opaque");
+        }
     }
     canvas_clip(A.frame, body);
     switch (w) {
@@ -2680,7 +2693,28 @@ void desktop_draw(void) {
         explain_why(ui->hovered);
 
     if (!cached) {
+        /* What the windows hide completely isn't drawn underneath them: an opaque frame (the corners aside), or
+         * at least an opaque body. (A dock under Prism at full size took a fifth of a core, blurred each frame.) */
+        rect occ[24];
+        int nocc = 0;
+        float frad = 0;
+        bool frame_opaque = fm_frame_opaque(ui, &frad);
+        for (int i = 0; i < n && nocc + 2 <= 24; i++) {
+            struct window *ow = &A.win[order[i]];
+            if (A.now - ow->opened_at < 400 || (ow->view && ow->view->client_frame)) /* (arriving; its own frame) */
+                continue;
+            if (frame_opaque) {
+                rect wr = ow->r;
+                int rad = (int)ceilf(frad) + 1;
+                occ[nocc++] = (rect){wr.x + rad, wr.y, wr.w - 2 * rad, wr.h};
+                occ[nocc++] = (rect){wr.x, wr.y + rad, wr.w, wr.h - 2 * rad};
+            } else if (ow->body_opaque) {
+                occ[nocc++] = ow->body;
+            }
+        }
+        fm_set_occluders(ui, occ, nocc);
         PROF("desktop layer", fm_render_layer(ui, A.frame, 0));
+        fm_set_occluders(ui, NULL, 0);
         PROF("companion light", draw_her_free(top, over_ui));
     }
     presence_draw_corner(A.frame); /* its face, when the design has nowhere for it */
