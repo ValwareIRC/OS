@@ -54,6 +54,7 @@ void syscall_dispatch(struct regs *r) {
         /* refused by a seccomp filter: ret is the answer */
     } else if (nr < NR_SYSCALLS && table[nr]) {
         ret = table[nr](a0, a1, a2, regs_syscall_arg(r, 3), regs_syscall_arg(r, 4), regs_syscall_arg(r, 5), r);
+        this_cpu()->counts.sys_n[nr]++;
         if (strace)
             kprintf("[%d] %s(%lx, %lx, %lx) = %ld\n", proc_current()->pid, names[nr], a0, a1, a2, ret);
         else if (strace_name[0] && ret < 0 && ret != -EAGAIN && !strcmp(proc_current()->name, strace_name)) {

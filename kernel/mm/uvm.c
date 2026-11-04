@@ -121,6 +121,7 @@ static bool break_cow(struct mm *mm, struct vma *v, uint64_t va, uint64_t *pte) 
         uint64_t p = page_alloc_shared(); /* counted: it may be shared by a later fork */
         if (!p)
             return false;
+        this_cpu()->counts.cows++;
         memcpy(phys_to_virt(p), phys_to_virt(old), PAGE_SIZE);
         if (v->prot & PROT_EXEC)
             arch_sync_icache(phys_to_virt(p), PAGE_SIZE);
@@ -693,11 +694,13 @@ bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec, bool c
          * from), then the fault again from the start. */
         int r = -EFAULT;
         if (can_wait && tries < 64) {
-            uint64_t fl = irq_save();
+            uint64_t fl = irq_save(), t0 = time_monotonic_ns();
             irq_enable();
             r = pageobj_fill(read, idx, 0);
             pageobj_put(read);
             irq_restore(fl);
+            struct cpu_counts *cc = &this_cpu()->counts;
+            cc->fills++, cc->fill_ns += time_monotonic_ns() - t0;
         } else {
             pageobj_put(read);
         }

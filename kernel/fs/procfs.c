@@ -360,9 +360,94 @@ void proc_cpu_totals(uint64_t *user, uint64_t *sys, uint64_t *idle) {
         *user += cpu_time[i][CT_USER], *sys += cpu_time[i][CT_SYS], *idle += cpu_time[i][CT_IDLE];
 }
 
+/* ---- /proc/kprofile: where the kernel's time goes ----
+ * Off until "1" is written to it (which also starts the counts over; "0" stops them). Each tick that finds a CPU in
+ * the kernel then counts where it was (in 16-byte steps of the kernel's code) and the system call it was serving,
+ * so time spent working in the kernel, not waiting there, is seen. Read: "ticks user U kernel K idle I", then
+ * "sys NAME N" and "pc ADDRESS N" (tests/kprof.py names the addresses with the kernel's symbols). A tick waits
+ * while interrupts are off, so such time shows where they come back on. */
+#define KPROF_BASE 0xffffffff80000000ull
+#define KPROF_SLOTS (1u << 18) /* 4 MiB of code */
+static uint32_t *kprof_pc;
+static uint32_t kprof_sys[513], kprof_ticks[3];
+static volatile bool kprof_on;
+/* per program: its ticks in the kernel and in its own code, by pid (an open table; full, the rest uncounted) */
+#define KPROF_PIDS 256
+static struct { int pid; uint32_t kernel, user; char comm[16]; } kprof_pid[KPROF_PIDS];
+
+static void kprof_count_pid(struct thread *t, int kind) {
+    if (!t || !t->user)
+        return;
+    int pid = t->user->proc->pid;
+    for (int i = 0, h = pid & (KPROF_PIDS - 1); i < KPROF_PIDS; i++, h = (h + 1) & (KPROF_PIDS - 1)) {
+        if (kprof_pid[h].pid != pid && kprof_pid[h].pid)
+            continue;
+        if (!kprof_pid[h].pid) {
+            kprof_pid[h].pid = pid;
+            ksnprintf(kprof_pid[h].comm, sizeof kprof_pid[h].comm, "%s", t->user->proc->name);
+        }
+        if (kind == 1)
+            kprof_pid[h].kernel++;
+        else
+            kprof_pid[h].user++;
+        return;
+    }
+}
+
+static void kprof_tick(struct regs *r, struct thread *t, int kind) {
+    kprof_ticks[kind]++;
+    if (kind != 2)
+        kprof_count_pid(t, kind);
+    if (kind != 1)
+        return;
+    uint64_t pc = regs_ip(r) - KPROF_BASE;
+    if (kprof_pc && pc < (uint64_t)KPROF_SLOTS * 16)
+        kprof_pc[pc >> 4]++;
+    int64_t nr = t && t->user ? t->user->sc_nr : -1;
+    kprof_sys[nr >= 0 && nr < 512 ? nr : 512]++;
+}
+
+const char *syscall_name(int64_t nr);
+static int show_kprofile(struct snode *n, struct sbuf *b) {
+    (void)n;
+    sb_printf(b, "ticks user %u kernel %u idle %u\n", kprof_ticks[0], kprof_ticks[1], kprof_ticks[2]);
+    for (int i = 0; i < KPROF_PIDS; i++)
+        if (kprof_pid[i].pid)
+            sb_printf(b, "prog %d %s kernel %u user %u\n", kprof_pid[i].pid, kprof_pid[i].comm, kprof_pid[i].kernel,
+                      kprof_pid[i].user);
+    for (int k = 0; k < 513; k++)
+        if (kprof_sys[k])
+            sb_printf(b, "sys %s %u\n", k == 512 ? "(none: an interrupt, a fault, a kernel thread)" : syscall_name(k),
+                      kprof_sys[k]);
+    for (uint32_t i = 0; kprof_pc && i < KPROF_SLOTS; i++)
+        if (kprof_pc[i])
+            sb_printf(b, "pc %lx %u\n", (unsigned long)(KPROF_BASE + (uint64_t)i * 16), kprof_pc[i]);
+    return 0;
+}
+
+static int64_t store_kprofile(struct snode *n, const char *buf, size_t len) {
+    (void)n;
+    if (len && buf[0] == '1') {
+        kprof_on = false;
+        if (!kprof_pc)
+            kprof_pc = kzalloc(sizeof *kprof_pc * KPROF_SLOTS);
+        else
+            memset(kprof_pc, 0, sizeof *kprof_pc * KPROF_SLOTS);
+        memset(kprof_sys, 0, sizeof kprof_sys);
+        memset(kprof_ticks, 0, sizeof kprof_ticks);
+        memset(kprof_pid, 0, sizeof kprof_pid);
+        kprof_on = kprof_pc != NULL;
+    } else {
+        kprof_on = false;
+    }
+    return (int64_t)len;
+}
+
 void proc_account_tick(struct regs *r) {
     struct cpu *c = this_cpu();
     struct thread *t = c->current;
+    if (kprof_on)
+        kprof_tick(r, t, t == c->idle ? 2 : regs_user_mode(r) ? 0 : 1);
     if (t == c->idle) {
         cpu_time[c->id][CT_IDLE]++;
     } else {
@@ -408,7 +493,7 @@ struct psnap {
     char state;
     char comm[32];
     uint32_t uid, gid, euid, egid, umask;
-    uint64_t utime, stime, start_ns;
+    uint64_t utime, stime, start_ns, minflt;
     uint64_t sigpnd, shdpnd, sigblk, sigign, sigcgt;
     struct mm *mm;
     struct fdtable *fds;
@@ -450,6 +535,8 @@ static void snap_fn(struct process *p, void *arg) {
         s->nthreads++;
         ut_sum += ut->utime;
         st_sum += ut->stime;
+        if (!s->want_tid || ut->tid == s->gtid)
+            s->minflt += ut->minflt;
         if (!s->want_tid && thread_state(ut) == 'R')
             s->state = 'R';
         if (ut->tid == s->gtid) {
@@ -671,8 +758,8 @@ static int show_stat(struct snode *n, struct sbuf *b) {
     struct mem_stats m;
     mem_stats(s.mm, s.ei, &m);
     sb_printf(b, "%d (%s) %c %d %d %d %u %d %u %u %u %u %u %lu %lu %d %d %d %d %d %d %lu %lu %lu %lu", s.tid,
-              s.comm, s.state, s.ppid, s.pgid, s.sid, tty_nr(s.ctty), -1, 0x400000u /* PF_RANDOMIZE */, 0u, 0u,
-              0u, 0u, ticks_to_clk(s.utime), ticks_to_clk(s.stime), 0, 0, 20, 0, s.nthreads, 0,
+              s.comm, s.state, s.ppid, s.pgid, s.sid, tty_nr(s.ctty), -1, 0x400000u /* PF_RANDOMIZE */,
+              (unsigned)s.minflt, 0u, 0u, 0u, ticks_to_clk(s.utime), ticks_to_clk(s.stime), 0, 0, 20, 0, s.nthreads, 0,
               (uint64_t)(s.start_ns / (1000000000ULL / USER_HZ)), m.vsize, m.rss, (uint64_t)-1);
     sb_printf(b, " %lu %lu %lu 0 0 %lu %lu %lu %lu 0 0 0 17 %d 0 0 0 0 0 0 0 0 0 0 0 0 0\n", m.start_code,
               m.end_code, m.start_stack, s.sigpnd | s.shdpnd, s.sigblk, s.sigign, s.sigcgt, s.cpu);
@@ -1390,6 +1477,33 @@ static void meminfo_row(struct sbuf *b, const char *name, uint64_t kb) {
     sb_printf(b, " %8lu kB\n", kb);
 }
 
+/* /proc/vmstat: Linux's names where there are some (pgfault, pgmajfault: pages read from a file), and what
+ * programs asked of the kernel: faults and their time, TLB shootdowns and theirs, each system call's count.
+ * Summed over the CPUs since boot. Where the kernel's working time goes: /proc/kprofile. */
+const char *syscall_name(int64_t nr);
+static int show_vmstat(struct snode *n, struct sbuf *b) {
+    (void)n;
+    struct cpu_counts t;
+    memset(&t, 0, sizeof t);
+    for (uint32_t i = 0; i < cpu_count; i++) {
+        const struct cpu_counts *c = cpus[i] ? &cpus[i]->counts : NULL;
+        if (!c)
+            continue;
+        t.faults += c->faults, t.fault_ns += c->fault_ns, t.fills += c->fills, t.fill_ns += c->fill_ns;
+        t.cows += c->cows, t.shootdowns += c->shootdowns, t.shootdown_ns += c->shootdown_ns, t.ipis += c->ipis;
+        for (int k = 0; k < COUNTED_SYSCALLS; k++)
+            t.sys_n[k] += c->sys_n[k];
+    }
+    sb_printf(b, "pgfault %lu\npgmajfault %lu\nfault_us %lu\nfill_us %lu\ncow %lu\n", t.faults, t.fills,
+              t.fault_ns / 1000, t.fill_ns / 1000, t.cows);
+    sb_printf(b, "nr_tlb_remote_flush %lu\nnr_tlb_remote_flush_ipis %lu\ntlb_remote_flush_us %lu\n", t.shootdowns,
+              t.ipis, t.shootdown_ns / 1000);
+    for (int k = 0; k < COUNTED_SYSCALLS; k++)
+        if (t.sys_n[k] && syscall_name(k))
+            sb_printf(b, "sys_%s %lu\n", syscall_name(k), t.sys_n[k]);
+    return 0;
+}
+
 static int show_meminfo(struct snode *n, struct sbuf *b) {
     (void)n;
     uint64_t total = pmm_total_pages() * (PAGE_SIZE / 1024), free = pmm_free_pages() * (PAGE_SIZE / 1024);
@@ -1754,6 +1868,8 @@ static const struct sent root_children[] = {
     FILE_RO("filesystems", show_filesystems),
     FILE_RO("loadavg", show_loadavg),
     FILE_RO("meminfo", show_meminfo),
+    FILE_RO("vmstat", show_vmstat),
+    {.name = "kprofile", .type = VN_REG, .mode = 0666, .show = show_kprofile, .store = store_kprofile},
     LINK("mounts", link_mounts),
     {.name = "net", .type = VN_DIR, .mode = 0555, .children = net_children},
     FILE_RO("partitions", show_partitions),

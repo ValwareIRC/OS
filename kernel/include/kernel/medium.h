@@ -29,3 +29,6 @@ int medium_read(const struct medium_file *f, uint64_t off, void *buf, size_t n);
  * the medium as they are used, not all at boot. */
 struct pagesrc;
 extern const struct pagesrc medium_pages;
+/* How many are reading through it now (or waiting to): a reader in the background (fs/cpio.c's read-ahead)
+ * lets them go first. */
+int medium_readers(void);

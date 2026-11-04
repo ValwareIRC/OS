@@ -229,6 +229,89 @@ void initramfs_unpack(const void *data, size_t len) {
  * u16 the name's length, u16 the symlink target's length, u32 0, the name (no leading "./"), the target, and
  * padding to 4 bytes. */
 
+/* ---- reading it ahead ----
+ * Read when first used is right for what nobody uses (the voices of someone who never speaks to it) and slow for
+ * what everyone will: Prism, bundled with the system, is 400 MB of it, and read as it starts, in scattered pieces
+ * off a disc, its first start took twice as long as when the whole base system was read at boot. So once the
+ * system is up the files are read ahead in the background, each straight through, in the order they will be
+ * wanted (the bundled apps, the libraries, the rest, the voices and the model last), whenever no program is
+ * waiting for the drive, while memory has room (an eighth of it, and 512 MiB, always left free). What is read
+ * this way can still be given back when memory runs short, as any file's pages. */
+
+#define AHEAD_CLASSES 4
+static struct pageobj **ahead[AHEAD_CLASSES];
+static uint32_t nahead[AHEAD_CLASSES], cahead[AHEAD_CLASSES];
+
+static int ahead_class(const char *path) {
+    if (!strncmp(path, "/var/lib/flatpak/app/", 21) || !strncmp(path, "/var/lib/flatpak/runtime/", 25))
+        return 0;
+    if (!strncmp(path, "/usr/share/os/voice/", 20) || !strncmp(path, "/usr/share/os/mind/", 19))
+        return 3;
+    if (!strncmp(path, "/usr/lib", 8) || !strncmp(path, "/usr/bin/", 9) || !strncmp(path, "/opt/", 5))
+        return 1;
+    return 2;
+}
+
+static void ahead_add(const char *path, struct pageobj *o) {
+    int c = ahead_class(path);
+    if (nahead[c] == cahead[c]) {
+        uint32_t cap = cahead[c] ? cahead[c] * 2 : 1024;
+        struct pageobj **n = kmalloc(sizeof *n * cap);
+        if (!n)
+            return;
+        if (ahead[c])
+            memcpy(n, ahead[c], sizeof *n * nahead[c]);
+        kfree(ahead[c]);
+        ahead[c] = n, cahead[c] = cap;
+    }
+    pageobj_ref(o);
+    ahead[c][nahead[c]++] = o;
+}
+
+static void read_ahead(void *arg) {
+    (void)arg;
+    thread_sleep_ms(2000); /* (the desktop's own first reads first) */
+    uint64_t t0 = time_monotonic_ns(), before = pageobj_cached_pages();
+    uint64_t floor = pmm_total_pages() / 8;
+    if (floor < (512u << 20) / PAGE_SIZE)
+        floor = (512u << 20) / PAGE_SIZE;
+    uint32_t files = 0;
+    bool full = false;
+    for (int c = 0; c < AHEAD_CLASSES; c++) {
+        for (uint32_t i = 0; i < nahead[c]; i++) {
+            struct pageobj *o = ahead[c][i];
+            for (uint64_t idx = 0; !full && (idx = pageobj_next_missing(o, idx)) != ~0ULL;) {
+                while (medium_readers())
+                    thread_sleep_ms(2); /* a program is waiting for the drive: it goes first */
+                if (pmm_free_pages() < floor) {
+                    full = true;
+                    break;
+                }
+                if (pageobj_fill(o, idx, 256) < 0)
+                    break;
+            }
+            files += !full;
+            pageobj_put(o);
+        }
+        kfree(ahead[c]);
+        ahead[c] = NULL;
+        nahead[c] = cahead[c] = 0;
+    }
+    uint64_t now = pageobj_cached_pages();
+    kprintf("base: read ahead in %lu s: %u files, %lu MiB in memory now%s\n",
+            (unsigned long)((time_monotonic_ns() - t0) / 1000000000ULL), files,
+            (unsigned long)((now > before ? now : before) * PAGE_SIZE >> 20),
+            full ? " (stopped there: memory is wanted for more)" : "");
+}
+
+void initramfs_read_ahead(void) {
+    uint32_t n = 0;
+    for (int c = 0; c < AHEAD_CLASSES; c++)
+        n += nahead[c];
+    if (n && !thread_create("readahead", read_ahead, NULL))
+        kprintf("base: no thread to read it ahead with: read as used only\n");
+}
+
 struct idx_entry {
     uint32_t mode, group;
     uint64_t size, data;
@@ -320,6 +403,8 @@ bool initramfs_from_index(const void *index, uint64_t len, const struct medium_f
             }
             if (r == 0 && e.group && links)
                 linked_add(links, e.group, v);
+            if (r == 0 && e.size)
+                ahead_add(path, v->data);
             if (v)
                 vnode_put(v);
             files++;

@@ -8,6 +8,19 @@
 struct thread;
 
 /* Per-CPU state. `arch` must stay first: the arch reaches its per-CPU state through it. */
+/* What this CPU spent its time on (counted without atomics: a count lost to a switch now and then is fine), for
+ * /proc/vmstat: where a program's time in the kernel goes. */
+#define COUNTED_SYSCALLS 512
+struct cpu_counts {
+    uint64_t faults, fault_ns;           /* page faults handled */
+    uint64_t fills, fill_ns;             /* of them, pages read from a file's source first */
+    uint64_t cows;                       /* copy-on-write copies made */
+    uint64_t shootdowns, shootdown_ns;   /* TLB shootdowns that had other CPUs to tell, and the wait for them */
+    uint64_t ipis;                       /* the interrupts sent for them */
+    uint64_t sys_n[COUNTED_SYSCALLS];    /* calls of each (their time is /proc/kprofile's to find: a call's wall
+                                          * time is mostly its waiting) */
+};
+
 struct cpu {
     struct arch_cpu arch;
     uint32_t id;       /* 0..cpu_count-1, BSP is 0 */
@@ -17,6 +30,7 @@ struct cpu {
     uint64_t ticks;
     volatile bool online;
     struct mm *active_mm;          /* user page tables loaded in CR3, or NULL */
+    struct cpu_counts counts;
 };
 
 #define MAX_CPUS 256

@@ -203,8 +203,10 @@ static bool unpack_from_medium(const char *path, uint64_t size, const void *inde
         kprintf("medium: %s isn't on any drive the kernel can read: the base system is missing\n", path);
         return false;
     }
-    if (index && initramfs_from_index(index, index_len, &base_file))
+    if (index && initramfs_from_index(index, index_len, &base_file)) {
+        initramfs_read_ahead();
         return *lazily = true;
+    }
     if (index)
         kprintf("medium: the base system's index doesn't fit it: read whole instead\n");
     return initramfs_unpack_from(medium_reader, &base_file, size);

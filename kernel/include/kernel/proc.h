@@ -267,6 +267,7 @@ struct user_thread {
     uint64_t saved_sigmask;
     bool restore_sigmask;
     uint64_t utime, stime; /* timer ticks that found it in user / kernel mode */
+    uint64_t minflt;       /* page faults it took (/proc's minflt) */
     /* The system call it is in (-1: running its own code), for finding hangs
      * (proc_dump_threads). */
     int64_t sc_nr;

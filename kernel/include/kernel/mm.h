@@ -46,7 +46,8 @@ struct pagesrc {
     int64_t (*read)(void *ctx, uint64_t off, void *buf, size_t len);
     /* The object is gone (optional; called later, from a thread of its own, never under a lock). */
     void (*release)(void *ctx, struct pageobj *o);
-    uint32_t max_run; /* pages read at once at most (the read-ahead of a reader going straight through) */
+    uint32_t max_run;   /* pages read at once at most (the read-ahead of a reader going straight through) */
+    uint32_t first_run; /* pages a fill reads that doesn't continue the last one (0: 16) */
 };
 struct pageobj {
     int refcount;
@@ -85,6 +86,8 @@ struct pageobj *pageobj_adopt(struct pageobj *o, uint64_t phys, uint64_t size); 
 void pageobj_set_source(struct pageobj *o, const struct pagesrc *src, void *ctx, uint64_t off);
 /* True if page `idx` is the source's to read before it can be used. */
 bool pageobj_missing(struct pageobj *o, uint64_t idx);
+/* The first page from `from` on that the source still has to read, or ~0 (none, or no source). */
+uint64_t pageobj_next_missing(struct pageobj *o, uint64_t from);
 /* Reads page `idx` from the source, with the pages after it (at least `want` in all, if the source allows):
  * 0 (also when there was nothing to read) or a negative errno. May wait; no spinlock may be held. */
 int pageobj_fill(struct pageobj *o, uint64_t idx, uint64_t want);

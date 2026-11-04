@@ -98,6 +98,7 @@ void tlb_shootdown(struct mm *mm) {
         return;
     uint64_t f = irq_save(); /* stay on this CPU while we compare against it */
     struct cpu *self = this_cpu();
+    uint64_t t0 = time_monotonic_ns(), nsent = 0;
     /* Our PTE writes must be visible before we look at who has the mm
      * loaded; mm_activate publishes active_mm before loading CR3, so a CPU
      * we miss here loads CR3 after our change and sees it. */
@@ -113,6 +114,7 @@ void tlb_shootdown(struct mm *mm) {
         any = true;
         __atomic_store_n(&c->arch.tlb_flush_pending, 1, __ATOMIC_SEQ_CST);
         sent[i / 64] |= 1ULL << (i % 64);
+        nsent++;
         lapic_send_ipi(c->arch.lapic_id, VEC_TLB);
     }
     for (uint32_t i = 0; any && i < cpu_count; i++) {
@@ -125,8 +127,11 @@ void tlb_shootdown(struct mm *mm) {
             tlb_service();
         }
     }
-    if (any)
+    if (any) {
         __atomic_sub_fetch(&tlb_shootdowns_active, 1, __ATOMIC_SEQ_CST);
+        self->counts.shootdowns++, self->counts.ipis += nsent;
+        self->counts.shootdown_ns += time_monotonic_ns() - t0;
+    }
     irq_restore(f);
 }
 

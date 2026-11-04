@@ -163,6 +163,15 @@ bool pageobj_missing(struct pageobj *o, uint64_t idx) {
     return m;
 }
 
+uint64_t pageobj_next_missing(struct pageobj *o, uint64_t from) {
+    uint64_t fl = spin_lock_irqsave(&o->lock);
+    uint64_t end = o->src ? npages(o) : 0, idx = from;
+    while (idx < end && slot(o, idx))
+        idx++;
+    spin_unlock_irqrestore(&o->lock, fl);
+    return idx < end ? idx : ~0ULL;
+}
+
 int pageobj_fill(struct pageobj *o, uint64_t idx, uint64_t want) {
     uint64_t fl = spin_lock_irqsave(&o->lock);
     const struct pagesrc *src = o->src;
@@ -173,7 +182,8 @@ int pageobj_fill(struct pageobj *o, uint64_t idx, uint64_t want) {
     }
     /* A reader going straight through reads further ahead each time (to the source's limit); one that jumps
      * about gets RUN_FIRST pages around what it touched. */
-    uint64_t run = idx == o->ra_next ? o->ra : RUN_FIRST;
+    uint64_t first = src->first_run ? src->first_run : RUN_FIRST;
+    uint64_t run = idx == o->ra_next && o->ra > first ? o->ra : first;
     if (run < want)
         run = want;
     if (run > src->max_run)

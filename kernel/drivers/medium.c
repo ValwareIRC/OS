@@ -189,6 +189,9 @@ static struct window {
 static uint8_t *long_buf;
 static uint64_t win_clock;
 static volatile int win_busy; /* the windows and the long buffer are one reader's at a time */
+static int readers;           /* in medium_pages_read, reading or waiting */
+
+int medium_readers(void) { return __atomic_load_n(&readers, __ATOMIC_RELAXED); }
 
 static struct window *window_at(const struct medium_file *f, uint64_t start, int *err) {
     struct window *w = NULL, *old = &windows[0];
@@ -227,6 +230,7 @@ static int64_t medium_pages_read(void *ctx, uint64_t off, void *buf, size_t len)
         return 0;
     if (len > f->size - off)
         len = f->size - off;
+    __atomic_add_fetch(&readers, 1, __ATOMIC_RELAXED);
     while (__atomic_exchange_n(&win_busy, 1, __ATOMIC_ACQUIRE))
         thread_yield();
     uint8_t *dst = buf;
@@ -265,7 +269,10 @@ static int64_t medium_pages_read(void *ctx, uint64_t off, void *buf, size_t len)
         done += n;
     }
     __atomic_store_n(&win_busy, 0, __ATOMIC_RELEASE);
+    __atomic_sub_fetch(&readers, 1, __ATOMIC_RELAXED);
     return done ? (int64_t)done : err;
 }
 
-const struct pagesrc medium_pages = {.read = medium_pages_read, .max_run = 256};
+/* A trip to the drive costs much the same for 64 KiB as for 256: a program that jumps about in a file (a
+ * browser's 150 MB binary as it starts) gets a window's worth each time. */
+const struct pagesrc medium_pages = {.read = medium_pages_read, .max_run = 256, .first_run = WIN / PAGE_SIZE};

@@ -920,7 +920,13 @@ bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     struct mm *mm = t && t->user ? t->user->proc->mm : NULL;
     uint64_t fails = __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED);
     bool can_wait = regs_irqs_on(r);
-    if (mm && mm_handle_fault(mm, addr, write, exec, can_wait))
+    uint64_t t0 = time_monotonic_ns();
+    bool handled = mm && mm_handle_fault(mm, addr, write, exec, can_wait);
+    struct cpu_counts *cc = &this_cpu()->counts;
+    cc->faults++, cc->fault_ns += time_monotonic_ns() - t0;
+    if (t && t->user)
+        t->user->minflt++;
+    if (handled)
         return true;
     if (regs_user_mode(r) && mm && __atomic_load_n(&pmm_page_failures, __ATOMIC_RELAXED) != fails) {
         /* no page left: room is made, then again (for up to 10 s). First from the file pages kept only

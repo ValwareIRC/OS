@@ -239,6 +239,8 @@ bool initramfs_unpack_from(cpio_read_fn read, void *ctx, uint64_t len);
  * one, or isn't this archive's. */
 struct medium_file;
 bool initramfs_from_index(const void *index, uint64_t len, const struct medium_file *f);
+/* Then the files made from it read ahead in the background (a thread of its own; nothing if there were none). */
+void initramfs_read_ahead(void);
 
 /* pipes */
 int pipe_create(struct file **read_end, struct file **write_end);
