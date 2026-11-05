@@ -25,6 +25,7 @@
 #include "alive.h"
 #include "stylist.h"
 #include "settings.h"
+#include "chats.h"
 #include "tray.h"
 #include "iconart.h"
 #include "preview.h"
@@ -948,12 +949,12 @@ void companion_note_pictures(const char *note, bool act, char *a, char *b, char 
 
 static char voice_key_wanted[16]; /* [[voice:key openai]]: the key is asked for over everything, next frame */
 
-/* [[chat:clear]]: the conversation goes once the reply that said so has been heard (and nothing is being asked) */
-static bool clear_owed;
+/* [[chat:clear]] / [[chat:new]]: once the reply that said so has been heard (and nothing is being asked), this
+ * chat is deleted, or kept in their list while a new one starts (chats.c) */
+static bool clear_owed, new_owed;
 
 void companion_clear(void) {
-    convo_clear(&A.companion);
-    unlink(STATE_DIR "/companion.txt");
+    chats_delete(""); /* the one open */
     clear_owed = false;
     LOG("companion: the conversation cleared\n");
 }
@@ -962,6 +963,10 @@ static void companion_update(void) {
     struct conversation *c = &A.companion;
     if (clear_owed && !c->pending && !voice_speaking())
         companion_clear();
+    if (new_owed && !c->pending && !agent_busy() && !voice_speaking()) {
+        new_owed = false;
+        chats_new();
+    }
     if (owed && !c->pending) {
         owed = false;
         convo_send(c, companion_system(), 1600);
@@ -1069,6 +1074,8 @@ static void companion_update(void) {
         /* They asked for the conversation to go (a fresh start, a video): only when they asked, in what it answers */
         if (from_person && strstr(m->text, "[[chat:clear]]"))
             clear_owed = true;
+        else if (from_person && strstr(m->text, "[[chat:new]]"))
+            new_owed = true;
         /* Their yes or no to the preview, said instead of clicked. */
         if (from_person && strstr(m->text, "[[preview:apply]]"))
             preview_apply();
@@ -1333,6 +1340,97 @@ static void companion_update(void) {
     }
 }
 
+/* Their chats, newest first (chats.c), in place of the one open: a click opens one again; Delete, then a second
+ * click on it, deletes one. */
+static void chats_list_body(rect r, font *f, font *small, bool can, bool *listing) {
+    static struct chat_entry list[200];
+    static int n, scroll;
+    static uint64_t listed_at, armed_at;
+    static char armed[40];
+    static bool armed_open;
+    if (!listed_at || A.now - listed_at > 1000) {
+        n = chats_list(list, 200);
+        listed_at = A.now;
+    }
+    int lf = font_line_height(f), ls = font_line_height(small), row_h = lf + ls + 24;
+    bool in_list = pt_in(r, A.in.mx, A.in.my);
+    if (in_list && A.in.wheel) {
+        scroll -= A.in.wheel * row_h / 2;
+        int most = n * row_h - r.h + 40;
+        scroll = scroll > most ? most : scroll;
+        scroll = scroll < 0 ? 0 : scroll;
+        A.in.wheel = 0;
+    }
+    canvas_clip(A.frame, r);
+    int y = r.y - scroll;
+    if (!can) {
+        char wait[160];
+        snprintf(wait, sizeof wait, "Another chat opens once %s has finished.", D.ai_name[0] ? D.ai_name : "it");
+        draw_text(A.frame, small, r.x + 4, y + 4, wait, D.muted);
+        y += ls + 16;
+    }
+    if (!n)
+        draw_text(A.frame, f, r.x + 4, y + 8, "No chats yet.", D.muted);
+    color chip = color_alpha(D.surface_text, 0.08f);
+    for (int i = 0; i < n; i++, y += row_h) {
+        if (y + row_h < r.y || y > r.y + r.h)
+            continue;
+        struct chat_entry *e = &list[i];
+        rect row = {r.x, y, r.w, row_h - 6};
+        bool hov = in_list && ui_hover(row);
+        if (e->open || hov)
+            fill_round(A.frame, row, D.radius * 0.6f + 4,
+                       e->open ? color_alpha(D.accent, hov ? 0.26f : 0.18f) : color_alpha(D.surface_text, 0.07f));
+        rect db = {row.x + row.w - 92, row.y + (row.h - 28) / 2, 82, 28};
+        bool is_armed = armed_at && A.now - armed_at < 4000 && !strcmp(armed, e->id) && armed_open == e->open;
+        bool deletable = !e->open || can;
+        int room = row.w - 28 - (hov || is_armed ? 100 : 0);
+        char title[96];
+        snprintf(title, sizeof title, "%s", e->title);
+        int len = (int)strlen(title);
+        if (text_width(f, title) > room) { /* cut to fit, at a whole character */
+            while (len > 0 && text_width_n(f, title, len) + text_width(f, "\xE2\x80\xA6") > room)
+                len--;
+            while (len > 0 && (title[len] & 0xC0) == 0x80)
+                len--;
+            snprintf(title + len, sizeof title - (size_t)len, "\xE2\x80\xA6");
+        }
+        color ink = theme_ink(row, D.surface_text, 4.5f);
+        draw_text(A.frame, f, row.x + 14, row.y + 9, title, ink);
+        char when[64], sub[96];
+        chats_when(e->when, when, sizeof when);
+        snprintf(sub, sizeof sub, "%s", e->open ? "Open now" : when);
+        draw_text(A.frame, small, row.x + 14, row.y + 11 + lf, sub, color_alpha(ink, 0.65f));
+        bool took = false;
+        if ((hov || is_armed) && deletable) {
+            bool pressed = ui_button(db, is_armed ? "Delete?" : "Delete", small,
+                                     is_armed ? RGBA(200, 70, 60, 255) : chip,
+                                     is_armed ? RGBA(255, 255, 255, 255) : ink, 14, true);
+            if (pressed) {
+                took = true;
+                if (is_armed) {
+                    chats_delete(e->open ? "" : e->id);
+                    armed_at = 0;
+                    listed_at = 0; /* (read again next frame) */
+                } else {
+                    snprintf(armed, sizeof armed, "%s", e->id);
+                    armed_open = e->open;
+                    armed_at = A.now;
+                }
+            }
+        }
+        if (!took && hov && A.in.clicked && !pt_in(db, A.in.mx, A.in.my)) {
+            if (e->open) {
+                *listing = false; /* (it is the one open: back to it) */
+            } else if (can && chats_open(e->id)) {
+                *listing = false;
+                listed_at = 0;
+            }
+        }
+    }
+    canvas_unclip(A.frame);
+}
+
 static void companion_body(rect r) {
     struct conversation *c = &A.companion;
     /* Conversation is read, not admired: display faces give way to a reading one. */
@@ -1345,7 +1443,35 @@ static void companion_body(rect r) {
     static int saved_n = -1;
     if (c->n != saved_n && !c->pending) {
         convo_save(c, STATE_DIR "/companion.txt"); /* kept, so tomorrow can start from today */
+        chats_saved();                             /* (and in their list of chats, once it is in it) */
         saved_n = c->n;
+    }
+    /* At the top, as in every AI app: their chats, and a new one (the one open is kept) */
+    static bool listing; /* the list of their chats, in place of the one open */
+    bool can = chats_can_switch();
+    rect bar = {r.x, r.y, r.w, 34};
+    color chip = color_alpha(D.surface_text, 0.08f);
+    rect lb = {bar.x, bar.y, 92, bar.h}, nb = {bar.x + bar.w - 128, bar.y, 128, bar.h};
+    if (ui_button(lb, listing ? "Back" : "Chats", small, chip, D.surface_text, bar.h / 2.0f, true)) {
+        listing = !listing;
+        LOG("chats: the list %s\n", listing ? "shown" : "put away");
+    }
+    if (ui_button(nb, "+  New chat", small, chip, D.surface_text, bar.h / 2.0f, can)) {
+        chats_new();
+        listing = false;
+        saved_n = -1;
+    }
+    r.y += bar.h + 10;
+    r.h -= bar.h + 10;
+    if (listing) {
+        chats_list_body(r, f, small, can, &listing);
+        static uint64_t list_log;
+        if (A.now - list_log > 2000) {
+            list_log = A.now;
+            LOGRECT("chats-list", lb);
+            LOGRECT("chats-new", nb);
+        }
+        return;
     }
     rect input = {r.x, r.y + r.h - 52, r.w, 50};
     rect area = {r.x, r.y, r.w, r.h - 64};
@@ -1398,6 +1524,8 @@ static void companion_body(rect r) {
     if (A.now - last_log > 2000) {
         last_log = A.now;
         LOGRECT("companion-input", input);
+        LOGRECT("chats-list", lb);
+        LOGRECT("chats-new", nb);
     }
     if (!c->pending && ui_type(&A.chat) && A.chat.len) {
         convo_add(c, "user", A.chat.buf);
@@ -1486,6 +1614,7 @@ void forget_everything(void) {
     notes_forget();
     theme_follow_design();
     unlink(STATE_DIR "/companion.txt");
+    chats_delete_all(); /* (and every chat before it) */
     onboard_forget();
     if (priv_available()) /* and from the disk */
         priv_send("wipe");
