@@ -107,7 +107,7 @@ static const char *const builtin_css =
      * shape and where it goes, is each design's */
     "menu { direction: column; align: center; gap: 6; font-family: var(--font-body, Inter); font-size: 13;"
     " color: var(--text, #fff); }\n"
-    "menu acts { display: orbit; orbit: 86; size: 250; }\n"
+    "menu acts { display: orbit; orbit: 86; width: 320; height: 230; }\n"
     "menu acts button { padding: 7 14; radius: 18; background: var(--surface, rgba(20,22,30,0.94));"
     " border: 1 rgba(255,255,255,0.16); shadow: 0 8 22 rgba(0,0,0,0.42); transition: 120; }\n"
     "menu acts button:hover, menu acts button:focus { background: var(--accent, #6aa8ff); color: #fff;"
