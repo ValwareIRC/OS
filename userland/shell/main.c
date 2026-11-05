@@ -703,6 +703,16 @@ int main(void) {
     if (A.have_design) {
         convo_load(&A.companion, STATE_DIR "/companion.txt");
         A.returning = true;
+        /* switched on just now, or only the desktop program started again (it stopped; init started it):
+         * the companion is told which (desktop_enter). The desktop starts within seconds of the boot. */
+        double up = 0;
+        FILE *uf = fopen("/proc/uptime", "r");
+        if (uf) {
+            if (fscanf(uf, "%lf", &up) != 1)
+                up = 0;
+            fclose(uf);
+        }
+        A.restarted = up > 90;
     }
     FILE *nf = fopen(home_path("/notes.txt"), "r");
     if (nf) {

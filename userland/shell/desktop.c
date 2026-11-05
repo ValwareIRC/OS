@@ -912,6 +912,22 @@ static bool apply_design_file(const char *path, const char *name) {
 
 void companion_note(const char *note, bool act) { companion_note_pictures(note, act, NULL, NULL, NULL); }
 
+/* A quiet note: nothing is asked, it reads it the next time it speaks. If it is answering now, from before what
+ * the note says, it is asked again with the note: its answer would be out of date ("if you like it, press Apply",
+ * to someone who already had). */
+void companion_knows(const char *note) {
+    struct conversation *c = &A.companion;
+    bool asking = c->pending != NULL;
+    if (asking) {
+        job_free(c->pending);
+        c->pending = NULL;
+    }
+    convo_add(c, "hidden", note);
+    if (asking)
+        convo_send(c, companion_system(), 1600);
+    LOG("companion: told %.120s%s\n", note, asking ? " (and asked again)" : "");
+}
+
 /* A note with a picture (base64 JPEG, taken) on it: the picture goes with the very request that asks about it. */
 void companion_note_picture(const char *note, bool act, char *picture) {
     companion_note_pictures(note, act, picture, NULL, NULL);
@@ -2746,20 +2762,36 @@ void desktop_enter(void) {
         LOG("ui problem line %d: %s\n", A.ui->problems[i].line, A.ui->problems[i].msg);
     A.drag_win = -1;
     set_screen(SCR_DESKTOP);
-    if (A.returning) {
+    if (A.returning && A.restarted) {
+        /* Only the desktop program started again (it stopped, and init started it): they never left, and
+         * nothing is said. But it must know that what was open closed with it: it took the conversation as it
+         * was for the screen as it is ("it's still in the preview"). */
+        A.returning = A.restarted = false;
+        companion_knows("(The desktop program just restarted: it stopped and started again by itself; the computer "
+                        "stayed on and they didn't go anywhere. Every window, the preview and the apps it had open "
+                        "closed with it, and anything half done stopped: nothing from before is open or waiting now, "
+                        "whatever the conversation above says; what is on the screen now is only what you are told "
+                        "about it. Don't greet them or welcome them back.)");
+    } else if (A.returning) {
         /* A new session on a desktop they already have: the companion
          * remembers, and says so briefly, without fuss. */
         A.returning = false;
         time_t t = time(NULL);
         struct tm tm;
         localtime_r(&t, &tm);
-        char when[64], note[400];
+        char when[64], note[1100];
         strftime(when, sizeof when, "%A, %H:%M", &tm);
+        /* (it took the screen to be as the conversation left it: "the new look is still in the preview" of one
+         * long gone, applied, and switched off since) */
         snprintf(note, sizeof note,
-                 "(They have just switched the computer on again. It is %s. Say hello in one short, plain sentence, "
-                 "the way someone at home would when they walk in. If your last conversation left something real "
-                 "unfinished (written in it, not guessed), you may mention it in a few words; otherwise don't "
-                 "mention the past at all. No question unless you really need one.)",
+                 "(They have just switched the computer on again. It is %s. It was off: everything that was open "
+                 "when it went off closed then (every window, the preview, apps, anything running or half done), so "
+                 "nothing from before is open or waiting now, whatever the conversation above says; what is on the "
+                 "screen now is only what you are told about it. Say hello in one short, plain sentence, the way "
+                 "someone at home would when they walk in. If your last conversation left something real "
+                 "unfinished (written in it, not guessed), you may mention it in a few words, as something to pick "
+                 "up again, never as still open; otherwise don't mention the past at all. No question unless you "
+                 "really need one.)",
                  when);
         convo_add(&A.companion, "hidden", note);
         convo_send(&A.companion, companion_system(), 400);

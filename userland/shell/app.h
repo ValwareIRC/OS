@@ -132,6 +132,7 @@ typedef struct app {
     int empty_replies; /* consecutive empty answers from the AI */
     uint64_t companion_at; /* when to open the companion after the reveal (0: no) */
     bool returning;        /* booted into a desktop they already had: welcome them back */
+    bool restarted;        /* ...or only the desktop program started again (the computer stayed on): no welcome */
     char caption[800];     /* the companion's words as a subtitle, when its window is closed */
     uint64_t caption_until;
 } app;
@@ -254,6 +255,8 @@ void their_name_keep(const char *name);
  * (`act`: its ui tags run); and its replies taken in, off the desktop. */
 void companion_tell(const char *text);
 void companion_note(const char *note, bool act);
+/* Something it must know before it next speaks that needs no answer (they applied the preview themselves). */
+void companion_knows(const char *note);
 void facet_reference_write(void); /* Facet 2's reference, as a file the companion can read (desktop.c) */
 void companion_note_picture(const char *note, bool act, char *picture); /* picture: base64 JPEG, taken */
 void companion_note_pictures(const char *note, bool act, char *a, char *b, char *z);

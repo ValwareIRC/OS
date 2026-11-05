@@ -346,8 +346,12 @@ void preview_frame(void) {
                 A.design_job = NULL;
                 A.design_attempt = 0;
             }
+            bool was_open = PV.doc || PV.live;
             reset();
             LOG("preview: discarded\n");
+            if (was_open && !onboarding()) /* (it would go on talking about it as open) */
+                companion_knows("(They closed the preview without applying it: the desktop is as it was, the "
+                                "preview window is gone, and nothing is waiting to be applied.)");
             if (!onboarding() && A.win[WIN_PREVIEW].open)
                 wm_close(WIN_PREVIEW);
         } else if (act == PV_ACT_APPLY && (PV.live_whole || PV.doc)) {
@@ -365,6 +369,10 @@ void preview_frame(void) {
             reset();
             LOG("preview: applied\n");
             bool first = onboarding();
+            if (!first) /* (it went on saying "if you like it, press Apply" after they had) */
+                companion_knows("(They applied the preview: its design is their desktop now and the preview window "
+                                "is closed. Nothing is waiting to be applied; don't ask them to apply it. Changes "
+                                "from here open a new preview.)");
             if (!first && A.win[WIN_PREVIEW].open)
                 wm_close(WIN_PREVIEW);
             desktop_adopt(doc, &d, first);
