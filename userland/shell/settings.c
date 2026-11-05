@@ -2004,6 +2004,24 @@ static int page_privacy(rect c, int y) {
     }
     y += 42 + 12;
     y += note_text(c, y, "Forget me erases your profile, design, notes and AI connection, then restarts setup.") + 18;
+    {
+        static uint64_t clear_at;
+        bool clearing = clear_at && A.now - clear_at < 5000;
+        rect cb = {c.x, y, clearing ? 300 : 230, 42};
+        if (ctl_button(cb, clearing ? "Click again to clear it" : "Clear the conversation", f, clearing, true, &P)) {
+            if (clearing) {
+                clear_at = 0;
+                companion_clear();
+            } else {
+                clear_at = A.now;
+            }
+        }
+        y += 42 + 12;
+        char what[200];
+        snprintf(what, sizeof what, "Clears everything you and %s have said to each other. What %s remembers about you "
+                 "stays.", D.ai_name[0] ? D.ai_name : "the companion", D.ai_name[0] ? D.ai_name : "it");
+        y += note_text(c, y, what) + 18;
+    }
     static uint64_t reset_at;
     bool resetting = reset_at && A.now - reset_at < 5000;
     rect rb = {c.x, y, resetting ? 300 : 200, 42};

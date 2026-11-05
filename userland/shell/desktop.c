@@ -932,8 +932,20 @@ void companion_note_pictures(const char *note, bool act, char *a, char *b, char 
 
 static char voice_key_wanted[16]; /* [[voice:key openai]]: the key is asked for over everything, next frame */
 
+/* [[chat:clear]]: the conversation goes once the reply that said so has been heard (and nothing is being asked) */
+static bool clear_owed;
+
+void companion_clear(void) {
+    convo_clear(&A.companion);
+    unlink(STATE_DIR "/companion.txt");
+    clear_owed = false;
+    LOG("companion: the conversation cleared\n");
+}
+
 static void companion_update(void) {
     struct conversation *c = &A.companion;
+    if (clear_owed && !c->pending && !voice_speaking())
+        companion_clear();
     if (owed && !c->pending) {
         owed = false;
         convo_send(c, companion_system(), 1600);
@@ -1038,6 +1050,9 @@ static void companion_update(void) {
              * person asked, in their own words. */
             design_begin(c->msgs[c->n - 2].text);
         }
+        /* They asked for the conversation to go (a fresh start, a video): only when they asked, in what it answers */
+        if (from_person && strstr(m->text, "[[chat:clear]]"))
+            clear_owed = true;
         /* Their yes or no to the preview, said instead of clicked. */
         if (from_person && strstr(m->text, "[[preview:apply]]"))
             preview_apply();

@@ -54,3 +54,6 @@ bool shell_set_resolution(int w, int h);
 
 /* Erases everything kept about them (desktop.c; Privacy uses it). */
 void forget_everything(void);
+/* The conversation with the companion, all of it, from the screen and from what is kept (its memory and what it
+ * knows about them stay): Settings' "Clear the conversation", or [[chat:clear]] when they ask it to. */
+void companion_clear(void);
