@@ -192,6 +192,8 @@ void ctx_menu_open(int x, int y);
 void ctx_menu_add(const char *label, const char *act, bool danger);
 /* What it is for (for="..." on the design's <menu>, which a design styles): app, window, desktop, text, file. */
 void ctx_menu_for(const char *kind);
+void ctx_menu_target(int x, int y, int w, int h); /* where the thing clicked is (a design's placement="on") */
+void ctx_menu_sample_into(struct fm_doc *d, int x, int y); /* an app's menu shown open in a preview (preview.c) */
 enum { CM_DANGER = 1, CM_OFF = 2, CM_ON = 4, CM_QUIET = 8, CM_SEP = 16 }; /* removes / can't now / chosen / small / a line before */
 void ctx_menu_item(const char *label, const char *act, int flags, const char *keys);
 void ctx_menu_note(const char *note);

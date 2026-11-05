@@ -137,19 +137,10 @@ static void drop_sample_menu(fm_doc *d) {
 
 void preview_sample_menu(void) {
     fm_doc *d = PV.doc;
-    if (!d || !d->desktop || sample_menu(d))
+    if (!d || !d->desktop)
         return;
-    char markup[600];
-    const char *name = A.d.ai_name[0] ? A.d.ai_name : "the companion";
-    snprintf(markup, sizeof markup,
-             "<menu id=\"_menu\" for=\"desktop\" placement=\"pointer\" at=\"%d %d\"><button>Redesign</button>"
-             "<button>Settings</button><divider/><button class=\"quiet\">Ask %s about this</button></menu>",
-             A.W * 55 / 100, A.H * 32 / 100, name);
-    fm_node *m = fm_parse_fragment(d, d->desktop, markup);
-    if (!m)
-        return;
-    m->generated = true;
-    fm_set_open(d, m, true);
+    drop_sample_menu(d); /* (made again: its shape may be what changed) */
+    ctx_menu_sample_into(d, A.W * 55 / 100, A.H * 38 / 100); /* as the desktop's would be, from its own <menu> */
     d->changed = true;
     PV.redraw = true;
     LOG("preview: a menu shown open, its look being changed\n");

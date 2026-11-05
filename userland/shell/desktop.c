@@ -2623,6 +2623,11 @@ static void context_menu(fm_node *n) {
             break;
     }
     ctx_menu_open(A.in.mx, A.in.my);
+    for (fm_node *e = n; e; e = e->parent) /* where the thing clicked is: the nearest that is drawn */
+        if (e->kind == FM_ELEM && e->vis.w > 0 && e->vis.h > 0) {
+            ctx_menu_target(e->vis.x, e->vis.y, e->vis.w, e->vis.h);
+            break;
+        }
     char label[160], act[200];
     if (win >= 0 && win < WIN_MAX && A.win[win].open) {
         window_menu(win);
@@ -3175,6 +3180,7 @@ void desktop_draw(void) {
     else if (A.in.right_clicked && top >= 0 && !pt_in(A.win[top].body, A.in.mx, A.in.my) &&
              !te_menu_state()->open) { /* its frame (the title bar): the window's own menu */
         ctx_menu_open(A.in.mx, A.in.my);
+        ctx_menu_target(A.win[top].r.x, A.win[top].r.y, A.win[top].r.w, A.win[top].r.h);
         window_menu(top);
     }
 

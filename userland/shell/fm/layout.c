@@ -1315,16 +1315,26 @@ static void place_popover(fm_doc *d, fm_node *p) {
     if (h > S.h - 16 && !sheet) h = (float)S.h - 16;
     const char *pl = fm_attr_get(p, "placement");
     float x, y;
-    if (pl && !strcasecmp(pl, "pointer")) { /* a right-click menu: from where they clicked, away from the edges */
-        const char *at = fm_attr_get(p, "at");
-        int px = S.x + S.w / 2, py = S.y + S.h / 2;
+    if (pl && (!strcasecmp(pl, "pointer") || !strcasecmp(pl, "around") || !strcasecmp(pl, "on"))) {
+        /* a right-click menu: from where they clicked (pointer), centred on it (around), or over the thing
+         * clicked (on: at="x y w h", what the system knows of it), kept on the screen */
+        const char *at = fm_attr_get(p, "at"), *on = fm_attr_get(p, "target");
+        int px = S.x + S.w / 2, py = S.y + S.h / 2, tx = px, ty = py, tw = 0, th = 0;
         if (at)
             sscanf(at, "%d %d", &px, &py);
-        x = (float)px + 2, y = (float)py + 2;
-        if (x + w > S.x + S.w - 8)
-            x = (float)px - w - 2;
-        if (y + h > S.y + S.h - 8)
-            y = (float)py - h - 2;
+        if (!on || sscanf(on, "%d %d %d %d", &tx, &ty, &tw, &th) != 4)
+            tx = px, ty = py, tw = th = 0;
+        if (!strcasecmp(pl, "around")) {
+            x = px - w / 2, y = py - h / 2;
+        } else if (!strcasecmp(pl, "on")) {
+            x = tx + tw / 2.0f - w / 2, y = ty + th / 2.0f - h / 2;
+        } else {
+            x = (float)px + 2, y = (float)py + 2;
+            if (x + w > S.x + S.w - 8)
+                x = (float)px - w - 2;
+            if (y + h > S.y + S.h - 8)
+                y = (float)py - h - 2;
+        }
         x += s->margin[3] - s->margin[1];
         y += s->margin[0] - s->margin[2];
         if (x < S.x + 8) x = S.x + 8.0f;

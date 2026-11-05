@@ -705,6 +705,19 @@ static void ser(sbuf *b, const fm_node *n, int depth, const fm_doc *d) {
     }
 }
 
+/* One element, its children with it (a design's right-click menu, copied to be filled: textmenu.c). */
+char *fm_serialize_node(const fm_doc *d, const fm_node *n) {
+    sbuf b;
+    sb_init(&b);
+    if (n) {
+        fm_node one = *n;
+        one.next = NULL;
+        one.generated = false;
+        ser(&b, &one, 0, d);
+    }
+    return b.p;
+}
+
 char *fm_serialize(const fm_doc *d) {
     sbuf b;
     sb_init(&b);

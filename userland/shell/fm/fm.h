@@ -303,6 +303,7 @@ fm_doc *fm_parse(const char *text);
 void fm_free(fm_doc *d);
 /* Serialises the document back to markup (for saving and for the AI). */
 char *fm_serialize(const fm_doc *d);
+char *fm_serialize_node(const fm_doc *d, const fm_node *n); /* one element and what is in it */
 bool fm_has_fatal(const fm_doc *d);
 void fm_report(fm_doc *d, int line, bool fatal, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
 

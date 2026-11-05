@@ -1,10 +1,10 @@
-/* The right-click menus of a design that has none of its own yet: the companion writes them, once, in the design's
- * own look. They are as much a part of a design as its windows (fm_reference says so, and designs written from
- * now on have them), but the ones written before didn't: their menus were the system's plain one. So the first
- * time such a design opens a menu, the companion's mind is asked, in the background, for the CSS of its menus
- * (menu, menu button, :hover, :focus, .danger, .off, .on, .quiet, menu[for=...]); what comes back becomes part of
- * the design, kept with it, and the menus look like it from then on. Until then they have its colours, font and
- * corners (fm/css.c's builtin rules). */
+/* The right-click menus of a design that has none of its own yet: the companion makes them, once, for that design.
+ * A menu is as much a part of a design as its windows: what it is, its shape, where it appears, how one is picked
+ * (<menu for="..."> elements, with do="ID" where each action goes and <acts/> for the rest, and their style:
+ * fm_reference). Designs written from now on have them; the ones written before don't. So the first time such a
+ * design opens a menu, the companion's mind is asked, in the background, to make them; what comes back becomes
+ * part of the design, kept with it. Until then the actions sit in a ring around the pointer, in its colours
+ * (fm/css.c's builtin rules). Never a list in a box: that was every other system's menu, and it was this one's. */
 #include "app.h"
 #include "fm/fm.h"
 #include "../lib/json.h"
@@ -19,19 +19,11 @@ void desktop_save_ui(void);
 static const fm_doc *asked_for; /* compared, never followed: the design they were asked for */
 static job *asking;
 
-/* A rule for menus, by its tag (not #startmenu, not menubar, not a word in a value). */
-static bool has_menu_rules(const char *css) {
-    for (const char *p = css ? css : ""; (p = strstr(p, "menu")); p += 4) {
-        char before = p > css ? p[-1] : ' ', after = p[4];
-        if (isalnum((unsigned char)before) || before == '-' || before == '_' || before == '#' || before == '.')
-            continue;
-        if (isalnum((unsigned char)after) || after == '-' || after == '_')
-            continue;
-        /* a selector: what follows, up to "{" or ";" or "}", reaches "{" first */
-        const char *brace = strchr(p, '{'), *semi = strchr(p, ';'), *close = strchr(p, '}');
-        if (brace && (!semi || brace < semi) && (!close || brace < close))
+/* The design has a menu of its own: a <menu for="..."> in it. */
+static bool has_own_menus(const fm_doc *d) {
+    for (const fm_node *c = d && d->desktop ? d->desktop->first : NULL; c; c = c->next)
+        if (c->kind == FM_ELEM && !strcmp(c->tag, "menu") && !c->generated && c->id[0] != '_' && fm_attr_get(c, "for"))
             return true;
-    }
     return false;
 }
 
@@ -59,7 +51,7 @@ static void ask_child(void *arg, char **result) {
 }
 
 void menus_check_styled(void) {
-    if (asking || !A.ui || A.ui == asked_for || !A.provider || has_menu_rules(A.ui->css))
+    if (asking || !A.ui || A.ui == asked_for || !A.provider || has_own_menus(A.ui))
         return;
     asked_for = A.ui;
     struct ask *q = calloc(1, sizeof *q);
@@ -72,17 +64,20 @@ void menus_check_styled(void) {
     sbuf s;
     sb_init(&s);
     sb_add(&s,
-           "You designed the desktop below (a Facet document). Its right-click menus have no look of their own yet: "
-           "the system shows them in its plain colours. Write their CSS, as part of this design: in its own look, "
-           "the way its other menus, panels, buttons and type look, so they belong to it and to nothing else.\n"
-           "A menu is <menu for=\"app|window|desktop|text|file\"> (what was right-clicked) holding <button> items "
-           "(each one thing to do: .danger removes something, .off can't be done now, .on is the one chosen, "
-           ".quiet the small last line), <divider/>, <text class=\"keys\"> (a shortcut, after a <spacer/>) and "
-           "<text class=\"note\">. Style menu, menu button, menu button:hover and menu button:focus (the arrow keys "
-           "choose too: style them alike), .danger, .off, .on, .quiet, menu divider, menu text.keys, menu text.note, "
-           "and menu[for=window] and the rest for any kind that should differ. Use this design's own variables, "
-           "fonts and materials.\n"
-           "Reply with the CSS rules and nothing else: no markup, no explanation.\n\nTHE LANGUAGE\n");
+           "You designed the desktop below (a Facet document). It has no right-click menus of its own yet. Make "
+           "them, as part of this design: what a menu IS here, its shape, its layout, where it appears and how one "
+           "is picked, in this design's own look and spirit, so it belongs to it and to nothing else. Not a list of "
+           "words in a box: that is every other system's menu. Think of what fits this design: a ring around the "
+           "pointer, tiles, a strip along an edge, actions growing out of the thing clicked, one big action with "
+           "the rest small, or something new. The kinds (for=): app (an app's icon or button: open, uninstall, "
+           "ask), window (a window: minimize or show, maximize, close, ask), desktop (the desktop or a part of it "
+           "that is no app: redesign, settings, ask), text (a text field: undo, cut, copy, paste, select-all), file "
+           "(Files: open, rename, copy, cut, paste, move-to-trash, new-folder, select-all, the sorts...). One menu "
+           "may serve several kinds (for=\"app window\"). Put an element with do=\"ID\" where an action goes, "
+           "<acts/> for the rest (style how they are laid out). The menus are popovers: placement=\"pointer\", "
+           "\"around\", \"on\", \"center\", or place=\"...\". Style :hover and :focus alike (the arrow keys "
+           "choose too), .danger, .off, .on, .quiet, text.note, text.keys.\n"
+           "Reply with the <menu> elements, then one <style> with their rules; nothing else.\n\nTHE LANGUAGE\n");
     sb_add(&s, fm_reference());
     q->system = s.p;
     sbuf u;
@@ -125,18 +120,41 @@ void menus_tick(void) {
         if (end)
             *end = 0;
     }
+    /* the <menu> elements into the design's desktop, their <style> into its stylesheet */
+    int menus = 0;
+    sbuf els;
+    sb_init(&els);
+    for (char *p = css; (p = strstr(p, "<menu")) && strlen(css) < 60000;) {
+        char *end = strstr(p, "</menu>");
+        char *self = strchr(p, '>');
+        if (end && (!self || self[-1] != '/' || self > end))
+            end += 7;
+        else if (self && self[-1] == '/')
+            end = self + 1;
+        else
+            break;
+        sb_addn(&els, p, (size_t)(end - p));
+        sb_add(&els, "\n");
+        menus++;
+        p = end;
+    }
+    char *st = strstr(css, "<style>"), *st_end = st ? strstr(st, "</style>") : NULL;
+    if (st_end)
+        *st_end = 0;
+    const char *rules_text = st ? st + 7 : "";
     if (A.ui != asked_for) { /* another design since: it asks for its own */
         LOG("menus: the design changed meanwhile; not kept\n");
-    } else if (!has_menu_rules(css) || strchr(css, '<') || strlen(css) > 12000) {
-        LOG("menus: what came back wasn't menu rules (%zu bytes); not kept\n", strlen(css));
+    } else if (!menus || !A.ui->desktop) {
+        LOG("menus: what came back had no <menu> (%zu bytes); not kept\n", strlen(res));
+        asked_for = NULL;
     } else {
-        fm_css_patch(A.ui, css);
+        fm_node *first = fm_parse_fragment(A.ui, A.ui->desktop, els.p);
+        if (rules_text[0])
+            fm_css_patch(A.ui, rules_text);
         A.ui->changed = true;
         desktop_save_ui();
-        int rules = 0;
-        for (const char *p = css; (p = strchr(p, '{')); p++)
-            rules++;
-        LOG("menus: the companion wrote this design's menus (%d rules)\n", rules);
+        LOG("menus: the companion made this design's menus (%d, %s)\n", menus, first ? "kept" : "unreadable");
     }
+    sb_free(&els);
     free(res);
 }

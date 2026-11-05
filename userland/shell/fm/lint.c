@@ -556,9 +556,9 @@ static void check_popover(fm_doc *d, fm_node *p) {
     rect S = L.o->screen;
     char path[160];
     path_of(p, path, sizeof path);
-    /* (a right-click menu, placement="pointer", is opened by the system where they right-click) */
+    /* (a right-click menu, <menu for="...">, is opened by the system where they right-click) */
     const char *pl = fm_attr_get(p, "placement");
-    bool by_right_click = tag_is(p, "menu") && pl && !strcasecmp(pl, "pointer");
+    bool by_right_click = tag_is(p, "menu") && (fm_attr_get(p, "for") || (pl && !strcasecmp(pl, "pointer")));
     if (!by_right_click && !fm_attr_get(p, "hotkey") && !toggled(p->id))
         add(K_ORPHAN, 3, path, "%s has nothing visible that opens it; add a button with what=\"toggle:#%s\"",
             path, p->id);

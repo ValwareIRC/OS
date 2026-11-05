@@ -124,6 +124,7 @@ static struct {
     bool pending;     /* filled: made next frame (never while the design is being walked: a pick may open another) */
     bool live;        /* the design's <menu id="_menu"> is up */
     int x, y, n, sel;
+    int tx, ty, tw, th; /* the thing clicked, where it is known (placement="on") */
     char kind[16];
     char label[CTX_MAX][96], keys[CTX_MAX][24];
     char act[CTX_MAX][200];
@@ -140,6 +141,8 @@ void ctx_menu_open(int x, int y) {
 }
 
 void ctx_menu_for(const char *kind) { snprintf(CM.kind, sizeof CM.kind, "%s", kind); }
+
+void ctx_menu_target(int x, int y, int w, int h) { CM.tx = x, CM.ty = y, CM.tw = w, CM.th = h; }
 
 void ctx_menu_item(const char *label, const char *act, int flags, const char *keys) {
     if (CM.n == CTX_MAX)
@@ -214,54 +217,241 @@ static void xml_text(sbuf *b, const char *s) {
     }
 }
 
-static void make_live(void) {
-    drop_live();
-    sbuf b;
-    sb_init(&b);
-    sb_printf(&b, "<menu id=\"_menu\" for=\"%s\" placement=\"pointer\" at=\"%d %d\">", CM.kind, CM.x, CM.y);
-    for (int i = 0; i < CM.n; i++) {
-        int fl = CM.flags[i];
-        if ((fl & CM_SEP) && i)
-            sb_add(&b, "<divider/>");
-        char cls[48] = "";
-        snprintf(cls, sizeof cls, "%s%s%s%s", fl & CM_DANGER ? " danger" : "", fl & CM_OFF ? " off" : "",
-                 fl & CM_ON ? " on" : "", fl & CM_QUIET ? " quiet" : "");
-        sb_add(&b, "<button");
-        if (cls[0])
-            sb_printf(&b, " class=\"%s\"", cls + 1);
-        if (!(fl & CM_OFF)) /* (one that can't be done now does nothing) */
-            sb_printf(&b, " what=\"menu:%d\"", i);
-        sb_add(&b, ">");
-        if (CM.keys[i][0]) {
-            sb_add(&b, "<text>");
-            xml_text(&b, CM.label[i]);
-            sb_add(&b, "</text><spacer/><text class=\"keys\">");
-            xml_text(&b, CM.keys[i]);
-            sb_add(&b, "</text>");
-        } else {
-            xml_text(&b, CM.label[i]);
+/* The action's id, for a design's do="ID": by what it does, else its name (lower case, dashes). */
+static void action_id(int i, char *out, size_t n) {
+    static const struct {
+        const char *prefix, *id;
+    } known[] = {{"open:", "open"},        {"uninstall?", "uninstall"}, {"uninstall:", "uninstall"},
+                 {"min:", "minimize"},     {"show:", "show"},           {"max:", "maximize"},
+                 {"close:", "close"},      {"do:redesign", "redesign"}, {"do:open:settings", "settings"},
+                 {"why:", "ask"}};
+    for (size_t k = 0; k < sizeof known / sizeof known[0]; k++)
+        if (!strncmp(CM.act[i], known[k].prefix, strlen(known[k].prefix))) {
+            snprintf(out, n, "%s", known[k].id);
+            return;
         }
-        sb_add(&b, "</button>");
+    size_t o = 0;
+    for (const char *p = CM.label[i]; *p && o + 1 < n; p++) {
+        if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9'))
+            out[o++] = (char)(*p >= 'A' && *p <= 'Z' ? *p + 32 : *p);
+        else if (o && out[o - 1] != '-')
+            out[o++] = '-';
+    }
+    while (o && out[o - 1] == '-')
+        o--;
+    out[o] = 0;
+}
+
+static void classes_of(int i, char *cls, size_t n) {
+    int fl = CM.flags[i];
+    snprintf(cls, n, "%s%s%s%s", fl & CM_DANGER ? " danger" : "", fl & CM_OFF ? " off" : "", fl & CM_ON ? " on" : "",
+             fl & CM_QUIET ? " quiet" : "");
+}
+
+/* One action as a button, for <acts>. */
+static void action_markup(sbuf *b, int i) {
+    char cls[48], id[48];
+    classes_of(i, cls, sizeof cls);
+    action_id(i, id, sizeof id);
+    sb_printf(b, "<button do=\"%s\"", id);
+    if (cls[0])
+        sb_printf(b, " class=\"%s\"", cls + 1);
+    if (!(CM.flags[i] & CM_OFF)) /* (one that can't be done now does nothing) */
+        sb_printf(b, " what=\"menu:%d\"", i);
+    sb_add(b, ">");
+    if (CM.keys[i][0]) {
+        sb_add(b, "<text>");
+        xml_text(b, CM.label[i]);
+        sb_add(b, "</text><spacer/><text class=\"keys\">");
+        xml_text(b, CM.keys[i]);
+        sb_add(b, "</text>");
+    } else {
+        xml_text(b, CM.label[i]);
+    }
+    sb_add(b, "</button>");
+}
+
+/* The design's own menu for this kind: <menu for="app window ..."> (or for="all"), never one the system made. */
+static fm_node *template_of(fm_doc *d, const char *kind) {
+    fm_node *any = NULL;
+    for (fm_node *c = d && d->desktop ? d->desktop->first : NULL; c; c = c->next) {
+        if (c->kind != FM_ELEM || strcmp(c->tag, "menu") || c->generated || c->id[0] == '_')
+            continue;
+        const char *f = fm_attr_get(c, "for");
+        if (!f)
+            continue;
+        size_t kl = strlen(kind);
+        for (const char *p = f; (p = strstr(p, kind)); p += kl)
+            if ((p == f || p[-1] == ' ' || p[-1] == ',') && (!p[kl] || p[kl] == ' ' || p[kl] == ','))
+                return c;
+        if (!any && (strstr(f, "all") || strstr(f, "any")))
+            any = c;
+    }
+    return any;
+}
+
+/* What the design put where: each element with do="ID" gets that action (its name, if it has no words of its
+ * own) or goes, where this thing doesn't offer it; <acts> gets the rest. */
+static void fill_dos(fm_doc *d, fm_node *n, bool *used) {
+    for (fm_node *c = n->first, *next; c; c = next) {
+        next = c->next;
+        if (c->kind != FM_ELEM)
+            continue;
+        const char *want = fm_attr_get(c, "do");
+        if (want && *want && strcmp(c->tag, "acts")) {
+            int at = -1;
+            for (int i = 0; i < CM.n && at < 0; i++) {
+                char id[48];
+                action_id(i, id, sizeof id);
+                if (!used[i] && !strcasecmp(id, want))
+                    at = i;
+            }
+            if (at < 0) {
+                fm_remove(c); /* (not offered here) */
+                continue;
+            }
+            used[at] = true;
+            char cls[48], what[24];
+            classes_of(at, cls, sizeof cls);
+            if (cls[0]) {
+                const char *had = fm_attr_get(c, "class");
+                char all[160];
+                snprintf(all, sizeof all, "%s%s%s", had ? had : "", had ? " " : "", cls + 1);
+                fm_attr_set(c, "class", all);
+            }
+            if (!(CM.flags[at] & CM_OFF)) {
+                snprintf(what, sizeof what, "menu:%d", at);
+                fm_attr_set(c, "what", what);
+            }
+            bool words = false;
+            for (fm_node *k = c->first; k && !words; k = k->next)
+                words = k->kind == FM_ELEM || (k->kind == FM_TEXT && k->text && k->text[strspn(k->text, " \t\r\n")]);
+            if (!words) {
+                sbuf b;
+                sb_init(&b);
+                xml_text(&b, CM.label[at]);
+                fm_parse_fragment(d, c, b.p ? b.p : "");
+                sb_free(&b);
+            }
+            continue;
+        }
+        fill_dos(d, c, used);
+    }
+}
+
+static fm_node *find_tag_in(fm_node *n, const char *tag) {
+    for (fm_node *c = n->first; c; c = c->next) {
+        if (c->kind != FM_ELEM)
+            continue;
+        if (!strcmp(c->tag, tag))
+            return c;
+        fm_node *f = find_tag_in(c, tag);
+        if (f)
+            return f;
+    }
+    return NULL;
+}
+
+/* The menu for what was clicked, in doc `d`: the design's own for this kind, filled; else a ring of its actions
+ * around the pointer. Returns it (id "_menu", the system's, never kept with the design), open. */
+static fm_node *build_menu(fm_doc *d) {
+    fm_node *tpl = template_of(d, CM.kind);
+    char *markup = NULL;
+    if (tpl) {
+        markup = fm_serialize_node(d, tpl);
+    } else {
+        sbuf b;
+        sb_init(&b);
+        sb_printf(&b, "<menu for=\"%s\" placement=\"around\"><acts/></menu>", CM.kind);
+        markup = b.p;
+    }
+    fm_node *m = markup ? fm_parse_fragment(d, d->desktop, markup) : NULL;
+    free(markup);
+    if (!m)
+        return NULL;
+    m->generated = true; /* (the system's copy, never part of the design kept) */
+    fm_attr_set(m, "id", "_menu");
+    fm_attr_set(m, "for", CM.kind);
+    if (!fm_attr_get(m, "placement") && !fm_attr_get(m, "place"))
+        fm_attr_set(m, "placement", "pointer");
+    char at[64];
+    snprintf(at, sizeof at, "%d %d", CM.x, CM.y);
+    fm_attr_set(m, "at", at);
+    if (CM.tw > 0) {
+        snprintf(at, sizeof at, "%d %d %d %d", CM.tx, CM.ty, CM.tw, CM.th);
+        fm_attr_set(m, "target", at);
+    }
+    bool used[CTX_MAX] = {false};
+    fill_dos(d, m, used);
+    fm_node *acts = find_tag_in(m, "acts");
+    bool rest = false;
+    for (int i = 0; i < CM.n; i++)
+        rest |= !used[i];
+    if (rest && !acts) /* (it placed some and not the rest: nothing it offers goes missing) */
+        acts = fm_parse_fragment(d, m, "<acts class=\"rest\"/>");
+    if (acts && rest) {
+        sbuf b;
+        sb_init(&b);
+        for (int i = 0; i < CM.n; i++)
+            if (!used[i])
+                action_markup(&b, i);
+        fm_parse_fragment(d, acts, b.p ? b.p : "");
+        sb_free(&b);
     }
     if (CM.note[0]) {
+        sbuf b;
+        sb_init(&b);
         sb_add(&b, "<text class=\"note\">");
         xml_text(&b, CM.note);
         sb_add(&b, "</text>");
+        fm_parse_fragment(d, m, b.p);
+        sb_free(&b);
     }
-    sb_add(&b, "</menu>");
-    fm_node *m = fm_parse_fragment(A.ui, A.ui->desktop, b.p ? b.p : "");
-    sb_free(&b);
+    fm_set_open(d, m, true);
+    d->changed = true;
+    return m;
+}
+
+static void make_live(void) {
+    drop_live();
     CM.pending = false;
-    if (!m || strcmp(m->id, "_menu")) {
-        CM.live = false;
+    fm_node *m = build_menu(A.ui);
+    CM.live = m != NULL;
+    if (!m)
         return;
+    LOG("context menu: %d things, for %s, %s\n", CM.n, CM.kind, template_of(A.ui, CM.kind) ? "the design's own" : "a ring");
+    if (!template_of(A.ui, CM.kind))
+        menus_check_styled(); /* the design has none of its own yet: the companion makes them (menus.c) */
+}
+
+/* A menu shown open in a preview of a design (preview.c), while the companion changes them: an app's. */
+void ctx_menu_sample_into(fm_doc *d, int x, int y) {
+    if (!d || !d->desktop)
+        return;
+    typeof(CM) keep = CM;
+    ctx_menu_open(x, y);
+    ctx_menu_for("app");
+    ctx_menu_add("Open Notes", "open:notes", false);
+    ctx_menu_add("Uninstall Notes", "uninstall?notes", false);
+    char ask[96];
+    snprintf(ask, sizeof ask, "Ask %s about this", A.d.ai_name[0] ? A.d.ai_name : "the companion");
+    ctx_menu_item(ask, "why::", CM_QUIET | CM_SEP, NULL);
+    CM.tx = x - 40, CM.ty = y - 40, CM.tw = 80, CM.th = 80;
+    build_menu(d);
+    CM = keep;
+}
+
+/* Its actions, in the order the design put them, however deep. */
+static int actions_in(fm_node *n, fm_node **out, int k) {
+    for (fm_node *c = n->first; c && k < CTX_MAX; c = c->next) {
+        if (c->kind != FM_ELEM)
+            continue;
+        if (fm_attr_get(c, "what"))
+            out[k++] = c;
+        else
+            k = actions_in(c, out, k);
     }
-    m->generated = true; /* (the system's, never part of the design kept) */
-    fm_set_open(A.ui, m, true);
-    A.ui->changed = true;
-    CM.live = true;
-    LOG("context menu: %d things, for %s\n", CM.n, CM.kind);
-    menus_check_styled(); /* the design has none of its own yet: the companion writes them (menus.c) */
+    return k;
 }
 
 /* The arrow keys choose among what can be done; Enter takes it, Esc closes it. The rest of the keys are the
@@ -280,10 +470,7 @@ static void live_input(void) {
         return;
     }
     fm_node *items[CTX_MAX];
-    int n = 0;
-    for (fm_node *c = m->first; c && n < CTX_MAX; c = c->next)
-        if (c->kind == FM_ELEM && !strcmp(c->tag, "button") && fm_attr_get(c, "what"))
-            items[n++] = c;
+    int n = actions_in(m, items, 0);
     for (int i = 0; i < A.in.nkeys; i++) {
         int k = A.in.keys[i];
         if (k == K_ESC) {
@@ -309,10 +496,10 @@ void ctx_menu_after_input(void) {
     if (!CM.live || CM.sel < 0)
         return;
     fm_node *m = live_menu();
-    int k = 0;
-    for (fm_node *c = m ? m->first : NULL; c; c = c->next)
-        if (c->kind == FM_ELEM && !strcmp(c->tag, "button") && fm_attr_get(c, "what"))
-            c->hover = k++ == CM.sel;
+    fm_node *items[CTX_MAX];
+    int n = m ? actions_in(m, items, 0) : 0;
+    for (int k = 0; k < n; k++)
+        items[k]->hover = k == CM.sel;
 }
 
 void ctx_menu_take(int i) {
