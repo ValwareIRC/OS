@@ -36,7 +36,7 @@
 
 static int speaker_pid, rec_pid;
 static uint64_t spoke_at; /* when the words being said began, and with what */
-static char spoke_with[64];
+static char spoke_with[96];
 static bool cloud_speak(const char *v, int unused);
 static bool pc_speak(const char *voice);
 
@@ -395,6 +395,30 @@ bool voice_speaking(void) {
     return speaker_pid > 0;
 }
 
+/* The language os-speak reads a line in: the line's own, not its voice's. os-speak took it from the first letter of
+ * the voice file's name, and a mix is named after its biggest share: one that was mostly xiaoxiao was "zmix_...",
+ * so English was read as Chinese (espeak-ng had no "zh" for the words its lexicon lacks: silence, the digits said
+ * in Chinese). Mostly Chinese characters: Chinese; otherwise the voice's own language where it reads Latin
+ * letters (British, Portuguese), else American English: the voice is how it sounds, not what it reads. */
+static const char *speak_lang(const char *text, const char *voice) {
+    size_t han = 0, latin = 0;
+    for (const unsigned char *s = (const unsigned char *)text; *s;) {
+        if ((s[0] & 0xf0) == 0xe0 && s[1] && s[2]) { /* three bytes: U+0800..U+FFFF */
+            unsigned cp = (unsigned)(s[0] & 0x0f) << 12 | (unsigned)(s[1] & 0x3f) << 6 | (unsigned)(s[2] & 0x3f);
+            han += (cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf);
+            s += 3;
+            continue;
+        }
+        latin += (*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z');
+        s++;
+    }
+    if (han && han * 3 >= latin) /* (a Chinese character is a word; a Latin word is several letters) */
+        return "zh";
+    const char *base = strrchr(voice, '/');
+    base = base ? base + 1 : voice;
+    return base[0] == 'p' ? "pt-br" : base[0] == 'b' ? "en" : "en-us";
+}
+
 void voice_say(const char *text) {
     tone_now = tone_next; /* this line's tone, and only this line's */
     tone_next = NULL;
@@ -402,6 +426,7 @@ void voice_say(const char *text) {
         return;
     voice_hush(); /* the newest words win */
     said++;
+    const char *lang = speak_lang(text, voice_current());
     int p[2];
     if (pipe(p) < 0)
         return;
@@ -435,6 +460,7 @@ void voice_say(const char *text) {
             _exit(cloud_speak(v, 0) ? 0 : 1); /* (the text is on stdin) */
         char fx[220], cmd[900];
         if (kokoro_ready(v)) {
+            setenv("OS_SPEAK_LANG", lang, 1);
             shape_stage(kokoro_rate(), fx, sizeof fx);
             snprintf(cmd, sizeof cmd,
                      KOKORO "/os-speak " KOKORO "/model " VOICES "/%s.bin %s 2>/tmp/os-speak.err%s | /bin/os-play %d 1", v,
@@ -455,7 +481,7 @@ void voice_say(const char *text) {
         const char *v = voice_current();
         snprintf(spoke_with, sizeof spoke_with, "%s%s%s", strchr(v, ':') ? v : kokoro_ready(v) ? v : "the stand-in",
                  tone_now ? ", " : "", tone_now ? tone_now->name : "");
-        LOG("voice: speaking (%s)\n", spoke_with);
+        LOG("voice: speaking (%s)%s%s\n", spoke_with, kokoro_ready(v) ? ", read as " : "", kokoro_ready(v) ? lang : "");
         /* one line per sentence: Kokoro starts on the first while the rest are made */
         sbuf lines;
         sb_init(&lines);
@@ -601,7 +627,7 @@ static int mix_parse(const char *spec, struct mix_part *p, char *why, size_t wn)
 }
 
 /* the mix made: the weighted average of the voices, as a voice of its own; its name starts with the letter of
- * the voice with the biggest share (os-speak takes the language from it) */
+ * the voice with the biggest share (what it reads in is the line's own language: speak_lang) */
 static bool mix_make(const char *spec, char *name, size_t nn, char *why, size_t wn) {
     struct mix_part p[4];
     int n = mix_parse(spec, p, why, wn);

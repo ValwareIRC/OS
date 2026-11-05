@@ -295,6 +295,69 @@ SYSCALL(wait4) {
     return pid;
 }
 
+/* waitid: wait4, with the answer in a siginfo, and WNOWAIT to look without reaping. Ended children only: stopped
+ * and continued ones aren't kept track of. Firefox waits for its processes this way; without it its shutdown
+ * waited for them for good (its watchdog ended it after a minute: "Shutdown hanging at AppShutdownConfirmed"). */
+int64_t proc_wait_info(int pid, int *status, int options, uint32_t *uid);
+SYSCALL(waitid) {
+    UNUSED_ARGS();
+    enum { P_ALL = 0, P_PID = 1, P_PGID = 2 };
+    const int wexited = 4, wstopped = 2, wcontinued = 8, wnowait = 0x01000000;
+    int idtype = (int)a1, id = (int)a2, options = (int)a4, want;
+    if (!(options & (wexited | wstopped | wcontinued)))
+        return -EINVAL;
+    switch (idtype) {
+    case P_ALL:
+        want = -1;
+        break;
+    case P_PID:
+        if (id <= 0 || !(want = pid_from_user(id)))
+            return -ECHILD;
+        break;
+    case P_PGID:
+        if (id < 0)
+            return -EINVAL;
+        want = 0; /* its own group */
+        if (id > 0 && !(want = -pid_from_user(id)))
+            return -ECHILD;
+        break;
+    default:
+        return -EINVAL; /* (P_PIDFD: no pidfds yet) */
+    }
+    int status = 0;
+    uint32_t uid = 0;
+    int64_t pid;
+    if (options & wexited)
+        pid = proc_wait_info(want, &status, options & (WNOHANG | wnowait), &uid);
+    else /* only stops or continues asked for, and those aren't reported: nothing, now or later */
+        pid = (options & WNOHANG) ? 0 : -ECHILD;
+    if (pid < 0)
+        return pid;
+    struct {
+        int32_t signo, err, code, pad;
+        int32_t pid;
+        uint32_t uid;
+        int32_t status;
+        uint8_t rest[100];
+    } si;
+    memset(&si, 0, sizeof si); /* (nothing ended yet, with WNOHANG: all zeros, si_pid 0) */
+    if (pid > 0) {
+        si.signo = 17; /* SIGCHLD */
+        si.pid = (int32_t)pid, si.uid = uid;
+        if ((status & 0x7f) == 0)
+            si.code = 1 /* CLD_EXITED */, si.status = (status >> 8) & 0xff;
+        else
+            si.code = (status & 0x80) ? 3 /* CLD_DUMPED */ : 2 /* CLD_KILLED */, si.status = status & 0x7f;
+    }
+    if (a3 && copy_to_user(a3, &si, sizeof si) < 0)
+        return -EFAULT;
+    if (a5) {
+        uint8_t ru[144] = {0};
+        copy_to_user(a5, ru, sizeof ru);
+    }
+    return 0;
+}
+
 /* ---- signals ---- */
 
 SYSCALL(kill) {

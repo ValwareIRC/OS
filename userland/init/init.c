@@ -1984,6 +1984,7 @@ static void ramfs_perf_test(void) {
 #include "inotify_tests.inc"
 #include "fd_tests.inc"
 #include "filecache_tests.inc"
+#include "wait_tests.inc"
 #include "oom_tests.inc"
 #include "perm_tests.inc"
 
@@ -2137,6 +2138,7 @@ static void tests(void) {
     lock_tests();
     inotify_tests();
     fd_tests();
+    wait_tests();
     oom_tests();
     perm_tests();
     doc_fd_tests();

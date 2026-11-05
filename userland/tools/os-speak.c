@@ -10,7 +10,8 @@
  * DIR holds the model (model.onnx, tokens.txt, espeak-ng-data, lexicons,
  * dict); VOICE is one voice file (510 x 256 floats, as Kokoro's voices are
  * published one by one) or a voices.bin of many with ":N" for which one.
- * The language follows the voice's name: a/b English, p Portuguese, z Chinese.
+ * The language follows the voice's name (a/b English, p Portuguese, z Chinese) unless OS_SPEAK_LANG says which:
+ * the desktop says it, from the line itself, so a mix of voices reads what it is given (voice.c, speak_lang).
  * sherpa-onnx 1.13 (2.x has no espeak-ng). Built against glibc (it runs on the base system): ports/build-kokoro.sh. */
 #include <stdbool.h>
 #include <stdio.h>

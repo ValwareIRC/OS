@@ -15,7 +15,7 @@
     X(66, writev) X(67, pread64) X(68, pwrite64) X(71, sendfile) X(72, pselect6) X(73, ppoll)             \
     X(74, signalfd4) X(78, readlinkat) X(79, newfstatat) X(80, fstat) X(81, sync) X(82, fsync)            \
     X(83, fsync) X(85, timerfd_create) X(86, timerfd_settime) X(87, timerfd_gettime) X(88, utimensat)      \
-    X(90, capget) X(91, capset) X(92, personality) X(93, exit) X(94, exit_group) X(96, set_tid_address)   \
+    X(90, capget) X(91, capset) X(92, personality) X(93, exit) X(94, exit_group) X(95, waitid) X(96, set_tid_address)   \
     X(97, unshare) X(98, futex) X(99, set_robust_list) X(101, nanosleep) X(112, clock_settime) X(113, clock_gettime) X(170, settimeofday)            \
     X(114, clock_getres) X(115, clock_nanosleep) X(116, syslog) X(118, sched_setparam)                     \
     X(119, sched_setscheduler) X(120, sched_getscheduler) X(121, sched_getparam) X(125, sched_get_priority_max) X(126, sched_get_priority_min)                           \

@@ -789,8 +789,10 @@ void proc_cpu_ticks(struct process *p, int who, uint64_t *ut, uint64_t *st) {
     spin_unlock_irqrestore(&proc_lock, f);
 }
 
-int64_t proc_wait(int pid, int *status, int options);
-int64_t proc_wait(int pid, int *status, int options) {
+/* WNOWAIT (waitid): the child that ended is told of, and left to be waited for again. `uid`: its user, if wanted. */
+#define WAIT_NOWAIT 0x01000000
+int64_t proc_wait_info(int pid, int *status, int options, uint32_t *uid);
+int64_t proc_wait_info(int pid, int *status, int options, uint32_t *uid) {
     struct process *self = proc_current();
     for (;;) {
         uint64_t f = spin_lock_irqsave(&proc_lock);
@@ -802,10 +804,20 @@ int64_t proc_wait(int pid, int *status, int options) {
             any = true;
             if ((*pp)->state == PROC_ZOMBIE) {
                 found = *pp;
+                if (options & WAIT_NOWAIT) { /* only looked at: it stays as it is */
+                    *status = found->exit_status;
+                    if (uid)
+                        *uid = found->uid;
+                    int rpid = pid_to_user(found->pid);
+                    spin_unlock_irqrestore(&proc_lock, f);
+                    return rpid;
+                }
                 *pp = found->sibling;
                 break;
             }
         }
+        if (found && uid)
+            *uid = found->uid;
         if (found) {
             for (struct process **ap = &all_procs; *ap; ap = &(*ap)->next_all)
                 if (*ap == found) {
@@ -834,6 +846,9 @@ int64_t proc_wait(int pid, int *status, int options) {
             return -EINTR;
     }
 }
+
+int64_t proc_wait(int pid, int *status, int options);
+int64_t proc_wait(int pid, int *status, int options) { return proc_wait_info(pid, status, options & ~WAIT_NOWAIT, NULL); }
 
 /* ---- faults from user mode ---- */
 
