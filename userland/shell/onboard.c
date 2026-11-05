@@ -43,28 +43,42 @@ static void pre_background(void) { look_stage(); }
  * Conversations: requests run in a child process so the screen stays live.
  * ------------------------------------------------------------------- */
 
+/* A turn of a conversation, asked on a thread of the desktop's own (job_start_thread): not a fork of the whole
+ * desktop, which froze it for as long as the answer took (seconds, at every message). So the job carries its own
+ * copy of everything it sends, made when it starts: the conversation may change meanwhile. */
 struct chat_job {
     struct ai_config cfg;
-    const char *system;
-    struct conversation *c;
+    char *system;
     int max_tokens;
+    int n;
+    const char *role[MAX_MSGS];
+    char *text[MAX_MSGS];
+    char *pic[3];
+    int npics, pic_at;
 };
+
+static void chat_job_free(struct chat_job *j) {
+    free(j->system);
+    for (int i = 0; i < j->n; i++)
+        free(j->text[i]);
+    for (int k = 0; k < 3; k++)
+        free(j->pic[k]);
+    free(j);
+}
 
 static void chat_child(void *arg, char **result) {
     struct chat_job *j = arg;
     struct ai_message m[MAX_MSGS] = {0};
-    /* pictures: only the newest, only while recent, only to a model that sees */
-    static struct ai_image pics[3];
-    int npics = 0, pic_at = -1;
-    if (j->c->picture[0] && j->c->picture_at >= j->c->n - 4 && ai_sees_images(&j->cfg)) {
-        for (int k = 0; k < 3; k++)
-            if (j->c->picture[k])
-                pics[npics++] = (struct ai_image){"image/jpeg", j->c->picture[k]};
-        pic_at = j->c->picture_at;
-    }
+    char *joined[MAX_MSGS] = {0};
+    int njoined = 0;
+    /* pictures: only the newest, only while recent, only to a model that sees (chosen when it was asked) */
+    struct ai_image pics[3];
+    int npics = 0, pic_at = j->pic_at;
+    for (int k = 0; k < j->npics; k++)
+        pics[npics++] = (struct ai_image){"image/jpeg", j->pic[k]};
     int n = 0;
-    for (int i = 0; i < j->c->n; i++) {
-        const char *role = !strcmp(j->c->msgs[i].role, "assistant") ? "assistant" : "user";
+    for (int i = 0; i < j->n; i++) {
+        const char *role = j->role[i];
         if (i == pic_at && !strcmp(role, "user")) { /* merged into the turn before, or a turn of its own */
             if (n && !strcmp(m[n - 1].role, "user")) {
                 m[n - 1].images = pics;
@@ -76,14 +90,17 @@ static void chat_child(void *arg, char **result) {
         }
         /* Providers want alternating turns: merge consecutive user lines. */
         if (n && !strcmp(m[n - 1].role, role) && !strcmp(role, "user")) {
-            size_t a = strlen(m[n - 1].text), b = strlen(j->c->msgs[i].text);
-            char *joined = malloc(a + b + 3);
-            snprintf(joined, a + b + 3, "%s\n\n%s", m[n - 1].text, j->c->msgs[i].text);
-            m[n - 1].text = joined;
+            size_t a = strlen(m[n - 1].text), b = strlen(j->text[i]);
+            char *both = malloc(a + b + 3);
+            if (!both)
+                continue;
+            snprintf(both, a + b + 3, "%s\n\n%s", m[n - 1].text, j->text[i]);
+            m[n - 1].text = both;
+            joined[njoined++] = both;
             continue;
         }
         m[n].role = role;
-        m[n].text = j->c->msgs[i].text;
+        m[n].text = j->text[i];
         n++;
     }
     char *reply = NULL, err[512];
@@ -96,6 +113,10 @@ static void chat_child(void *arg, char **result) {
         sb_add(&out, "ERR\n");
         sb_add(&out, err);
     }
+    free(reply);
+    for (int k = 0; k < njoined; k++)
+        free(joined[k]);
+    chat_job_free(j);
     *result = out.p;
 }
 
@@ -253,15 +274,33 @@ void convo_clear(struct conversation *c) {
     c->error[0] = 0;
 }
 
-static struct chat_job job_args; /* read by the child after fork */
-static char system_copy[32768]; /* the companion's prompt, with its senses, runs past 8 KB */
-
 void convo_send(struct conversation *c, const char *system, int max_tokens) {
-    snprintf(system_copy, sizeof system_copy, "%s", system);
-    job_args = (struct chat_job){A.cfg, system_copy, c, max_tokens};
     c->error[0] = 0;
-    c->pending = job_start(chat_child, &job_args);
     c->pending_since = A.now;
+    struct chat_job *j = calloc(1, sizeof *j);
+    if (!j || !(j->system = strdup(system ? system : ""))) {
+        free(j);
+        c->pending = NULL;
+        snprintf(c->error, sizeof c->error, "no memory to ask with");
+        return;
+    }
+    j->cfg = A.cfg, j->max_tokens = max_tokens, j->pic_at = -1;
+    for (int i = 0; i < c->n && j->n < MAX_MSGS; i++) {
+        j->role[j->n] = !strcmp(c->msgs[i].role, "assistant") ? "assistant" : "user";
+        if ((j->text[j->n] = strdup(c->msgs[i].text ? c->msgs[i].text : "")))
+            j->n++;
+    }
+    if (c->picture[0] && c->picture_at >= c->n - 4 && ai_sees_images(&A.cfg)) {
+        for (int k = 0; k < 3; k++)
+            if (c->picture[k] && (j->pic[j->npics] = strdup(c->picture[k])))
+                j->npics++;
+        j->pic_at = c->picture_at;
+    }
+    c->pending = job_start_thread(chat_child, j);
+    if (!c->pending) {
+        chat_job_free(j);
+        snprintf(c->error, sizeof c->error, "couldn't start asking");
+    }
 }
 
 bool convo_poll(struct conversation *c) {

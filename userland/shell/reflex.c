@@ -391,7 +391,7 @@ bool reflex_judge(const char *situation, const char *event) {
     snprintf(req_situation, sizeof req_situation, "%s", situation);
     snprintf(req_event, sizeof req_event, "%s", event);
     snprintf(req_engine, sizeof req_engine, "%s", reflex_engine());
-    judging = job_start(judge_child, NULL);
+    judging = job_start_thread(judge_child, NULL); /* (a fork of the desktop for each froze it every few seconds) */
     return judging != NULL;
 }
 

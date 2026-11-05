@@ -202,7 +202,7 @@ const char *fm_examples(void) {
     return
         "EXAMPLE 1, a warm classic: taskbar and start menu (shown only to teach the language; never copy it)\n"
         "<facet>\n"
-        "<meta ai-name=\"Wren\" user-name=\"Ana\" "
+        "<meta ai-name=\"Companion\" user-name=\"Ana\" "
         "rationale=\"A sunny bar you know by heart, with your things one click away.\"/>\n"
         "<wallpaper kind=\"dunes\" colors=\"#1d3b6e #f2a65a #ffd6a5 #0b1a33\" seed=\"4\" intensity=\"0.8\"/>\n"
         "<style>\n"

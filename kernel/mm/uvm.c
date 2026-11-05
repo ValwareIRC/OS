@@ -750,6 +750,7 @@ struct mm *mm_clone(struct mm *src) {
     struct mm *mm = mm_create();
     if (!mm)
         return NULL;
+    uint64_t t0 = time_monotonic_ns(), copied = 0;
     uint64_t f = spin_lock_irqsave(&src->lock);
     mm->brk_start = src->brk_start;
     mm->brk = src->brk;
@@ -778,6 +779,7 @@ struct mm *mm_clone(struct mm *src) {
              * both map the same page read-only, copy-on-write; the first
              * to write gets its own copy (break_cow). */
             page_ref(pte_phys(*spte));
+            copied++;
             if (!(v->flags & VMA_SHARED)) {
                 *spte = pte_make(pte_phys(*spte), (pte_flags(*spte) & ~PG_WRITE) | PG_COW);
                 cow = true;
@@ -792,6 +794,12 @@ struct mm *mm_clone(struct mm *src) {
             arch_tlb_flush_all();
     }
     spin_unlock_irqrestore(&src->lock, f);
+    /* A big program forked stops for as long as this takes (its address space is locked), and pays again for
+     * each page it writes while the copy lives: said, when it is long, so whatever forks too much is found. */
+    uint64_t ms = (time_monotonic_ns() - t0) / 1000000;
+    if (ms >= 50)
+        kprintf("fork: %s's %lu MiB of pages copied in %lu ms\n", proc_current() ? proc_current()->name : "?",
+                (unsigned long)(copied * PAGE_SIZE >> 20), (unsigned long)ms);
     return mm;
 fail:
     if (cow) {

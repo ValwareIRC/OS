@@ -732,6 +732,22 @@ static void design_take_their_name(fm_doc *doc, design *d) {
     snprintf(d->user_name, sizeof d->user_name, "%s", name);
 }
 
+/* The companion's name is the one they gave it (in onboarding, or renaming it since), never a design's: a
+ * designer that found no name in the conversation once took the one in the reference's own example ("Wren"), and
+ * the desktop took it on. With no name given it is "Companion" until they give one. */
+static void design_take_its_name(fm_doc *doc, design *d) {
+    const char *name = A.prof.ai_name[0] ? A.prof.ai_name : "Companion";
+    if (!strcmp(d->ai_name, name))
+        return;
+    if (doc)
+        rename_in(doc->root, d->ai_name, name);
+    if (!strcasecmp(d->menu_title, d->ai_name))
+        snprintf(d->menu_title, sizeof d->menu_title, "%s", name);
+    if (!strcasecmp(d->apps[APP_COMPANION].label, d->ai_name) || !d->apps[APP_COMPANION].label[0])
+        snprintf(d->apps[APP_COMPANION].label, sizeof d->apps[APP_COMPANION].label, "%s", name);
+    snprintf(d->ai_name, sizeof d->ai_name, "%s", name);
+}
+
 /* [[user:Name]]: what they want to be called, from now on, everywhere. */
 void companion_rename_user(const char *raw) {
     char name[40];
@@ -2380,6 +2396,126 @@ static void explain_why(fm_node *n) {
     ask_companion(q);
 }
 
+/* ---- right-click ----
+ * A menu of what can be done with the thing under the pointer: an app opened, or uninstalled (if it was installed
+ * from Flathub; asked twice), a window in a window list closed, and why it looks as it does (the designer's own
+ * reason, or the companion asked) when that is what they want to know. Right-clicking used to ask the companion
+ * straight away, whatever they wanted. The menu keeps names, not pointers into the design (a design applied while
+ * it is up frees them). */
+static struct {
+    int req; /* the removal asked for (priv), 0: none */
+    char id[128], name[96];
+} uninstalling;
+
+static void context_menu(fm_node *n) {
+    const char *app = NULL;
+    int win = -1;
+    for (fm_node *e = n; e; e = e->parent) {
+        if (e->kind != FM_ELEM)
+            continue;
+        if (win < 0 && e->win >= 0)
+            win = e->win;
+        const char *a = fm_attr_get(e, "app");
+        if (!app && a && *a)
+            app = a;
+        if (app)
+            break;
+    }
+    ctx_menu_open(A.in.mx, A.in.my);
+    char label[160], act[200];
+    if (win >= 0 && win < WIN_MAX && A.win[win].open) {
+        snprintf(act, sizeof act, "close:%d", win);
+        ctx_menu_add("Close", act, false);
+    } else if (app) {
+        int k = fm_app_index(app);
+        const char *name = k >= 0 ? fm_host_app_label(k) : app;
+        snprintf(label, sizeof label, "Open %s", name);
+        snprintf(act, sizeof act, "open:%s", app);
+        ctx_menu_add(label, act, false);
+        char path[300];
+        snprintf(path, sizeof path, FLATPAK_DISK_EXPORTS "/applications/%s.desktop", app);
+        if (flatpak_id_ok(app) && access(path, F_OK) == 0 && priv_available()) {
+            snprintf(label, sizeof label, "Uninstall %s", name);
+            snprintf(act, sizeof act, "uninstall?%s", app);
+            ctx_menu_add(label, act, false);
+        }
+    }
+    /* why: by the nearest element with a name of its own, found again when chosen */
+    const char *id = NULL;
+    for (fm_node *e = n; e && !id; e = e->parent)
+        if (e->kind == FM_ELEM && e->id[0] && e->id[0] != '_')
+            id = e->id;
+    snprintf(act, sizeof act, "why:%s:%s", id ? id : "", n->id[0] && n->id[0] != '_' ? n->id : n->tag);
+    ctx_menu_add("Why does it look like this?", act, false);
+}
+
+void desktop_ctx_chosen(const char *act) {
+    if (!strncmp(act, "open:", 5)) {
+        fm_host_action(A.ui, NULL, act);
+    } else if (!strncmp(act, "close:", 6)) {
+        int w = atoi(act + 6);
+        if (w >= 0 && w < WIN_MAX && A.win[w].open)
+            wm_close(w);
+    } else if (!strncmp(act, "uninstall?", 10)) { /* the question first */
+        const char *id = act + 10;
+        int k = fm_app_index(id);
+        char label[160], a[200];
+        snprintf(label, sizeof label, "Uninstall %s", k >= 0 ? fm_host_app_label(k) : id);
+        snprintf(a, sizeof a, "uninstall:%s", id);
+        ctx_menu_open(A.in.mx, A.in.my);
+        ctx_menu_add(label, a, true);
+        ctx_menu_add("Cancel", "", false);
+        ctx_menu_note("Its settings go with it.");
+    } else if (!strncmp(act, "uninstall:", 10)) {
+        const char *id = act + 10;
+        if (!flatpak_id_ok(id) || uninstalling.req)
+            return;
+        int k = fm_app_index(id);
+        snprintf(uninstalling.id, sizeof uninstalling.id, "%s", id);
+        snprintf(uninstalling.name, sizeof uninstalling.name, "%s", k >= 0 ? fm_host_app_label(k) : id);
+        char m[200];
+        snprintf(m, sizeof m, "uninstall %s", id);
+        uninstalling.req = priv_send(m);
+        if (uninstalling.req > 0)
+            toast("Uninstalling %s...", uninstalling.name);
+        else
+            toast("%s couldn't be uninstalled: the system didn't answer", uninstalling.name), uninstalling.req = 0;
+    } else if (!strncmp(act, "why:", 4)) {
+        char id[64] = "", what[64] = "";
+        const char *c = strchr(act + 4, ':');
+        if (c) {
+            snprintf(id, sizeof id, "%.*s", (int)(c - act - 4), act + 4);
+            snprintf(what, sizeof what, "%s", c + 1);
+        }
+        char sel[80];
+        snprintf(sel, sizeof sel, "#%s", id);
+        fm_node *n = id[0] && A.ui ? fm_find(A.ui, sel) : NULL;
+        if (n) {
+            explain_why(n);
+        } else {
+            char q[200];
+            snprintf(q, sizeof q, "Why does the %s look like this?", what[0] ? what : "desktop");
+            ask_companion(q);
+        }
+    }
+}
+
+/* Its answer, when it comes (each frame). */
+static void uninstall_poll(void) {
+    bool ok;
+    char *text = NULL;
+    if (uninstalling.req > 0 && priv_take(uninstalling.req, &ok, &text)) {
+        uninstalling.req = 0;
+        LOG("context menu: uninstalling %s: %s\n", uninstalling.id, ok ? "done" : "failed");
+        if (ok)
+            toast("%s is uninstalled.", uninstalling.name);
+        else
+            toast("%s couldn't be uninstalled: %s", uninstalling.name, text ? text : "");
+        free(text);
+        launcher_apps_changed();
+    }
+}
+
 void fm_host_action(fm_doc *d, fm_node *src, const char *a) {
     (void)src;
     LOG("ui action %s\n", a);
@@ -2508,9 +2644,26 @@ void desktop_save_ui(void) {
     free(s);
 }
 
+/* The design a new one replaces is freed 10 s later, not at once: anything still holding a piece of it from the
+ * frame the new one came in (a field, a name, a pointer taken before the swap) reads what was there, not freed
+ * memory. The desktop crashed a little after a design was applied from the preview (in memchr, reading memory
+ * that was gone). */
+static fm_doc *retired;
+static uint64_t retired_at;
+
+static void retired_free(bool now) {
+    if (retired && (now || A.now - retired_at > 10000)) {
+        fm_free(retired);
+        retired = NULL;
+    }
+}
+
 void desktop_set_ui(fm_doc *doc) {
-    if (A.ui && A.ui != doc)
-        fm_free(A.ui);
+    if (A.ui && A.ui != doc) {
+        retired_free(true);
+        retired = A.ui;
+        retired_at = A.now;
+    }
     A.ui = doc;
 }
 
@@ -2519,12 +2672,9 @@ void desktop_adopt(fm_doc *doc, const design *d, bool first) {
         onboard_forget(); /* it is theirs now: onboarding's kept place goes */
     A.d = *d;
     design_take_their_name(doc, &A.d); /* their own name, never a design's sample one */
+    design_take_its_name(doc, &A.d);   /* and its: the one they gave it */
     if (their_name()[0])
         snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", their_name());
-    /* The designer read the whole conversation: trust it for names the
-     * tags missed. */
-    if (!A.prof.ai_name[0] && D.ai_name[0])
-        snprintf(A.prof.ai_name, sizeof A.prof.ai_name, "%s", D.ai_name);
     A.have_design = true;
     A.redesigning = false;
     design_save(&A.d, STATE_DIR "/design.json");
@@ -2660,7 +2810,9 @@ void desktop_draw(void) {
     }
     PROF("companion", companion_update());
     PROF("senses", alive_tick()); /* senses, ambient lights */
+    retired_free(false); /* the design before the last, once nothing can be holding it */
     PROF("nerve", nerve_tick()); /* what happened, judged by its reflexes; waking it when one earned it */
+    uninstall_poll(); /* (an app uninstalled from its right-click menu: done, or not) */
     PROF("agent", agent_tick()); /* its body: what it did, back to it as the next step; its plans when they're due */
     if (agent_busy())
         for (int i = 0; i < A.in.nkeys; i++)
@@ -2769,7 +2921,7 @@ void desktop_draw(void) {
     ui->in = &A.in;
     bool keys_to_ui = ui->focus != NULL;
     if (A.in.right_clicked && top < 0 && ui->hovered && !te_menu_state()->open) /* not on a field's own menu */
-        explain_why(ui->hovered);
+        context_menu(ui->hovered);
 
     if (!cached) {
         /* What the windows hide completely isn't drawn underneath them: an opaque frame (the corners aside), or

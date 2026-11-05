@@ -54,9 +54,35 @@ try:
         vm.click(x + w // 2, y + h // 2)
         results["the pointer: a click on the dock opens Notes"] = bool(
             vm.wait_for(r'ui action open:notes|window \(0\) opened "Notes"', 10, m))
+        time.sleep(2)
+        vm.cmd("send-key", keys=[{"type": "qcode", "data": "alt"}, {"type": "qcode", "data": "f4"}])
+        time.sleep(2)
+        # right-click: a menu (not a question to the companion), and its "Open Notes" opens it
+        m = len(vm.log_text())
+        vm.cmd("input-send-event", events=[
+            {"type": "abs", "data": {"axis": "x", "value": int((x + w // 2) * 32767 / (vmkit.W - 1))}},
+            {"type": "abs", "data": {"axis": "y", "value": int((y + h // 2) * 32767 / (vmkit.H - 1))}}])
+        time.sleep(0.3)
+        vm.cmd("input-send-event", events=[{"type": "btn", "data": {"down": True, "button": "right"}}])
+        time.sleep(0.1)
+        vm.cmd("input-send-event", events=[{"type": "btn", "data": {"down": False, "button": "right"}}])
+        item = vm.wait_for(r"rect context-menu-0 (\d+) (\d+) (\d+) (\d+)", 10, m)
+        results["right-click opens a menu"] = bool(item)
+        results["right-click asks the companion nothing"] = "Why does the" not in vm.log_text()[m:]
+        vm.shot("context-menu.png")
+        if item:
+            ix, iy, iw, ih = map(int, item.groups())
+            m = len(vm.log_text())
+            vm.click(ix + iw // 2, iy + ih // 2)
+            results["its Open opens Notes"] = bool(vm.wait_for(r'context menu: open:notes', 10, m))
     else:
         results["the pointer: a click on the dock opens Notes"] = False
         print("(no Notes on the dock in this design)")
+    # the companion answers (its turn is asked on a thread now, not a fork of the desktop)
+    time.sleep(2)
+    vm.focus_companion()
+    results["the companion answers"] = bool(vm.say("hello there", r"shell: ai Okay", 60))
+    results["nothing crashed"] = "segmentation fault" not in vm.log_text()
     vm.shot("end.png")
 finally:
     vm.stop()

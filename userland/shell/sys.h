@@ -77,6 +77,11 @@ void clipboard_set(const char *text);
 typedef struct job job;
 typedef void (*job_fn)(void *arg, char **result);   /* runs in the child */
 job *job_start(job_fn fn, void *arg);
+/* The same on a thread of the desktop's own, not a forked copy of it: for small jobs asked often (the reflexes'
+ * questions). A fork copies the desktop's whole memory map, and while the copy lives every page the desktop writes
+ * (megabytes a frame) is copied first: with a judgement every few seconds, the desktop froze every few seconds. `fn`
+ * must keep to its own memory and the arguments it was given (they mustn't change until it is done). */
+job *job_start_thread(job_fn fn, void *arg);
 int job_fd(job *j);
 /* Returns true when finished; *result is malloc'd (may be NULL). */
 bool job_poll(job *j, char **result);

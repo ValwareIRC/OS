@@ -83,6 +83,118 @@ void ui_text_menu_input(void) {
     }
 }
 
+/* ---- the right-click menu of anything else (desktop.c fills it) ---- */
+
+#define CTX_MAX 6
+static struct {
+    bool open, shown;
+    int x, y, n, sel;
+    char label[CTX_MAX][96];
+    char act[CTX_MAX][200];
+    bool danger[CTX_MAX];
+    char note[120];
+} CM;
+
+void ctx_menu_open(int x, int y) {
+    memset(&CM, 0, sizeof CM);
+    CM.open = true, CM.x = x, CM.y = y, CM.sel = -1;
+}
+
+void ctx_menu_add(const char *label, const char *act, bool danger) {
+    if (CM.n == CTX_MAX)
+        return;
+    snprintf(CM.label[CM.n], sizeof CM.label[0], "%s", label);
+    snprintf(CM.act[CM.n], sizeof CM.act[0], "%s", act);
+    CM.danger[CM.n++] = danger;
+}
+
+void ctx_menu_note(const char *note) { snprintf(CM.note, sizeof CM.note, "%s", note); }
+
+bool ctx_menu_showing(void) { return CM.open; }
+
+static rect ctx_rect(font *f, int *row) {
+    *row = font_line_height(f) + 14;
+    int w = 240;
+    for (int i = 0; i < CM.n; i++) {
+        int tw = text_width(f, CM.label[i]) + 48;
+        if (tw > w)
+            w = tw;
+    }
+    int note_h = CM.note[0] ? font_line_height(f) + 10 : 0;
+    int h = CM.n * *row + 12 + note_h;
+    int x = CM.x + w > A.W - 8 ? A.W - 8 - w : CM.x, y = CM.y + h > A.H - 8 ? CM.y - h : CM.y;
+    return (rect){x < 8 ? 8 : x, y < 8 ? 8 : y, w, h};
+}
+
+void ctx_menu_input(void) {
+    if (!CM.open)
+        return;
+    font *f = fm_host_font(A.d.font_body, A.d.body_px - 1);
+    int row;
+    rect r = ctx_rect(f, &row);
+    int chosen = -1;
+    for (int i = 0; i < A.in.nkeys && CM.open; i++) {
+        int k = A.in.keys[i];
+        if (k == K_ESC)
+            CM.open = false;
+        else if ((k == K_DOWN || k == K_UP) && CM.n)
+            CM.sel = CM.sel < 0 ? (k == K_DOWN ? 0 : CM.n - 1) : (CM.sel + (k == K_DOWN ? 1 : -1) + CM.n) % CM.n;
+        else if (k == K_ENTER && CM.sel >= 0)
+            chosen = CM.sel;
+    }
+    int at = pt_in(r, A.in.mx, A.in.my) ? (A.in.my - r.y - 6) / row : -1;
+    if (at >= CM.n)
+        at = -1;
+    if (A.in.moved && pt_in(r, A.in.mx, A.in.my))
+        CM.sel = at;
+    if (chosen < 0 && A.in.clicked && at >= 0)
+        chosen = at;
+    else if (chosen < 0 && (A.in.pressed || A.in.right_clicked) && !pt_in(r, A.in.mx, A.in.my))
+        CM.open = false;
+    /* while it is up, the pointer and the keys are the menu's */
+    A.in.pressed = A.in.clicked = A.in.right_clicked = false;
+    A.in.wheel = 0;
+    A.in.nkeys = 0;
+    if (chosen >= 0) {
+        char act[200];
+        snprintf(act, sizeof act, "%s", CM.act[chosen]);
+        CM.open = false;
+        LOG("context menu: %s\n", act[0] ? act : "(nothing)");
+        if (act[0])
+            desktop_ctx_chosen(act); /* (it may open the menu again: a question) */
+    }
+}
+
+void ctx_menu_draw(void) {
+    if (!CM.open)
+        return;
+    font *f = fm_host_font(A.d.font_body, A.d.body_px - 1);
+    int row;
+    rect r = ctx_rect(f, &row);
+    if (!CM.shown) {
+        CM.shown = true;
+        LOGRECT("context-menu", r);
+        for (int i = 0; i < CM.n; i++) {
+            char nm[40];
+            snprintf(nm, sizeof nm, "context-menu-%d", i);
+            LOGRECT(nm, ((rect){r.x + 6, r.y + 6 + i * row, r.w - 12, row}));
+        }
+    }
+    float rad = A.d.radius * 0.5f + 4;
+    ctl_panel(r, rad > 14 ? 14 : rad, 1);
+    palette p = pal_on(pal_sample(rect_inset(r, 6)), 1);
+    for (int i = 0; i < CM.n; i++) {
+        rect it = {r.x + 6, r.y + 6 + i * row, r.w - 12, row};
+        if (i == CM.sel)
+            fill_round(A.frame, it, rad > 8 ? 8 : rad * 0.6f, color_alpha(p.ink, 0.1f));
+        int ty = it.y + (row - font_line_height(f)) / 2;
+        color ink = CM.danger[i] ? RGBA(0xe0, 0x4b, 0x4b, 255) : p.ink;
+        draw_text(A.frame, f, it.x + 12, ty, CM.label[i], ink);
+    }
+    if (CM.note[0])
+        draw_text(A.frame, f, r.x + 18, r.y + 6 + CM.n * row + 4, CM.note, p.muted);
+}
+
 void ui_text_menu_draw(void) {
     te_menu *m = te_menu_state();
     if (!m->open)

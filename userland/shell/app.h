@@ -185,6 +185,15 @@ bool ui_type(struct textfield *t);
 /* The right-click menu of a text field: its input first in the frame, drawn over everything at the end. */
 void ui_text_menu_input(void);
 void ui_text_menu_draw(void);
+/* The right-click menu of anything on the desktop (textmenu.c draws it, desktop.c fills it and does what is
+ * chosen): opened at a point, items added, each a label and what choosing it does. */
+void ctx_menu_open(int x, int y);
+void ctx_menu_add(const char *label, const char *act, bool danger);
+void ctx_menu_note(const char *note);
+bool ctx_menu_showing(void);
+void ctx_menu_input(void);
+void ctx_menu_draw(void);
+void desktop_ctx_chosen(const char *act);
 void ui_orb(canvas *c, float cx, float cy, float r, color a, color b, bool active);
 void ui_cursor(canvas *c, int x, int y);
 void ui_backdrop(color base, color l1, color l2, color depth);

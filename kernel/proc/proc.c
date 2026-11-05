@@ -912,6 +912,27 @@ static int oom_make_room(struct process *self) {
     return pid;
 }
 
+/* What called the code that crashed, as far as its stack shows: the words near its top that point into code a
+ * program has mapped (return addresses, mostly; programs built without frame pointers leave no chain to follow).
+ * A crash in a library function (memchr, say) is found by its callers: addr2line -e the program each address. */
+static void stack_callers(struct mm *mm, uint64_t sp, char *out, size_t n) {
+    uint64_t words[96];
+    size_t len = 0;
+    out[0] = 0;
+    if (copy_from_user(words, sp, sizeof words) < 0)
+        return;
+    int found = 0;
+    uint64_t f = spin_lock_irqsave(&mm->lock);
+    for (int i = 0; i < 96 && found < 12 && len + 20 < n; i++) {
+        struct vma *v = words[i] >= 0x1000 ? mm_find_vma(mm, words[i]) : NULL;
+        if (v && (v->prot & PROT_EXEC)) {
+            len += (size_t)ksnprintf(out + len, n - len, " %lx", words[i]);
+            found++;
+        }
+    }
+    spin_unlock_irqrestore(&mm->lock, f);
+}
+
 bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec);
 bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     if (debug_trace)
@@ -961,8 +982,13 @@ bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     }
     if (regs_user_mode(r)) {
         proc_exit_begin(SIGSEGV); /* the other threads stop first: the log line below takes a while */
-        kprintf("pid %d (%s): segmentation fault at %lx, rip %lx\n", t->user->proc->pid, t->user->proc->name, addr,
-                regs_ip(r));
+        char callers[256];
+        callers[0] = 0;
+        if (mm)
+            stack_callers(mm, regs_sp(r), callers, sizeof callers);
+        kprintf("pid %d (%s): segmentation fault at %lx, rip %lx (%s); called from:%s\n", t->user->proc->pid,
+                t->user->proc->name, addr, regs_ip(r), write ? "writing" : exec ? "running" : "reading",
+                callers[0] ? callers : " (nothing on its stack)");
         proc_exit(SIGSEGV);
     }
     /* A user-memory access from the kernel (copy_from_user and friends):

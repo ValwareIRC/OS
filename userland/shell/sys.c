@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <grp.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -580,6 +581,64 @@ job *job_start(job_fn fn, void *arg) {
     return j;
 }
 
+struct thread_job {
+    job_fn fn;
+    void *arg;
+    int wfd;
+};
+
+static void *job_thread(void *p) {
+    struct thread_job *t = p;
+    sigset_t pipe_sig; /* (abandoned, its reader gone: EPIPE for it, not a SIGPIPE for the whole desktop) */
+    sigemptyset(&pipe_sig);
+    sigaddset(&pipe_sig, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &pipe_sig, NULL);
+    char *result = NULL;
+    t->fn(t->arg, &result);
+    size_t n = result ? strlen(result) : 0;
+    for (size_t off = 0; off < n;) {
+        ssize_t w = write(t->wfd, result + off, n - off);
+        if (w <= 0)
+            break;
+        off += (size_t)w;
+    }
+    free(result);
+    close(t->wfd);
+    free(t);
+    return NULL;
+}
+
+job *job_start_thread(job_fn fn, void *arg) {
+    int p[2];
+    if (pipe2(p, O_CLOEXEC) < 0) /* (cloexec: a program started meanwhile mustn't keep it open) */
+        return NULL;
+    struct thread_job *t = malloc(sizeof *t);
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&at, 1 << 20);
+    pthread_t th;
+    if (t)
+        *t = (struct thread_job){fn, arg, p[1]};
+    if (!t || pthread_create(&th, &at, job_thread, t) != 0) {
+        pthread_attr_destroy(&at);
+        free(t);
+        close(p[0]);
+        close(p[1]);
+        return NULL;
+    }
+    pthread_attr_destroy(&at);
+    fcntl(p[0], F_SETFL, O_NONBLOCK);
+    job *j = calloc(1, sizeof *j);
+    if (!j) {
+        close(p[0]);
+        return NULL;
+    }
+    j->pid = 0; /* (a thread: nothing to wait for or end) */
+    j->fd = p[0];
+    return j;
+}
+
 int job_fd(job *j) { return j ? j->fd : -1; }
 
 bool job_poll(job *j, char **result) {
@@ -599,7 +658,8 @@ bool job_poll(job *j, char **result) {
             continue;
         }
         if (n == 0) { /* writer closed: the child is done */
-            waitpid(j->pid, NULL, 0);
+            if (j->pid > 0)
+                waitpid(j->pid, NULL, 0);
             j->done = true;
             *result = j->buf;
             j->buf = NULL;
@@ -612,7 +672,7 @@ bool job_poll(job *j, char **result) {
 void job_free(job *j) {
     if (!j)
         return;
-    if (!j->done) {
+    if (!j->done && j->pid > 0) { /* (a thread's job ends by itself, its answer unread) */
         kill(j->pid, SIGKILL);
         waitpid(j->pid, NULL, 0);
     }

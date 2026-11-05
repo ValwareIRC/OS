@@ -67,8 +67,10 @@ static const char *onboarding_system(void) {
              "way]] (invent your own from their life, never these). Then take a short sentence they said and offer "
              "it set in type: [[pick:type|the hush after rain]]. Then [[pick:tempo]] for how fast things should "
              "move.\n"
-             "4. The two of you: your name (let them name you, or offer to choose one yourself), then how present you "
-             "should be, framed as a scene: it is late, they have been stuck on something for two hours; do you stay "
+             "4. The two of you: ask them what they would like to call you. The name is theirs to give: never "
+             "suggest one of your own unless they ask you to choose, and then offer three as [[pick:name|A|B|C]]; "
+             "never call yourself by a name they haven't given or agreed to. When it is settled, [[name:Name]]. "
+             "Then how present you should be, framed as a scene: it is late, they have been stuck on something for two hours; do you stay "
              "quiet, ask once, or quietly make things calmer? Offer that as [[pick:presence|three short answers you "
              "write]].\n"
              "   Then how you sound: ask what kind of voice they would like to hear from you (a man or a woman, "
@@ -609,6 +611,13 @@ static char *apply_tags(const char *text) {
                 pending_nudge = strdup("(Not quite yet: you don't know them well enough. Say you'd like to know a "
                                        "little more before you make it, and ask one more thing about who they are. "
                                        "Then the mirror again and [[done]].)");
+            } else if (!A.prof.ai_name[0] && A.onboard_nudges < 6) {
+                /* never finished without its name: theirs to give, so asked for, not chosen */
+                A.onboard_nudges++;
+                pending_nudge = strdup("(Not yet: they haven't named you. Before you make it, ask them what they "
+                                       "would like to call you, in one short message. Offer three names as "
+                                       "[[pick:name|A|B|C]] only if they want you to choose. Then [[name:Name]], "
+                                       "the mirror again and [[done]].)");
             } else {
                 A.onboard_done = true;
             }

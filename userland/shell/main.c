@@ -320,7 +320,7 @@ static bool frame_wanted(void) {
         (A.toast[0] && A.now < A.toast_until + 500) || caption_showing(),
         A.companion.pending || agent_busy() || voice_speaking() || voice_listening() || voice_hearing(),
         capture_active() || launcher_active() || preview_showing() || portal_modal() || appapi_modal() || body_asking() ||
-            A.confirm_power || actions_confirming() || mind_fallback_asking(),
+            A.confirm_power || actions_confirming() || mind_fallback_asking() || ctx_menu_showing(),
         term_busy(), fxwin_wake_in() <= 34, A.face_new,
     };
     static const char *const names[] = {"asked", "screen", "input", "app frame", "app message", "app waiting",
@@ -440,6 +440,7 @@ void main_frame(void) {
     if (A.in.clicked || A.in.pressed || A.in.nkeys || A.in.wheel)
         nerve_person_touched(); /* what follows from this is theirs (nerve.c) */
     PROF("text menu", ui_text_menu_input()); /* a text field's right-click menu, when it is up, has the pointer */
+    ctx_menu_input();                         /* and anything else's */
     PROF("deciding", A.drawing = frame_wanted());
     /* only the top app's picture changed, and its window is nothing but that picture: the desktop isn't drawn
      * (what it does besides drawing still runs), the picture alone is put on (desktop.c) */
@@ -478,6 +479,7 @@ drawn:
         paced_until = A.now + FRAME_MS;
         if (!quick) {
             ui_text_menu_draw();
+            ctx_menu_draw();
             desktop_note_clean(); /* (before the pointer: it isn't part of the window) */
             capture_frame(false); /* a recording without the pointer takes this */
             pointer_save(A.in.mx, A.in.my);
