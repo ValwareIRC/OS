@@ -26,6 +26,7 @@
 #include "stylist.h"
 #include "settings.h"
 #include "chats.h"
+#include "menu_actions.h"
 #include "tray.h"
 #include "iconart.h"
 #include "preview.h"
@@ -534,7 +535,7 @@ static int run_ui_tags(char *text, bool act) {
             snprintf(last_look_target, sizeof last_look_target, "%.*s", (int)strcspn(v, " {<"), v);
             char nx = last_look_target[4];
             if (!strncasecmp(last_look_target, "menu", 4) && !isalnum((unsigned char)nx) && nx != '-' && nx != '_')
-                preview_sample_menu(); /* (a menu is only open where they right-click: one is, in the preview) */
+                preview_sample_menu(v); /* (a menu is only open where they right-click: one is, in the preview) */
         }
         LOG("ui command \"%.300s\"%s: %s\n", cmd, look ? " (preview)" : "", res);
         size_t tl = strlen(tag_report);
@@ -1511,6 +1512,19 @@ static void companion_body(rect r) {
         int bw = tw && tw < maxw ? tw : maxw;
         y -= h + 22 + 10;
         rect b = {mine ? area.x + area.w - bw : area.x, y, bw, h + 20};
+        if (A.in.right_pressed && pt_in(b, A.in.mx, A.in.my) && pt_in(area, A.in.mx, A.in.my)) {
+            /* a message: copy it, search for it, ask about it, and what is offered everywhere */
+            ctx_menu_open(A.in.mx, A.in.my);
+            ctx_menu_target(b.x, b.y, b.w, b.h);
+            ctx_menu_for("text");
+            menu_ctx mc;
+            memset(&mc, 0, sizeof mc);
+            snprintf(mc.text, sizeof mc.text, "%s", m->text);
+            menu_context(&mc);
+            char act[32];
+            snprintf(act, sizeof act, "copymsg:%d", i);
+            ctx_menu_action("copy-message", "Copy message", act, 0, NULL, "copy", "The whole message, for pasting");
+        }
         fill_round(A.frame, b, D.radius * 0.8f + 4, mine ? color_alpha(D.accent, 0.9f) : color_alpha(D.surface_text, 0.08f));
         /* Words must read against what is really behind them (the frame's
          * own colours may not be the design's surface colour). */
@@ -1731,6 +1745,7 @@ static int match_app(const char *q) {
 
 struct bundled {
     char id[96], name[48], exec[300], about[128];
+    char mime[600]; /* what it opens (its .desktop's MimeType): "Open with", links */
 };
 #define MAX_BUNDLED 48
 static struct bundled bundled[MAX_BUNDLED];
@@ -1767,6 +1782,7 @@ static void scan_flatpak_apps_in(const char *apps) {
             if (!strcmp(line, "Name")) snprintf(b->name, sizeof b->name, "%s", v);
             else if (!strcmp(line, "Exec")) snprintf(b->exec, sizeof b->exec, "%s", v);
             else if (!strcmp(line, "Comment")) snprintf(b->about, sizeof b->about, "%s", v);
+            else if (!strcmp(line, "MimeType")) snprintf(b->mime, sizeof b->mime, ";%s", v);
             else if (!strcmp(line, "NoDisplay") || !strcmp(line, "Hidden")) hidden |= !strcasecmp(v, "true");
         }
         fclose(f);
@@ -2207,6 +2223,102 @@ static int window_app(int w) {
     return APP_COUNT + nbundled;
 }
 
+/* ---- for right-click menus (menu_actions.c): what opens what, and doing it ---- */
+
+/* The installed apps that open `mime` (exactly, or "image/" for any picture), at most max. */
+int desktop_apps_for(const char *mime, char (*ids)[96], char (*names)[48], int max) {
+    scan_bundled();
+    int n = 0;
+    for (int b = 0; b < nbundled && n < max; b++) {
+        if (!bundled[b].mime[0])
+            continue;
+        bool any = mime[strlen(mime) - 1] == '/';
+        char pat[120];
+        snprintf(pat, sizeof pat, ";%s%s", mime, any ? "" : ";");
+        char hay[604];
+        snprintf(hay, sizeof hay, "%s;", bundled[b].mime);
+        if (strcasestr(hay, pat)) {
+            snprintf(ids[n], 96, "%s", bundled[b].id);
+            snprintf(names[n], 48, "%s", bundled[b].name);
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Opens a file or a web address with that app (a Flatpak's own way of being handed one, where it has it). */
+bool desktop_open_with(const char *app_id, const char *what) {
+    scan_bundled();
+    for (int b = 0; b < nbundled; b++) {
+        if (strcmp(bundled[b].id, app_id) || !strncmp(bundled[b].exec, "facet:", 6))
+            continue;
+        char q[700], cmd[1100];
+        size_t o = 0;
+        q[o++] = '\'';
+        for (const char *p = what; *p && o + 5 < sizeof q; p++) {
+            if (*p == '\'') {
+                memcpy(q + o, "'\\''", 4);
+                o += 4;
+            } else {
+                q[o++] = *p;
+            }
+        }
+        q[o++] = '\'';
+        q[o] = 0;
+        bool url = strstr(what, "://") != NULL;
+        if (strstr(bundled[b].exec, "--file-forwarding"))
+            snprintf(cmd, sizeof cmd, "%s %s %s @@", bundled[b].exec, url ? "@@u" : "@@", q);
+        else
+            snprintf(cmd, sizeof cmd, "%s %s", bundled[b].exec, q);
+        spawn_command(cmd, bundled[b].name);
+        return true;
+    }
+    return false;
+}
+
+/* A web address, in the browser they have (the first app that opens web links); else where to get one. */
+void desktop_open_link(const char *url) {
+    char ids[4][96], names[4][48];
+    int n = desktop_apps_for("x-scheme-handler/https", ids, names, 4);
+    if (!n)
+        n = desktop_apps_for("text/html", ids, names, 4);
+    if (n && desktop_open_with(ids[0], url))
+        return;
+    toast("Nothing here opens web links yet. Here are browsers you can get.");
+    launcher_open("browser");
+}
+
+/* Every window of an app, closed. */
+void desktop_close_app_windows(const char *app_id) {
+    int k = fm_app_index(app_id);
+    for (int w = 0; w < WIN_MAX && k >= 0; w++)
+        if (A.win[w].open && window_app(w) == k)
+            wm_close(w);
+}
+
+void desktop_save_ui(void);
+
+/* A picture behind the desktop (the design's background, kept with it). */
+bool desktop_set_wallpaper(const char *path) {
+    struct stat st;
+    if (!A.ui || stat(path, &st) != 0)
+        return false;
+    char cmd[800];
+    snprintf(cmd, sizeof cmd, "style desktop { background: url(%s) center / cover; }", path);
+    fm_command(A.ui, cmd, NULL);
+    desktop_save_ui();
+    toast("The wallpaper is now %s.", strrchr(path, '/') ? strrchr(path, '/') + 1 : path);
+    return true;
+}
+
+/* "Ask NAME about it": the chat opens with it named (words, or what it is), for them to ask; nothing is sent. */
+void companion_ask_about_text(const char *what) {
+    fm_host_action(A.ui, NULL, "open:companion");
+    snprintf(A.chat.buf, sizeof A.chat.buf, "About %s: ", what);
+    A.chat.len = (int)strlen(A.chat.buf);
+    te_reset(&A.chat.ed, A.chat.buf);
+}
+
 int fm_host_window_app(int i) {
     int l[WIN_MAX], n = open_list(l);
     return i >= 0 && i < n ? window_app(l[i]) : 0;
@@ -2590,19 +2702,87 @@ static struct {
 
 /* A window's own: in a list of windows, or on its frame (title bar). */
 static void window_menu(int w) {
-    char act[40];
+    char act[160], label[160];
     ctx_menu_for("window");
     if (A.win[w].minimized) {
         snprintf(act, sizeof act, "show:%d", w);
-        ctx_menu_add("Show", act, false);
+        ctx_menu_action("show", "Show", act, 0, NULL, "restore", "Back on the screen");
     } else {
         snprintf(act, sizeof act, "min:%d", w);
-        ctx_menu_add("Minimize", act, false);
+        ctx_menu_action("minimize", "Minimize", act, 0, NULL, "minimize", "Out of the way, in the window list");
     }
     snprintf(act, sizeof act, "max:%d", w);
-    ctx_menu_add(wm_is_maximized(w) ? "Restore size" : "Maximize", act, false);
+    bool maxed = wm_is_maximized(w);
+    ctx_menu_action("maximize", maxed ? "Restore size" : "Maximize", act, 0, NULL, maxed ? "restore" : "maximize",
+                    maxed ? "Back to the size it was" : "The whole screen, the bars aside");
+    snprintf(act, sizeof act, "snapl:%d", w);
+    ctx_menu_action("snap-left", "Left half", act, 0, NULL, "back", "The left half of the screen");
+    snprintf(act, sizeof act, "snapr:%d", w);
+    ctx_menu_action("snap-right", "Right half", act, 0, NULL, "forward", "The right half of the screen");
+    snprintf(act, sizeof act, "ontop:%d", w);
+    ctx_menu_action("keep-on-top", "Keep on top", act, A.win[w].on_top ? CM_ON : 0, NULL, "up",
+                    A.win[w].on_top ? "It is kept above the others: again to let it go" : "Above the other windows");
+    int app = window_app(w), same = 0;
+    for (int k = 0; k < WIN_MAX; k++)
+        same += A.win[k].open && window_app(k) == app;
+    if (same > 1) {
+        snprintf(act, sizeof act, "closeall:%s", fm_host_app_id(app));
+        snprintf(label, sizeof label, "Close all %d %s windows", same, fm_host_app_label(app));
+        ctx_menu_action("close-windows", label, act, 0, NULL, "close", "Every window of this app");
+    }
     snprintf(act, sizeof act, "close:%d", w);
-    ctx_menu_item("Close", act, CM_SEP, NULL);
+    ctx_menu_action("close", "Close", act, 0, NULL, "close", "This window");
+}
+
+/* What is under the pointer, from the design: a picture (its file), a link, words. */
+static void context_of(fm_node *n) {
+    menu_ctx c;
+    memset(&c, 0, sizeof c);
+    for (fm_node *e = n; e; e = e->parent) {
+        if (e->kind != FM_ELEM)
+            continue;
+        const char *src = fm_attr_get(e, "src");
+        if (!c.image[0] && src && *src && (!strcmp(e->tag, "image") || !strcmp(e->tag, "img") || !strcmp(e->tag, "svg"))) {
+            const char *home = getenv("HOME");
+            if (src[0] == '~' && home)
+                snprintf(c.image, sizeof c.image, "%s%s", home, src + 1);
+            else
+                snprintf(c.image, sizeof c.image, "%s", src);
+        }
+        const char *href = fm_attr_get(e, "href"), *what = fm_attr_get(e, "what");
+        if (!c.link[0] && href && *href)
+            snprintf(c.link, sizeof c.link, "%s", href);
+        else if (!c.link[0] && what && (!strncmp(what, "url:", 4) || !strncmp(what, "link:", 5)))
+            snprintf(c.link, sizeof c.link, "%s", strchr(what, ':') + 1);
+        if (!c.text[0] && (!strcmp(e->tag, "text") || !strcmp(e->tag, "label") || !strcmp(e->tag, "title") ||
+                           !strcmp(e->tag, "clock") || !strcmp(e->tag, "p"))) {
+            char *t = fm_text_of(e);
+            if (t && t[strspn(t, " \t\r\n")])
+                snprintf(c.text, sizeof c.text, "%s", t + strspn(t, " \t\r\n"));
+            free(t);
+        }
+    }
+    if (c.image[0])
+        ctx_menu_for("image");
+    else if (c.link[0])
+        ctx_menu_for("link");
+    menu_context(&c);
+}
+
+/* Right-clicked in a Facet app's window (fxwin.c): what is under the pointer there, a picture, a link or words,
+ * and what is offered everywhere. */
+void desktop_context_menu_in_app(fm_node *n) {
+    for (const fm_node *e = n; e; e = e->parent)
+        if (e->kind == FM_ELEM && (!strcmp(e->tag, "input") || !strcmp(e->tag, "search")))
+            return; /* (a field: its own menu, when the button comes up) */
+    ctx_menu_open(A.in.mx, A.in.my);
+    for (fm_node *e = n; e; e = e->parent)
+        if (e->kind == FM_ELEM && e->vis.w > 0 && e->vis.h > 0) {
+            ctx_menu_target(e->vis.x, e->vis.y, e->vis.w, e->vis.h);
+            break;
+        }
+    ctx_menu_for("app");
+    context_of(n);
 }
 
 static void context_menu(fm_node *n) {
@@ -2637,18 +2817,34 @@ static void context_menu(fm_node *n) {
         const char *name = k >= 0 ? fm_host_app_label(k) : app;
         snprintf(label, sizeof label, "Open %s", name);
         snprintf(act, sizeof act, "open:%s", app);
-        ctx_menu_add(label, act, false);
+        ctx_menu_action("open", label, act, 0, NULL, "forward", NULL);
+        int open_wins = 0;
+        for (int w = 0; w < WIN_MAX && k >= 0; w++)
+            open_wins += A.win[w].open && window_app(w) == k;
+        if (open_wins) {
+            snprintf(label, sizeof label, open_wins > 1 ? "Close its %d windows" : "Close its window", open_wins);
+            snprintf(act, sizeof act, "closeall:%s", app);
+            ctx_menu_action("close-windows", label, act, 0, NULL, "close", NULL);
+        }
+        snprintf(act, sizeof act, "appinfo:%s", app);
+        ctx_menu_action("app-info", "About this app", act, 0, NULL, "eye", "What it is, what it may use, how big it is");
         char path[300];
         snprintf(path, sizeof path, FLATPAK_DISK_EXPORTS "/applications/%s.desktop", app);
         if (flatpak_id_ok(app) && access(path, F_OK) == 0 && priv_available()) {
             snprintf(label, sizeof label, "Uninstall %s", name);
             snprintf(act, sizeof act, "uninstall?%s", app);
-            ctx_menu_add(label, act, false);
+            ctx_menu_action("uninstall", label, act, CM_DANGER, NULL, "trash", "Removed from this computer, its settings "
+                            "with it (asked first)");
         }
     } else { /* the desktop itself, or a part of it that is no app (a clock, a picture, the wallpaper) */
-        ctx_menu_for("desktop");
-        ctx_menu_add("Redesign", "do:redesign", false);
-        ctx_menu_add("Settings", "do:open:settings", false);
+        context_of(n);
+        if (!strcmp(n->tag, "desktop") || !strcmp(n->tag, "canvas") || n == A.ui->desktop) {
+            ctx_menu_action("change-wallpaper", "Change the wallpaper", "wallpaper-settings", 0, NULL, "picture", NULL);
+            ctx_menu_action("new-note", "New note", "new-note", 0, NULL, "doc", NULL);
+        }
+        ctx_menu_action("redesign", "Redesign", "do:redesign", 0, NULL, "sparkle",
+                        "A new look for the desktop, made with you");
+        ctx_menu_action("settings", "Settings", "do:open:settings", 0, NULL, "gear", NULL);
     }
     /* last, small: asking the companion about it (the chat opens with it named; nothing is sent). By the nearest
      * element with a name of its own, found again when chosen. */
@@ -2676,6 +2872,24 @@ void desktop_ctx_chosen(const char *act) {
         wm_activate(atoi(act + 5));
     } else if (!strncmp(act, "max:", 4)) {
         wm_toggle_maximize(atoi(act + 4));
+    } else if (!strncmp(act, "snapl:", 6) || !strncmp(act, "snapr:", 6)) {
+        wm_snap(atoi(act + 6), act[4] == 'r');
+    } else if (!strncmp(act, "ontop:", 6)) {
+        int w = atoi(act + 6);
+        if (w >= 0 && w < WIN_MAX && A.win[w].open) {
+            A.win[w].on_top = !A.win[w].on_top;
+            toast(A.win[w].on_top ? "%s is kept on top." : "%s is no longer kept on top.", desktop_window_title(w));
+        }
+    } else if (!strncmp(act, "copymsg:", 8)) {
+        int i = atoi(act + 8);
+        if (i >= 0 && i < A.companion.n && A.companion.msgs[i].text) {
+            clipboard_set(A.companion.msgs[i].text);
+            toast("The message is copied.");
+        }
+    } else if (!strncmp(act, "closeall:", 9)) {
+        desktop_close_app_windows(act + 9);
+    } else if (!strncmp(act, "appinfo:", 8)) {
+        settings_open_page("Apps");
     } else if (!strncmp(act, "uninstall?", 10)) { /* the question first */
         const char *id = act + 10;
         int k = fm_app_index(id);
@@ -3143,7 +3357,8 @@ void desktop_draw(void) {
         if (A.win[w].open && !A.win[w].minimized)
             order[n++] = w;
     for (int i = 1; i < n; i++)
-        for (int j = i; j > 0 && A.win[order[j - 1]].z > A.win[order[j]].z; j--) {
+        for (int j = i; j > 0 && A.win[order[j - 1]].z + (A.win[order[j - 1]].on_top ? 1 << 28 : 0) >
+                                     A.win[order[j]].z + (A.win[order[j]].on_top ? 1 << 28 : 0); j--) {
             int t = order[j];
             order[j] = order[j - 1];
             order[j - 1] = t;
@@ -3175,9 +3390,12 @@ void desktop_draw(void) {
     ui->in = &A.in;
     ctx_menu_after_input();
     bool keys_to_ui = ui->focus != NULL;
-    if (A.in.right_clicked && top < 0 && ui->hovered && !te_menu_state()->open) /* not on a field's own menu */
+    bool on_field = false; /* (a field's own menu opens when the button comes up: textedit.c) */
+    for (const fm_node *e = ui->hovered; e && !on_field; e = e->parent)
+        on_field = e->kind == FM_ELEM && (!strcmp(e->tag, "search") || !strcmp(e->tag, "input"));
+    if (A.in.right_pressed && top < 0 && ui->hovered && !on_field && !te_menu_state()->open)
         context_menu(ui->hovered);
-    else if (A.in.right_clicked && top >= 0 && !pt_in(A.win[top].body, A.in.mx, A.in.my) &&
+    else if (A.in.right_pressed && top >= 0 && !pt_in(A.win[top].body, A.in.mx, A.in.my) &&
              !te_menu_state()->open) { /* its frame (the title bar): the window's own menu */
         ctx_menu_open(A.in.mx, A.in.my);
         ctx_menu_target(A.win[top].r.x, A.win[top].r.y, A.win[top].r.w, A.win[top].r.h);

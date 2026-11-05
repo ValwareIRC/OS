@@ -117,7 +117,9 @@ static const char *const builtin_css =
     "menu button.quiet { font-size: 11; opacity: 0.8; }\n"
     "menu text.keys { opacity: 0.6; font-size: 11; }\n"
     "menu text.note { font-size: 12; opacity: 0.8; padding: 4 10; radius: 10;"
-    " background: var(--surface, rgba(20,22,30,0.94)); }\n";
+    " background: var(--surface, rgba(20,22,30,0.94)); }\n"
+    "menu acts.global { display: flex; direction: row; gap: 6; width: auto; height: auto; }\n"
+    "menu [filtered=out], menu [empty=true] { display: none; }\n";
 
 /* ---- values ---- */
 

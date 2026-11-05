@@ -6,6 +6,7 @@
 #include "../userland/shell/app.h"
 #include "../userland/shell/fm/fm.h"
 #include "../userland/shell/stylist.h"
+#include "../userland/shell/menufill.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,6 +97,24 @@ uint64_t fm_host_backdrop_sig(void) { return 0; }
 uint64_t prof_now_us(void) { return 0; }
 void prof_add(const char *name, uint64_t us) { (void)name, (void)us; }
 
+/* every action placed in a menu, and how many twice (menu_shots.sh) */
+static void count_placed(const fm_node *n, bool *seen, int ns, int *placed, int *twice) {
+    for (const fm_node *c = n->first; c; c = c->next) {
+        if (c->kind != FM_ELEM)
+            continue;
+        const char *w = fm_attr_get(c, "what");
+        if (w && !strncmp(w, "menu:", 5)) {
+            int i = atoi(w + 5);
+            if (i >= 0 && i < ns) {
+                *twice += seen[i];
+                *placed += !seen[i];
+                seen[i] = true;
+            }
+        }
+        count_placed(c, seen, ns, placed, twice);
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: fm_shot DESIGN.xml [OUT_DIR] [--fonts=DIR]\n");
@@ -120,6 +139,74 @@ int main(int argc, char **argv) {
     A.W = 1600, A.H = 900;
     A.frame = canvas_new(A.W, A.H);
     char *doc = stylist_expand_base(buf);
+    /* MENU=kind: that kind's right-click menu, filled as the desktop fills it (menufill.c), shown open (FOCUS) */
+    const char *mk = getenv("MENU");
+    if (mk && *mk) {
+        fm_doc *d = fm_parse(doc ? doc : buf);
+        fm_layout(d, (rect){0, 0, A.W, A.H});
+        static mf_spec s;
+        memset(&s, 0, sizeof s);
+        snprintf(s.kind, sizeof s.kind, "%s", mk);
+        s.x = A.W * 45 / 100, s.y = A.H * 40 / 100, s.tx = s.x - 60, s.ty = s.y - 30, s.tw = 120, s.th = 60;
+        static const struct {
+            const char *kind, *ids;
+        } sample[] = {
+            {"app", "open:Open Notes|close-windows:Close its window|app-info:About this app|uninstall:Uninstall Notes"},
+            {"window", "minimize:Minimize|maximize:Maximize|snap-left:Left half|snap-right:Right half|"
+                       "keep-on-top:Keep on top|close:Close"},
+            {"desktop", "change-wallpaper:Change the wallpaper|new-note:New note|redesign:Redesign|settings:Settings"},
+            {"text", "undo:Undo|cut:Cut|copy:Copy|paste:Paste|select-all:Select all|search-for-it:Search for it|"
+                     "look-it-up:Look it up"},
+            {"image", "open-picture:Open picture|copy-image:Copy image|save-image:Save image|"
+                      "set-as-wallpaper:Set as wallpaper"},
+            {"file", "open:Open|open-with:Open with|rename:Rename|copy:Copy|cut:Cut|copy-path:Copy path|"
+                     "compress:Compress|properties:Properties|move-to-trash:Move to Trash"},
+            {"link", "open-link:Open link|copy-link:Copy link"},
+        };
+        for (size_t k = 0; k < sizeof sample / sizeof sample[0]; k++) {
+            if (strcmp(sample[k].kind, mk))
+                continue;
+            char list[600];
+            snprintf(list, sizeof list, "%s", sample[k].ids);
+            for (char *save = NULL, *t = strtok_r(list, "|", &save); t; t = strtok_r(NULL, "|", &save)) {
+                char *colon = strchr(t, ':');
+                if (!colon)
+                    continue;
+                *colon = 0;
+                mf_action *a = mf_add(&s, t, colon + 1, !strcmp(t, "uninstall") || !strcmp(t, "move-to-trash") ? MF_DANGER : 0);
+                if (a && !strcmp(t, "paste"))
+                    a->flags |= MF_OFF, snprintf(a->why_off, sizeof a->why_off, "Nothing is copied");
+            }
+        }
+        mf_add(&s, "ask-about-it", "Ask Mita about this", MF_QUIET);
+        static const char *const glob[][2] = {{"take-screenshot", "Take a screenshot"}, {"open-terminal", "Open Terminal"},
+                                              {"settings", "Settings"}};
+        for (size_t g = 0; g < 3; g++)
+            mf_add(&s, glob[g][0], glob[g][1], MF_GLOBAL);
+        fm_node *m = mf_build(d, &s);
+        int placed = 0, twice = 0;
+        bool seen[MF_MAX] = {false};
+        if (m)
+            count_placed(m, seen, s.n, &placed, &twice);
+        int offered = 0;
+        for (int i = 0; i < s.n; i++)
+            offered += !(s.a[i].flags & MF_OFF);
+        printf("MENU %s: %s; %d of %d actions placed%s%s\n", mk, mf_template(d, mk) ? "the design's own" : "a ring",
+               placed, offered, twice ? ", SOME TWICE" : "", placed < offered ? ", SOME MISSING" : "");
+        if (m && getenv("MENUDUMP")) { /* what was made, as markup */
+            char *t = fm_serialize_node(d, m);
+            printf("%s", t ? t : "");
+            free(t);
+        }
+        if (m) { /* kept in the text, open, for the pictures */
+            m->generated = false;
+            fm_attr_set(m, "id", "ctx-sample");
+            free(doc);
+            doc = fm_serialize(d);
+            setenv("FOCUS", "#ctx-sample", 1);
+        }
+        fm_free(d);
+    }
     stylist_look look;
     extern void stylist_look_focus(const char *sel);
     stylist_look_focus(getenv("FOCUS")); /* FOCUS="#start": a close-up of it, as a seeing model is shown */

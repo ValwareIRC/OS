@@ -8,11 +8,13 @@
 #include "app.h"
 #include "fm/fm.h"
 #include "../lib/json.h"
+#include "menu_actions.h"
 
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 void desktop_save_ui(void);
 
@@ -22,7 +24,7 @@ static job *asking;
 /* The design has a menu of its own: a <menu for="..."> in it. */
 static bool has_own_menus(const fm_doc *d) {
     for (const fm_node *c = d && d->desktop ? d->desktop->first : NULL; c; c = c->next)
-        if (c->kind == FM_ELEM && !strcmp(c->tag, "menu") && !c->generated && c->id[0] != '_' && fm_attr_get(c, "for"))
+        if (c->kind == FM_ELEM && !strcmp(c->tag, "menu") && !c->generated && strcmp(c->id, "_menu") && fm_attr_get(c, "for"))
             return true;
     return false;
 }
@@ -79,7 +81,23 @@ void menus_check_styled(void) {
            "and <acts/> for the rest (style how each is laid out). The menus are popovers: placement=\"pointer\", "
            "\"around\", \"on\", \"center\", or place=\"...\". Style :hover and :focus alike (the arrow keys "
            "choose too), .danger, .off, .on, .quiet, text.note, text.keys.\n"
-           "Reply with the <menu> elements, then one <style> with their rules; nothing else.\n\nTHE LANGUAGE\n");
+           "Reply with the <menu> elements, then one <style> with their rules; nothing else.\n");
+    /* what they have said they want of every design's menus, and their own categories (kept across redesigns) */
+    const char *keep = menu_conf_keep();
+    if (keep[0]) {
+        sb_add(&s, "\nTHEY ASKED, FOR EVERY DESIGN'S MENUS (follow it):\n");
+        sb_add(&s, keep);
+    }
+    FILE *cf = fopen(STATE_DIR "/menus.conf", "r");
+    if (cf) {
+        char line[400];
+        sb_add(&s, "\nTHEIR menus.conf (categories, priorities, their own actions: use them by name):\n");
+        while (fgets(line, sizeof line, cf))
+            if (line[0] != '#' && strncasecmp(line, "keep:", 5))
+                sb_add(&s, line);
+        fclose(cf);
+    }
+    sb_add(&s, "\nTHE LANGUAGE\n");
     sb_add(&s, fm_reference());
     q->system = s.p;
     sbuf u;

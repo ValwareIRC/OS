@@ -878,6 +878,11 @@ void wm_toggle_maximize(int w) {
 
 bool wm_is_maximized(int w) { return w >= 0 && w < WIN_MAX && A.win[w].open && ww[w].snap == SNAP_MAX; }
 
+void wm_snap(int w, bool right) {
+    if (w >= 0 && w < WIN_MAX && A.win[w].open)
+        set_snap(w, right ? SNAP_RIGHT : SNAP_LEFT);
+}
+
 void wm_activate(int w) {
     if (w < 0 || w >= WIN_MAX || !A.win[w].open)
         return;

@@ -469,6 +469,9 @@ bool notes_open(const char *path) {
     return true;
 }
 
+static void new_note(void);
+void notes_new_note(void) { new_note(); }
+
 static void new_note(void) {
     if (N.dirty)
         save();

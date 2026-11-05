@@ -12,7 +12,7 @@ static uint64_t focused_at;
 te_menu *te_menu_state(void) { return &menu; }
 
 /* a right-click in the field being typed in: the caret goes there unless it is on the selection, and the menu opens */
-static bool open_menu(text_edit *e, const input_state *in, int o, bool secret, uint64_t now) {
+static bool open_menu(text_edit *e, const char *buf, const input_state *in, int o, bool secret, uint64_t now) {
     if (!in->right_clicked || focused_ed != e || now - focused_at > 300)
         return false;
     int a = e->caret < e->anchor ? e->caret : e->anchor, b = e->caret > e->anchor ? e->caret : e->anchor;
@@ -24,6 +24,13 @@ static bool open_menu(text_edit *e, const input_state *in, int o, bool secret, u
     menu.selection = e->caret != e->anchor;
     menu.undo = e->nundo > 0;
     menu.secret = secret;
+    menu.text[0] = 0;
+    if (menu.selection && !secret && buf) {
+        int a2 = e->caret < e->anchor ? e->caret : e->anchor, b2 = e->caret > e->anchor ? e->caret : e->anchor;
+        int n = (int)strlen(buf);
+        if (a2 >= 0 && b2 <= n)
+            snprintf(menu.text, sizeof menu.text, "%.*s", b2 - a2, buf + a2);
+    }
     e->moved_at = now;
     return true;
 }
@@ -461,7 +468,7 @@ bool te_mouse(text_edit *e, const char *buf, font *f, rect box, int text_x, cons
         int o = off_in_line(e, buf, l, in->mx - text_x);
         if (in->my - box.y + e->vscroll >= e->nlines * e->line_h)
             o = len_of(buf);
-        if (inside && open_menu(e, in, o, secret, now))
+        if (inside && open_menu(e, buf, in, o, secret, now))
             return true;
         if (in->pressed && inside) {
             bool again = now - e->click_at < 450 && abs(in->mx - e->click_x) < 6;
@@ -509,7 +516,7 @@ bool te_mouse(text_edit *e, const char *buf, font *f, rect box, int text_x, cons
     char tmp[4096];
     const char *s = shown(buf, secret, tmp, sizeof tmp);
     int x = in->mx - (text_x - e->scroll);
-    if (inside && open_menu(e, in, off_at(f, buf, x, secret, s), secret, now))
+    if (inside && open_menu(e, buf, in, off_at(f, buf, x, secret, s), secret, now))
         return true;
     if (in->pressed && inside) {
         int o = off_at(f, buf, x, secret, s);

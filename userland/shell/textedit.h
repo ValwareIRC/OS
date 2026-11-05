@@ -66,6 +66,7 @@ typedef struct te_menu {
     bool open;
     int x, y;
     bool selection, undo, secret;
+    char text[1024]; /* what is selected (not in a password field): for its menu's search, look up, ask */
     int sel;    /* the item the arrows or the pointer are on, -1 for none */
     bool shown; /* drawn once since it opened (its place is logged then) */
 } te_menu;

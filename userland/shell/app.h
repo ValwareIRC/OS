@@ -68,6 +68,7 @@ struct window {
     int asked_w, asked_h; /* the size last asked of the app */
     uint64_t opened_at; /* for the arrival animation */
     bool minimized, maximized;
+    bool on_top;        /* kept above the others (its right-click menu's "Keep on top") */
     rect restore;       /* size before maximizing */
     int glass_said;     /* (what the log was last told of its frame's glass) */
     bool body_opaque;   /* last frame, nothing behind showed through its body (the layer below may skip it) */
@@ -193,7 +194,10 @@ void ctx_menu_add(const char *label, const char *act, bool danger);
 /* What it is for (for="..." on the design's <menu>, which a design styles): app, window, desktop, text, file. */
 void ctx_menu_for(const char *kind);
 void ctx_menu_target(int x, int y, int w, int h); /* where the thing clicked is (a design's placement="on") */
-void ctx_menu_sample_into(struct fm_doc *d, int x, int y); /* an app's menu shown open in a preview (preview.c) */
+void ctx_menu_sample_into(struct fm_doc *d, int x, int y, const char *kind); /* shown open in a preview (preview.c) */
+/* An action with all it carries (id "" or NULL: from what it does or its name; icon and desc may be NULL). */
+bool ctx_menu_action(const char *id, const char *label, const char *act, int flags, const char *keys,
+                     const char *icon, const char *desc);
 enum { CM_DANGER = 1, CM_OFF = 2, CM_ON = 4, CM_QUIET = 8, CM_SEP = 16 }; /* removes / can't now / chosen / small / a line before */
 void ctx_menu_item(const char *label, const char *act, int flags, const char *keys);
 void ctx_menu_note(const char *note);

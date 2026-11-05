@@ -10,5 +10,6 @@ void notes_draw(rect r);
 /* Loads a file into Notes (the window is the caller's). False, with a
  * toast, if it isn't text. */
 bool notes_open(const char *path);
+void notes_new_note(void); /* (a right-click's "New note": the window is the caller's) */
 /* Forget me: the editor starts over empty. */
 void notes_forget(void);

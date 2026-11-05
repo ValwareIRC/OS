@@ -854,6 +854,10 @@ void fxwin_draw(struct fxwin *fw, rect r, bool focused, bool pointer_here) {
     fw->pending = -1;
     if (pointer_here)
         fm_input(fw->doc, 1);
+    if (pointer_here && A.in.right_pressed && fw->doc->hovered) { /* what is under the pointer in it (desktop.c) */
+        extern void desktop_context_menu_in_app(fm_node *n);
+        desktop_context_menu_in_app(fw->doc->hovered);
+    }
     fm_render_layer(fw->doc, A.frame, 0);
     draw_inputs(fw, focused, pointer_here);
     if (fw->pending >= 0 && fw->pending < fw->nacts) {

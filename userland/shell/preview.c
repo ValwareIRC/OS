@@ -135,12 +135,20 @@ static void drop_sample_menu(fm_doc *d) {
     fm_remove(m);
 }
 
-void preview_sample_menu(void) {
+void preview_sample_menu(const char *selector) {
     fm_doc *d = PV.doc;
     if (!d || !d->desktop)
         return;
     drop_sample_menu(d); /* (made again: its shape may be what changed) */
-    ctx_menu_sample_into(d, A.W * 55 / 100, A.H * 38 / 100); /* as the desktop's would be, from its own <menu> */
+    /* of the kind being changed: menu[for=window] ..., else an app's */
+    static const char *const kinds[] = {"window", "text", "file", "desktop", "image", "link", "app"};
+    const char *kind = "app";
+    for (size_t i = 0; selector && i < sizeof kinds / sizeof kinds[0]; i++)
+        if (strstr(selector, kinds[i])) {
+            kind = kinds[i];
+            break;
+        }
+    ctx_menu_sample_into(d, A.W * 55 / 100, A.H * 38 / 100, kind); /* as the desktop's would be, from its own <menu> */
     d->changed = true;
     PV.redraw = true;
     LOG("preview: a menu shown open, its look being changed\n");

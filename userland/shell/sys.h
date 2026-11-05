@@ -40,6 +40,7 @@ typedef struct input_state {
     bool clicked;      /* left button released this frame (a click) */
     bool pressed;      /* left button went down this frame */
     bool right_clicked;
+    bool right_pressed, right_down; /* (pressed this frame; held) */
     int wheel;         /* scroll steps this frame */
     int keys[32];      /* characters (Unicode) and K_* codes typed this frame */
     uint8_t keymod[32]; /* KM_CTRL, KM_SHIFT: what was held with each (a quick chord can start and end in one frame) */
@@ -72,6 +73,9 @@ const char *clipboard_text(void);
 /* Copies text inside this computer (Notes' copy and cut); the next copy on
  * the host replaces it, as the most recent copy should. */
 void clipboard_set(const char *text);
+/* A picture (its file) on the clipboard, for apps that take pictures; false if it isn't one or can't be read. */
+bool clipboard_set_image(const char *path);
+const char *clipboard_image(const char **mime, unsigned *gen); /* its copy in /tmp, or NULL */
 
 /* ---- background work: AI calls run in a child process ---- */
 typedef struct job job;

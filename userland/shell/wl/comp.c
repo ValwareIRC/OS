@@ -903,6 +903,7 @@ static void bind_output(wl_client *c, uint32_t id, int v) {
  * Drag and drop: present, so toolkits are content; nothing is dragged. */
 const char *clipboard_text(void);
 void clipboard_set(const char *text);
+const char *clipboard_image(const char **mime, unsigned *gen);
 
 static const char *const text_types[] = {"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT"};
 static uint64_t offered_sig; /* the text last offered, and to whom */
@@ -930,6 +931,11 @@ static void offer_to_device(wl_obj *dev, void *ctx) {
     if (!offer)
         return;
     wl_send(dev, WL_DATA_DEVICE_EV_DATA_OFFER, offer->id);
+    const char *mime = NULL;
+    if (clipboard_image(&mime, NULL)) { /* a picture: as what it is, and as a file */
+        wl_send(offer, WL_DATA_OFFER_EV_OFFER, mime);
+        wl_send(offer, WL_DATA_OFFER_EV_OFFER, "text/uri-list");
+    }
     for (size_t i = 0; i < sizeof text_types / sizeof text_types[0]; i++)
         wl_send(offer, WL_DATA_OFFER_EV_OFFER, text_types[i]);
     wl_send(dev, WL_DATA_DEVICE_EV_SELECTION, offer);
@@ -941,7 +947,9 @@ static void offer_clipboard(void) {
     if (!keyboard_focus || own_source)
         return;
     const char *t = clipboard_text();
-    uint64_t sig = text_sig(t ? t : "", keyboard_focus->client);
+    unsigned gen = 0;
+    clipboard_image(NULL, &gen);
+    uint64_t sig = text_sig(t ? t : "", keyboard_focus->client) ^ ((uint64_t)gen << 40);
     if (!t || !*t || sig == offered_sig)
         return;
     offered_sig = sig;
@@ -1019,6 +1027,27 @@ static void data_req(wl_obj *o, int op, union wl_arg *a) {
     } else if (o->iface == &wl_data_offer_iface && op == WL_DATA_OFFER_RECEIVE) {
         int fd = a[1].h;
         const char *t = clipboard_text();
+        const char *want = a[0].s, *mime = NULL, *img = clipboard_image(&mime, NULL);
+        char uri[340];
+        if (img && want && !strcmp(want, mime)) { /* the picture itself */
+            int in = open(img, O_RDONLY);
+            int fl = fd >= 0 ? fcntl(fd, F_GETFL) : -1;
+            if (fl >= 0)
+                fcntl(fd, F_SETFL, fl & ~O_NONBLOCK);
+            char buf[65536];
+            for (ssize_t n; in >= 0 && fd >= 0 && (n = read(in, buf, sizeof buf)) > 0;)
+                if (write(fd, buf, (size_t)n) != n)
+                    break;
+            if (in >= 0)
+                close(in);
+            if (fd >= 0)
+                close(fd);
+            return;
+        }
+        if (img && want && !strcmp(want, "text/uri-list")) {
+            snprintf(uri, sizeof uri, "file://%s\r\n", img);
+            t = uri;
+        }
         if (fd >= 0) {
             size_t n = t ? strlen(t) : 0, off = 0;
             int fl = fcntl(fd, F_GETFL);

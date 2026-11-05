@@ -9,6 +9,7 @@
  * colour, font and corner comes from the person's design. */
 #include "files.h"
 #include "app.h"
+#include "menu_actions.h"
 #include "fm/fm.h"
 #include "image.h"
 #include "launcher.h"
@@ -1049,6 +1050,12 @@ static void close_viewer(void) {
     F.view_full = F.view_fit = NULL;
 }
 
+static void open_viewer(const char *path);
+void files_view(const char *path) { /* (a right-click's "Open picture") */
+    files_setup();
+    open_viewer(path);
+}
+
 static void open_viewer(const char *path) {
     close_viewer();
     F.viewing = true;
@@ -1431,12 +1438,35 @@ static void menu_open(int x, int y, int target) {
         F.menu_on = false;
         ctx_menu_open(x, y);
         ctx_menu_for("file");
+        bool one = target >= 0 && target < F.n && sel_count() == 1;
+        char p[PATHN];
+        p[0] = 0;
+        if (one)
+            ent_path(target, p, sizeof p);
+        menu_ctx c; /* a picture: what pictures offer too (copy it, make it the wallpaper...) */
+        memset(&c, 0, sizeof c);
+        if (one && !F.e[target].dir && F.e[target].kind == FK_IMAGE)
+            snprintf(c.image, sizeof c.image, "%s", p);
+        menu_context(&c);
         for (int i = 0; i < F.nm; i++) {
             char act[40];
             snprintf(act, sizeof act, "files:%d:%d", F.mi[i].id, target);
             int fl = (F.mi[i].enabled ? 0 : CM_OFF) | (F.mi[i].checked ? CM_ON : 0) | (F.mi[i].sep ? CM_SEP : 0) |
                      (F.mi[i].id == M_TRASH || F.mi[i].id == M_ERASE || F.mi[i].id == M_EMPTY_TRASH ? CM_DANGER : 0);
             ctx_menu_item(F.mi[i].label, act, fl, NULL);
+        }
+        if (one && !in_trash()) { /* what one file offers beyond Files' own */
+            char act[MENU_RUN];
+            if (!F.e[target].dir) {
+                snprintf(act, sizeof act, "open-with:%s", p);
+                ctx_menu_action("open-with", "Open with\u2026", act, 0, NULL, "forward", "The apps you have that open it");
+            }
+            snprintf(act, sizeof act, "copy:%s", p);
+            ctx_menu_action("copy-path", "Copy path", act, 0, NULL, "copy", p);
+            snprintf(act, sizeof act, "compress:%s", p);
+            ctx_menu_action("compress", "Compress", act, 0, NULL, "archive", "A .tar.gz of it beside it");
+            snprintf(act, sizeof act, "props:%s", p);
+            ctx_menu_action("properties", "Properties", act, 0, NULL, "eye", "Its size, kind, dates and permissions");
         }
     }
 }

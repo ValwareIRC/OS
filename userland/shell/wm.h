@@ -44,6 +44,7 @@ void wm_close(int w);           /* fades out, then desktop_close_window */
 void wm_minimize(int w);        /* flies into its taskbar item */
 void wm_toggle_maximize(int w);
 bool wm_is_maximized(int w);
+void wm_snap(int w, bool right); /* half the screen, that side */
 void wm_begin_move(int w);      /* its titlebar was pressed (twice: maximize) */
 void wm_activate(int w);        /* raise, and bring back if minimized */
 

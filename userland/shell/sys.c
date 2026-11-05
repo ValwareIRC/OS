@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -429,8 +430,54 @@ static void clip_poll(void) {
     }
 }
 
+/* A picture on the clipboard ("Copy image"): its file, kept in /tmp while it is the clipboard, offered to apps
+ * as what it is (image/png, image/jpeg...) and as a file, its path as the text. Any text copied after replaces it. */
+static char clip_image[300], clip_image_mime[32];
+static unsigned clip_image_gen;
+
+const char *clipboard_image(const char **mime, unsigned *gen) {
+    if (mime)
+        *mime = clip_image_mime;
+    if (gen)
+        *gen = clip_image_gen;
+    return clip_image[0] ? clip_image : NULL;
+}
+
+bool clipboard_set_image(const char *path) {
+    const char *dot = path ? strrchr(path, '.') : NULL;
+    static const struct {
+        const char *ext, *mime;
+    } kinds[] = {{".png", "image/png"},   {".jpg", "image/jpeg"}, {".jpeg", "image/jpeg"}, {".gif", "image/gif"},
+                 {".webp", "image/webp"}, {".bmp", "image/bmp"},  {".svg", "image/svg+xml"}};
+    const char *mime = NULL;
+    for (size_t i = 0; dot && i < sizeof kinds / sizeof kinds[0]; i++)
+        if (!strcasecmp(dot, kinds[i].ext))
+            mime = kinds[i].mime;
+    if (!mime)
+        return false;
+    char dst[300];
+    snprintf(dst, sizeof dst, "/tmp/os-clipboard%s", dot);
+    int in = open(path, O_RDONLY), out = in >= 0 ? open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0600) : -1;
+    bool ok = in >= 0 && out >= 0;
+    char buf[65536];
+    for (ssize_t n; ok && (n = read(in, buf, sizeof buf)) > 0;)
+        ok = write(out, buf, (size_t)n) == n;
+    if (in >= 0)
+        close(in);
+    if (out >= 0)
+        close(out);
+    if (!ok)
+        return false;
+    clipboard_set(path); /* (its path, for what only takes text; this clears any picture before) */
+    snprintf(clip_image, sizeof clip_image, "%s", dst);
+    snprintf(clip_image_mime, sizeof clip_image_mime, "%s", mime);
+    clip_image_gen++;
+    return true;
+}
+
 const char *clipboard_text(void) { return clip; }
 void clipboard_set(const char *text) {
+    clip_image[0] = 0; /* (text copied: the picture is no longer the clipboard) */
     size_t n = text ? strlen(text) : 0;
     if (n > sizeof clip - 1) /* as much as fits, ending on a whole character */
         for (n = sizeof clip - 1; n && (text[n] & 0xc0) == 0x80; n--)
@@ -449,7 +496,7 @@ void input_clear(input_state *in) {
 
 void input_poll(input_state *in) {
     clip_poll();
-    in->clicked = in->pressed = in->right_clicked = in->moved = false;
+    in->clicked = in->pressed = in->right_clicked = in->right_pressed = in->moved = false;
     in->wheel = 0;
     in->nkeys = 0;
     in->nraw = 0;
@@ -530,8 +577,12 @@ void input_poll(input_state *in) {
                     in->clicked = true;
                 in->down = e->value;
                 inp.down_prev = e->value;
-            } else if (e->type == EV_KEY && e->code == BTN_RIGHT && !e->value) {
-                in->right_clicked = true;
+            } else if (e->type == EV_KEY && e->code == BTN_RIGHT) {
+                if (e->value && !in->right_down)
+                    in->right_pressed = true;
+                if (!e->value)
+                    in->right_clicked = true;
+                in->right_down = e->value != 0;
             }
         }
     }

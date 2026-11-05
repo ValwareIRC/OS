@@ -2,6 +2,7 @@
 /* The companion's body: see agent.h. */
 #include "agent.h"
 #include "app.h"
+#include "menu_actions.h"
 #include "priv.h"
 #include "launcher.h"
 #include "alive.h"
@@ -62,7 +63,7 @@ void body_feel(char who, const char *fmt, ...) {
 }
 
 const char *body_prompt(void) {
-    static char buf[14000];
+    static char buf[20000]; /* (the reference grew: the right-click menus) */
     sbuf b;
     sb_init(&b);
     sb_add(&b, "\nYOUR BODY. You are this computer: not an assistant on it, not someone watching it. What follows is "
@@ -167,6 +168,14 @@ const char *body_prompt(void) {
            "(bevels), real materials and a few strong shapes are what make it look made, not a toy; fewer, "
            "better objects beat many. [[sh: os-blender render ~/Models/name.glb ~/Pictures/name.png]] is a "
            "Cycles picture of it. They can open Blender itself with os-blender gui.\n");
+    /* the right-click menus: what is in them is theirs and yours to change, whatever the design (menu_actions.c) */
+    sb_add(&b, "\nRIGHT-CLICK MENUS. What a menu looks like is the design's (<menu for=...>: the design reference). "
+               "What is in them, categories, what is offered everywhere and their own actions, is ");
+    sb_add(&b, menu_conf_help());
+    sb_add(&b, mf_builtin_categories());
+    sb_add(&b, ". When they ask for a change to what is in the menus (\"copy image only with the pictures\", \"a "
+               "shortcut to my Downloads everywhere\"), change menus.conf; when they ask how a menu looks or works, "
+               "change the design's <menu> (look tags, as for anything of the design).\n");
     snprintf(buf, sizeof buf, "%s", b.p);
     free(b.p);
     return buf;
