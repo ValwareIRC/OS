@@ -163,13 +163,44 @@ static pid_t server;
 static int server_model = -1;
 static bool up;
 static uint64_t started_at, checked_at;
+/* A server that ends soon after starting is started again later and later (2 s, doubling, to 2 minutes): one
+ * that couldn't start was started again at once, thousands of times, each a fork of the whole desktop, which
+ * lagged it, held up its keys, and ended in its crash. */
+static int quick_ends;
+static uint64_t retry_at;
+static bool cleared; /* servers a desktop before this one left behind: stopped, once */
+
+/* Why it ended, in its own words: the last line it wrote. */
+static void last_words(char *out, size_t n) {
+    out[0] = 0;
+    FILE *f = fopen("/tmp/os-reflex.log", "r");
+    char line[300];
+    while (f && fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (line[0])
+            snprintf(out, n, "%s", line);
+    }
+    if (f)
+        fclose(f);
+}
 
 static void server_tick(void) {
     int i = model_index();
     bool want = strcmp(reflex_engine(), "rules") && model_here(i) && access(SERVER, X_OK) == 0;
-    if (server > 0 && waitpid(server, NULL, WNOHANG) == server) {
+    int st = 0;
+    if (server > 0 && waitpid(server, &st, WNOHANG) == server) {
+        uint64_t ran = A.now - started_at;
+        quick_ends = ran < 60000 ? quick_ends + 1 : 0;
+        uint64_t wait = quick_ends ? 2000ull << (quick_ends - 1 < 6 ? quick_ends - 1 : 6) : 0;
+        retry_at = A.now + (wait > 120000 ? 120000 : wait);
+        char why[200];
+        last_words(why, sizeof why);
         server = 0, up = false;
-        LOG("reflex: its server stopped\n");
+        LOG("reflex: its server stopped after %llu s (%s %d)%s%.160s%s\n", (unsigned long long)ran / 1000,
+            WIFSIGNALED(st) ? "signal" : "exit", WIFSIGNALED(st) ? WTERMSIG(st) : WEXITSTATUS(st),
+            why[0] ? ": \"" : "", why, why[0] ? "\"" : "");
+        if (wait)
+            LOG("reflex: starting it again in %llu s\n", (unsigned long long)(retry_at - A.now) / 1000);
     }
     if (server > 0 && (!want || server_model != i)) {
         kill(-server, SIGTERM);
@@ -188,11 +219,18 @@ static void server_tick(void) {
         }
         return;
     }
+    if (A.now < retry_at)
+        return;
+    if (!cleared) {
+        cleared = true;
+        servers_left_behind(PORT);
+    }
     char path[256];
     model_path(i, path, sizeof path);
     pid_t pid = fork();
     if (pid == 0) {
         setsid();
+        server_ends_with_desktop();
         int log = open("/tmp/os-reflex.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (log >= 0)
             dup2(log, 1), dup2(log, 2);

@@ -13,6 +13,7 @@ struct regs {
 static inline uint64_t regs_ip(const struct regs *r) { return r->rip; }
 static inline void regs_set_ip(struct regs *r, uint64_t ip) { r->rip = ip; }
 static inline uint64_t regs_sp(const struct regs *r) { return r->rsp; }
+static inline uint64_t regs_fp(const struct regs *r) { return r->rbp; } /* the frame pointer (programs built with it) */
 static inline uint64_t regs_syscall_nr(const struct regs *r) { return r->rax; }
 static inline bool regs_user_mode(const struct regs *r) { return (r->cs & 3) == 3; }
 /* Interrupts were on where the trap came from (so no spinlock was held there). */

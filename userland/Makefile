@@ -2,7 +2,8 @@
 OUT    ?= ../build/userland
 PORTS  ?= ../build/ports
 CC     := musl-gcc
-CFLAGS := -std=gnu17 -O2 -Wall -Wextra -Wno-format-truncation -I$(PORTS)/include -MMD -MP -I$(PORTS)/include/lua
+# frame pointers kept: a crash's report (the kernel's) follows them to the code that called what crashed
+CFLAGS := -std=gnu17 -O2 -fno-omit-frame-pointer -Wall -Wextra -Wno-format-truncation -I$(PORTS)/include -MMD -MP -I$(PORTS)/include/lua
 LIBS   := -L$(PORTS)/lib -llua -lmbedtls -lmbedx509 -lmbedcrypto -lm
 
 LIB_SRCS := $(wildcard lib/*.c)

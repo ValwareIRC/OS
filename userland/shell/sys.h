@@ -87,6 +87,16 @@ int job_fd(job *j);
 bool job_poll(job *j, char **result);
 void job_free(job *j);
 
+/* ---- model servers ---- */
+/* A model server (llama-server) a desktop before this one started on `port` and left running: it crashed, and the
+ * servers it had started, in sessions of their own, went on, holding the port and gigabytes of memory, so ours
+ * couldn't start (and was started again and again). Stopped, so ours can; returns how many there were.
+ * port NULL: on any port (when the desktop starts: none can be its own yet, and theirs answer to the key of the
+ * desktop before, which a new one replaces). */
+int servers_left_behind(const char *port);
+/* In a server's child, before exec: it ends with the desktop that started it, never left behind. */
+void server_ends_with_desktop(void);
+
 /* ---- the person's session ---- */
 /* Apps run as an ordinary user, not as root (Chromium, for one, won't
  * sandbox itself as root); the session's runtime directory is theirs. */

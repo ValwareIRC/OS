@@ -540,8 +540,8 @@ static void draw_fade(rect img) {
 
 /* Where its controls are, for tests: logged when they move, and now and then. */
 static void log_rect(int k, const char *name, rect r) {
-    static rect last[5];
-    static uint64_t at[5];
+    static rect last[6];
+    static uint64_t at[6];
     if (!memcmp(&last[k], &r, sizeof r) && A.now - at[k] < 3000)
         return;
     last[k] = r;
@@ -816,7 +816,7 @@ void preview_body(rect r, bool focused) {
             PV.redraw = true;
             PV.before_drawn = false;
         }
-        log_rect(0, "preview-before", bb);
+        log_rect(5, "preview-before", bb); /* (its own slot: sharing the menu's, each looked moved, both logged every frame) */
         chip_x -= 8;
     }
     char words[900];

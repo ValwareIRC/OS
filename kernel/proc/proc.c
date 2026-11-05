@@ -930,20 +930,40 @@ static int oom_make_room(struct process *self) {
 /* What called the code that crashed, as far as its stack shows: the words near its top that point into code a
  * program has mapped (return addresses, mostly; programs built without frame pointers leave no chain to follow).
  * A crash in a library function (memchr, say) is found by its callers: addr2line -e the program each address. */
-static void stack_callers(struct mm *mm, uint64_t sp, char *out, size_t n) {
-    uint64_t words[96];
+static bool in_code(struct mm *mm, uint64_t a) {
+    struct vma *v = a >= 0x1000 ? mm_find_vma(mm, a) : NULL;
+    return v && (v->prot & PROT_EXEC);
+}
+
+/* And then by its frame pointers, where it keeps them (the OS's own programs are built so): the return address of
+ * each frame up the chain, past the library functions that keep none (they leave the register as their caller's). */
+static void stack_callers(struct mm *mm, uint64_t sp, uint64_t fp, char *out, size_t n) {
+    static uint64_t words[512]; /* (a crash's report: one at a time, the others stopped first) */
     size_t len = 0;
     out[0] = 0;
-    if (copy_from_user(words, sp, sizeof words) < 0)
-        return;
+    size_t got = 0;
+    while (got < 512 && copy_from_user(words + got, sp + got * 8, 8) == 0) /* (to the stack's end, if nearer) */
+        got++;
     int found = 0;
     uint64_t f = spin_lock_irqsave(&mm->lock);
-    for (int i = 0; i < 96 && found < 12 && len + 20 < n; i++) {
-        struct vma *v = words[i] >= 0x1000 ? mm_find_vma(mm, words[i]) : NULL;
-        if (v && (v->prot & PROT_EXEC)) {
+    for (size_t i = 0; i < got && found < 16 && len + 20 < n; i++)
+        if (in_code(mm, words[i])) {
             len += (size_t)ksnprintf(out + len, n - len, " %lx", words[i]);
             found++;
         }
+    if (len + 12 < n)
+        len += (size_t)ksnprintf(out + len, n - len, "; frames:");
+    for (int k = 0; k < 24 && fp && !(fp & 7) && len + 20 < n; k++) {
+        uint64_t pair[2];
+        spin_unlock_irqrestore(&mm->lock, f);
+        bool ok = copy_from_user(pair, fp, sizeof pair) == 0;
+        f = spin_lock_irqsave(&mm->lock);
+        if (!ok || !in_code(mm, pair[1]))
+            break;
+        len += (size_t)ksnprintf(out + len, n - len, " %lx", pair[1]);
+        if (pair[0] <= fp) /* (frames go up the stack) */
+            break;
+        fp = pair[0];
     }
     spin_unlock_irqrestore(&mm->lock, f);
 }
@@ -997,13 +1017,27 @@ bool page_fault(struct regs *r, uint64_t addr, bool write, bool exec) {
     }
     if (regs_user_mode(r)) {
         proc_exit_begin(SIGSEGV); /* the other threads stop first: the log line below takes a while */
-        char callers[256];
-        callers[0] = 0;
+        char callers[640], was[120];
+        callers[0] = was[0] = 0;
         if (mm)
-            stack_callers(mm, regs_sp(r), callers, sizeof callers);
-        kprintf("pid %d (%s): segmentation fault at %lx, rip %lx (%s); called from:%s\n", t->user->proc->pid,
-                t->user->proc->name, addr, regs_ip(r), write ? "writing" : exec ? "running" : "reading",
-                callers[0] ? callers : " (nothing on its stack)");
+            stack_callers(mm, regs_sp(r), regs_fp(r), callers, sizeof callers);
+        if (mm) { /* freed memory read through a pointer kept to it: when, and how big it was */
+            uint64_t now = time_monotonic_ns(), f = spin_lock_irqsave(&mm->lock);
+            unsigned n = sizeof mm->gone / sizeof mm->gone[0];
+            for (unsigned i = 0; i < n && i < mm->ngone; i++) {
+                unsigned k = (mm->ngone - 1 - i) % n; /* (the newest first) */
+                if (addr >= mm->gone[k].start && addr < mm->gone[k].end) {
+                    ksnprintf(was, sizeof was, "; unmapped %lu ms before (%lu bytes at %lx, +%lx)",
+                              (now - mm->gone[k].ns) / 1000000, mm->gone[k].end - mm->gone[k].start,
+                              mm->gone[k].start, addr - mm->gone[k].start);
+                    break;
+                }
+            }
+            spin_unlock_irqrestore(&mm->lock, f);
+        }
+        kprintf("pid %d (%s, thread %d): segmentation fault at %lx, rip %lx (%s); called from:%s%s\n",
+                t->user->proc->pid, t->user->proc->name, t->user->tid, addr, regs_ip(r),
+                write ? "writing" : exec ? "running" : "reading", callers[0] ? callers : " (nothing on its stack)", was);
         proc_exit(SIGSEGV);
     }
     /* A user-memory access from the kernel (copy_from_user and friends):

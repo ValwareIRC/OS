@@ -359,6 +359,8 @@ int mm_unmap(struct mm *mm, uint64_t start, uint64_t end) {
         return -EINVAL;
     uint64_t f = spin_lock_irqsave(&mm->lock);
     unmap_locked(mm, start, ALIGN_UP(end, PAGE_SIZE));
+    unsigned k = mm->ngone++ % (sizeof mm->gone / sizeof mm->gone[0]);
+    mm->gone[k].start = start, mm->gone[k].end = ALIGN_UP(end, PAGE_SIZE), mm->gone[k].ns = time_monotonic_ns();
     spin_unlock_irqrestore(&mm->lock, f);
     return 0;
 }

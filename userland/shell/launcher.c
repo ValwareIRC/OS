@@ -1255,6 +1255,28 @@ done:;
     NR = nt;
 }
 
+/* Where its parts are, for tests: logged when they move, and now and then. (Every frame, while the panel or a
+ * design's search had results, was thousands of lines a minute: 13,000 in an evening, each one copied to the
+ * console.) */
+static void log_at(const char *name, rect r) {
+    static struct {
+        char name[24];
+        rect r;
+        uint64_t at;
+    } seen[24];
+    int k = 0;
+    while (k < 24 && seen[k].name[0] && strcmp(seen[k].name, name))
+        k++;
+    if (k == 24)
+        k = (int)(A.now % 24); /* (more names than room: one forgotten) */
+    if (seen[k].name[0] && !strcmp(seen[k].name, name) && !memcmp(&seen[k].r, &r, sizeof r) && A.now - seen[k].at < 3000)
+        return;
+    snprintf(seen[k].name, sizeof seen[k].name, "%s", name);
+    seen[k].r = r;
+    seen[k].at = A.now;
+    LOGRECT(name, r);
+}
+
 /* ---- state ---- */
 
 static struct {
@@ -1656,11 +1678,7 @@ static void draw_results(rect area, int row_h, int head_h, const input_state *in
         if (i < 16) {
             char nm[32];
             snprintf(nm, sizeof nm, "launcher-row-%d", i);
-            static uint64_t last;
-            if (A.now - last > 400 || i == 0)
-                LOGRECT(nm, row);
-            if (i == NR - 1 || i == 15)
-                last = A.now;
+            log_at(nm, row);
         }
         L.nrows_drawn = i + 1;
         y += h;
@@ -1722,7 +1740,7 @@ static void draw_dropdown(void) {
     L.list = rect_inset(p, 6);
     input_state in = L.in;
     draw_results(L.list, row_h, head_h, &in);
-    LOGRECT("launcher-dropdown", p);
+    log_at("launcher-dropdown", p);
     click_rows(&in);
 }
 
@@ -1746,7 +1764,7 @@ static void draw_panel(void) {
     L.panel = p;
     float radius = D.radius + 8 > 30 ? 30 : D.radius + 8;
     material_panel(p, radius);
-    LOGRECT("launcher-panel", p);
+    log_at("launcher-panel", p);
 
     /* the field */
     font *qf = FB(D.body_px + 7), *small = FB(D.body_px - 3);
@@ -1763,7 +1781,7 @@ static void draw_panel(void) {
     }
     te_mouse(&panel_ed, L.q, qf, fr, tx, &L.in, false, A.now);
     te_draw(A.frame, &panel_ed, L.q, qf, fr, tx, ty, D.surface_text, color_alpha(D.accent, 0.3f), true, false, A.now);
-    LOGRECT("launcher-field", fr);
+    log_at("launcher-field", fr);
 
     if (NR) {
         fill_rect(A.frame, (rect){x + 16, y + field_h, w - 32, 1}, color_alpha(D.surface_text, 0.1f));

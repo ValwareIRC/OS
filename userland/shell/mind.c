@@ -244,9 +244,11 @@ void mind_builtin_start(void) {
     ready = false;
     woke_at = now_ms();
     died[0] = 0;
+    servers_left_behind("8080"); /* (a desktop before this one crashed: its server on our port goes first) */
     pid = fork();
     if (pid == 0) {
         setsid();
+        server_ends_with_desktop();
         FILE *log = fopen("/tmp/os-mind.log", "w");
         if (log) {
             dup2(fileno(log), 1);

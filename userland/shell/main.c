@@ -604,6 +604,7 @@ int main(void) {
     mkdir(STATE_DIR, 0700);
     /* the system's state (keys, the companion's memory, app grants): root's alone; the home: the person's */
     chmod(STATE_DIR, 0700);
+    servers_left_behind(NULL); /* (by a desktop before this one, that crashed: they'd hold their ports and memory) */
     { /* this boot's key for the local model servers (ai_local_key) */
         unsigned char r[24];
         int fd = open("/dev/urandom", O_RDONLY);

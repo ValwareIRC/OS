@@ -1,5 +1,7 @@
 #include "sys.h"
 #include "keymap.h"
+#include <ctype.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <grp.h>
 #include <poll.h>
@@ -10,6 +12,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -536,6 +539,97 @@ void input_poll(input_state *in) {
     if (in->my < 0) in->my = 0;
     if (in->mx >= inp.sw) in->mx = inp.sw - 1;
     if (in->my >= inp.sh) in->my = inp.sh - 1;
+}
+
+/* ---- model servers ---- */
+
+void server_ends_with_desktop(void) { prctl(PR_SET_PDEATHSIG, SIGTERM); }
+
+/* Its state letter, or 0 when it's gone (or a zombie: it is, for this). */
+static char proc_state(int pid) {
+    char p[64], buf[512];
+    snprintf(p, sizeof p, "/proc/%d/stat", pid);
+    int fd = open(p, O_RDONLY);
+    if (fd < 0)
+        return 0;
+    ssize_t n = read(fd, buf, sizeof buf - 1);
+    close(fd);
+    if (n <= 0)
+        return 0;
+    buf[n] = 0;
+    char *e = strrchr(buf, ')');
+    return e && e[1] == ' ' && e[2] != 'Z' && e[2] != 'X' ? e[2] : 0;
+}
+
+static int proc_ppid(int pid) {
+    char p[64], buf[512];
+    snprintf(p, sizeof p, "/proc/%d/stat", pid);
+    int fd = open(p, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    ssize_t n = read(fd, buf, sizeof buf - 1);
+    close(fd);
+    if (n <= 0)
+        return -1;
+    buf[n] = 0;
+    char *e = strrchr(buf, ')');
+    int ppid = -1;
+    if (e)
+        sscanf(e + 2, "%*c %d", &ppid);
+    return ppid;
+}
+
+int servers_left_behind(const char *port) {
+    int found[16], n = 0, self = getpid();
+    DIR *d = opendir("/proc");
+    struct dirent *e;
+    while (d && (e = readdir(d)) && n < 16) {
+        if (!isdigit((unsigned char)e->d_name[0]))
+            continue;
+        int pid = atoi(e->d_name);
+        if (pid == self || proc_ppid(pid) == self) /* (ours: the desktop's own children are its business) */
+            continue;
+        char p[64], cmd[2048];
+        snprintf(p, sizeof p, "/proc/%d/cmdline", pid);
+        int fd = open(p, O_RDONLY);
+        if (fd < 0)
+            continue;
+        ssize_t len = read(fd, cmd, sizeof cmd - 1);
+        close(fd);
+        if (len <= 0)
+            continue;
+        cmd[len] = 0;
+        const char *base = strrchr(cmd, '/');
+        if (strcmp(base ? base + 1 : cmd, "llama-server"))
+            continue;
+        bool on_port = !port; /* (its arguments, one after another, each ended by a 0) */
+        for (const char *a = cmd; a < cmd + len; a += strlen(a) + 1)
+            if (!strcmp(a, "--port") && a + strlen(a) + 1 < cmd + len && !strcmp(a + strlen(a) + 1, port))
+                on_port = true;
+        if (on_port)
+            found[n++] = pid;
+    }
+    if (d)
+        closedir(d);
+    for (int i = 0; i < n; i++) {
+        fprintf(stderr, "shell: a model server left behind%s%s (pid %d): stopped\n", port ? " on port " : "",
+                port ? port : "", found[i]);
+        kill(found[i], SIGTERM);
+    }
+    /* gone before ours starts (its port and memory free): 3 s to end as it should, then made to */
+    for (int t = 0; n && t < 60; t++) {
+        bool any = false;
+        for (int i = 0; i < n; i++)
+            any |= proc_state(found[i]) != 0;
+        if (!any)
+            break;
+        if (t == 59)
+            for (int i = 0; i < n; i++)
+                kill(found[i], SIGKILL);
+        struct timespec ts = {0, 50 * 1000000L};
+        nanosleep(&ts, NULL);
+    }
+    return n;
 }
 
 /* ---- jobs ---- */

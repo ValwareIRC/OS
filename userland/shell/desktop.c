@@ -2644,25 +2644,38 @@ void desktop_save_ui(void) {
     free(s);
 }
 
-/* The design a new one replaces is freed 10 s later, not at once: anything still holding a piece of it from the
- * frame the new one came in (a field, a name, a pointer taken before the swap) reads what was there, not freed
- * memory. The desktop crashed a little after a design was applied from the preview (in memchr, reading memory
- * that was gone). */
-static fm_doc *retired;
-static uint64_t retired_at;
+/* The designs new ones replaced are kept a while before they are freed: anything still holding a piece of one
+ * (a field, a name, a pointer taken before the swap) reads what was there, not freed memory. The desktop crashed
+ * a little after a design was applied from the preview (in memchr, from snprintf, reading memory that was gone);
+ * kept 10 s, it still crashed, 10 to 30 s after the first design of the session was replaced (three times in one
+ * evening, the same address each time). Until what holds it is found (the kernel's report of such a crash now
+ * names the code that called, and what was unmapped there and when), they are kept 10 minutes, the last 6. */
+#define RETIRED_MAX 6
+#define RETIRED_MS (10 * 60 * 1000)
+static struct {
+    fm_doc *doc;
+    uint64_t at;
+} retired[RETIRED_MAX];
+static int nretired;
 
-static void retired_free(bool now) {
-    if (retired && (now || A.now - retired_at > 10000)) {
-        fm_free(retired);
-        retired = NULL;
-    }
+static void retired_drop_oldest(void) {
+    LOG("design: one replaced %llu s ago freed\n", (unsigned long long)(A.now - retired[0].at) / 1000);
+    fm_free(retired[0].doc);
+    memmove(&retired[0], &retired[1], sizeof retired[0] * (size_t)(nretired - 1));
+    nretired--;
+}
+
+static void retired_free(void) {
+    while (nretired && A.now - retired[0].at > RETIRED_MS)
+        retired_drop_oldest();
 }
 
 void desktop_set_ui(fm_doc *doc) {
     if (A.ui && A.ui != doc) {
-        retired_free(true);
-        retired = A.ui;
-        retired_at = A.now;
+        if (nretired == RETIRED_MAX)
+            retired_drop_oldest();
+        retired[nretired].doc = A.ui;
+        retired[nretired++].at = A.now;
     }
     A.ui = doc;
 }
@@ -2810,7 +2823,7 @@ void desktop_draw(void) {
     }
     PROF("companion", companion_update());
     PROF("senses", alive_tick()); /* senses, ambient lights */
-    retired_free(false); /* the design before the last, once nothing can be holding it */
+    retired_free(); /* the designs replaced, once nothing can be holding them */
     PROF("nerve", nerve_tick()); /* what happened, judged by its reflexes; waking it when one earned it */
     uninstall_poll(); /* (an app uninstalled from its right-click menu: done, or not) */
     PROF("agent", agent_tick()); /* its body: what it did, back to it as the next step; its plans when they're due */

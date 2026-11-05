@@ -94,6 +94,12 @@ struct mm {
     uint64_t mmap_hint;
     int refcount;
     spinlock_t lock;
+    /* The last ranges unmapped, and when: a crash reading one says what was there (a pointer kept to memory
+     * since freed: its size tells what it was). */
+    struct {
+        uint64_t start, end, ns;
+    } gone[128];
+    unsigned ngone;
 };
 
 struct mm *mm_create(void);
