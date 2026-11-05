@@ -74,7 +74,9 @@ void menus_check_styled(void) {
            "that is no app: redesign, settings, ask), text (a text field: undo, cut, copy, paste, select-all), file "
            "(Files: open, rename, copy, cut, paste, move-to-trash, new-folder, select-all, the sorts...). One menu "
            "may serve several kinds (for=\"app window\"). Put an element with do=\"ID\" where an action goes, "
-           "<acts/> for the rest (style how they are laid out). The menus are popovers: placement=\"pointer\", "
+           "<acts group=\"clipboard\"/> for a category (clipboard, editing, window, app, desktop, files, sorting, "
+           "ask), <acts take=\"ids or categories\"/>, <category name=\"..\" take=\"..\"/> for one of your own, "
+           "and <acts/> for the rest (style how each is laid out). The menus are popovers: placement=\"pointer\", "
            "\"around\", \"on\", \"center\", or place=\"...\". Style :hover and :focus alike (the arrow keys "
            "choose too), .danger, .off, .on, .quiet, text.note, text.keys.\n"
            "Reply with the <menu> elements, then one <style> with their rules; nothing else.\n\nTHE LANGUAGE\n");

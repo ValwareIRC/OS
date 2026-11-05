@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /* The right-click menu of a text field (textedit.h keeps where it opened and what it can do): drawn over
  * everything, it has the pointer and the keys while it is up, and what is chosen is typed into the field as
  * the shortcut would be. */
@@ -8,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 /* ---- the right-click menu of a text field ---- */
 
@@ -242,6 +244,64 @@ static void action_id(int i, char *out, size_t n) {
     out[o] = 0;
 }
 
+/* The system's own categories, by action id: a design may use them (<acts group="clipboard">), regroup them, or
+ * ignore them; it may make its own (<category name="..." take="ids or categories"/>). */
+static const struct {
+    const char *name, *ids;
+} builtin_groups[] = {
+    {"clipboard", " cut copy paste "},
+    {"editing", " undo redo select-all "},
+    {"window", " minimize show maximize close "},
+    {"app", " open uninstall "},
+    {"desktop", " redesign settings "},
+    {"files", " open quick-look open-in-notes rename copy cut paste move-to-trash put-back erase-for-good "
+              "empty-trash new-folder select-all "},
+    {"sorting", " sort-by-name sort-by-size sort-by-date sort-by-kind as-list as-icons "},
+    {"ask", " ask "},
+};
+
+/* The categories of action i, the system's, space-separated ("clipboard files"). */
+static void groups_of(int i, char *out, size_t n) {
+    char id[48], pat[52];
+    action_id(i, id, sizeof id);
+    snprintf(pat, sizeof pat, " %s ", id);
+    out[0] = 0;
+    size_t o = 0;
+    for (size_t g = 0; g < sizeof builtin_groups / sizeof builtin_groups[0]; g++)
+        if (strstr(builtin_groups[g].ids, pat) && o + strlen(builtin_groups[g].name) + 2 < n)
+            o += (size_t)snprintf(out + o, n - o, "%s%s", o ? " " : "", builtin_groups[g].name);
+}
+
+/* A design's own categories, read from its menu: <category name="everyday" take="copy paste rename"/>. */
+#define MAX_CATS 16
+static struct {
+    char name[32], take[200];
+} cats[MAX_CATS];
+static int ncats;
+
+/* Is action i one that `want` names (ids, the system's categories, the design's own, space-separated)? */
+static bool takes(int i, const char *want, int depth) {
+    char id[48], groups[160];
+    action_id(i, id, sizeof id);
+    groups_of(i, groups, sizeof groups);
+    char w[256];
+    snprintf(w, sizeof w, "%s", want);
+    for (char *save = NULL, *t = strtok_r(w, " ,", &save); t; t = strtok_r(NULL, " ,", &save)) {
+        if (!strcasecmp(t, id))
+            return true;
+        char pat[40];
+        snprintf(pat, sizeof pat, " %s ", t);
+        char gs[164];
+        snprintf(gs, sizeof gs, " %s ", groups);
+        if (strcasestr(gs, pat))
+            return true;
+        for (int c = 0; c < ncats && depth < 4; c++)
+            if (!strcasecmp(cats[c].name, t) && takes(i, cats[c].take, depth + 1))
+                return true;
+    }
+    return false;
+}
+
 static void classes_of(int i, char *cls, size_t n) {
     int fl = CM.flags[i];
     snprintf(cls, n, "%s%s%s%s", fl & CM_DANGER ? " danger" : "", fl & CM_OFF ? " off" : "", fl & CM_ON ? " on" : "",
@@ -253,7 +313,11 @@ static void action_markup(sbuf *b, int i) {
     char cls[48], id[48];
     classes_of(i, cls, sizeof cls);
     action_id(i, id, sizeof id);
+    char groups[160];
+    groups_of(i, groups, sizeof groups);
     sb_printf(b, "<button do=\"%s\"", id);
+    if (groups[0])
+        sb_printf(b, " group=\"%s\"", groups);
     if (cls[0])
         sb_printf(b, " class=\"%s\"", cls + 1);
     if (!(CM.flags[i] & CM_OFF)) /* (one that can't be done now does nothing) */
@@ -339,17 +403,28 @@ static void fill_dos(fm_doc *d, fm_node *n, bool *used) {
     }
 }
 
-static fm_node *find_tag_in(fm_node *n, const char *tag) {
-    for (fm_node *c = n->first; c; c = c->next) {
+/* Every <acts> in it, in the order written, and the design's own <category> definitions (read, then taken out:
+ * they are words, not things to draw). */
+static int collect(fm_node *n, fm_node **acts, int k, int max) {
+    for (fm_node *c = n->first, *next; c; c = next) {
+        next = c->next;
         if (c->kind != FM_ELEM)
             continue;
-        if (!strcmp(c->tag, tag))
-            return c;
-        fm_node *f = find_tag_in(c, tag);
-        if (f)
-            return f;
+        if (!strcmp(c->tag, "category")) {
+            const char *nm = fm_attr_get(c, "name"), *tk = fm_attr_get(c, "take");
+            if (nm && tk && ncats < MAX_CATS) {
+                snprintf(cats[ncats].name, sizeof cats[0].name, "%s", nm);
+                snprintf(cats[ncats].take, sizeof cats[0].take, "%s", tk);
+                ncats++;
+            }
+            fm_remove(c);
+            continue;
+        }
+        if (!strcmp(c->tag, "acts") && k < max)
+            acts[k++] = c;
+        k = collect(c, acts, k, max);
     }
-    return NULL;
+    return k;
 }
 
 /* The menu for what was clicked, in doc `d`: the design's own for this kind, filled; else a ring of its actions
@@ -382,20 +457,47 @@ static fm_node *build_menu(fm_doc *d) {
         fm_attr_set(m, "target", at);
     }
     bool used[CTX_MAX] = {false};
+    ncats = 0;
+    fm_node *all[16];
+    int nacts = collect(m, all, 0, 16); /* (its own categories first: do= and acts may name them) */
     fill_dos(d, m, used);
-    fm_node *acts = find_tag_in(m, "acts");
+    /* <acts group="..."> or take="...": those actions, in their own place; then <acts/> (no group), the rest */
+    fm_node *plain = NULL;
+    for (int pass = 0; pass < 2; pass++)
+        for (int k = 0; k < nacts; k++) {
+            const char *g = fm_attr_get(all[k], "group"), *t = fm_attr_get(all[k], "take");
+            const char *want = g && *g ? g : t && *t ? t : NULL;
+            if ((pass == 0) != (want != NULL))
+                continue;
+            if (!want && plain)
+                continue; /* (the rest go to the first) */
+            if (!want)
+                plain = all[k];
+            sbuf b;
+            sb_init(&b);
+            for (int i = 0; i < CM.n; i++)
+                if (!used[i] && (!want || takes(i, want, 0))) {
+                    used[i] = true;
+                    action_markup(&b, i);
+                }
+            if (b.p)
+                fm_parse_fragment(d, all[k], b.p);
+            else if (want) /* (none of that kind here: the place for them goes too) */
+                fm_attr_set(all[k], "empty", "true");
+            sb_free(&b);
+        }
     bool rest = false;
     for (int i = 0; i < CM.n; i++)
         rest |= !used[i];
-    if (rest && !acts) /* (it placed some and not the rest: nothing it offers goes missing) */
-        acts = fm_parse_fragment(d, m, "<acts class=\"rest\"/>");
-    if (acts && rest) {
+    if (rest) { /* (it placed some and had no place for the rest: nothing it offers goes missing) */
+        fm_node *acts = fm_parse_fragment(d, m, "<acts class=\"rest\"/>");
         sbuf b;
         sb_init(&b);
         for (int i = 0; i < CM.n; i++)
             if (!used[i])
                 action_markup(&b, i);
-        fm_parse_fragment(d, acts, b.p ? b.p : "");
+        if (acts && b.p)
+            fm_parse_fragment(d, acts, b.p);
         sb_free(&b);
     }
     if (CM.note[0]) {
