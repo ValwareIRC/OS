@@ -668,6 +668,11 @@ static void animate(fm_doc *d, fm_node *n) {
     }
     if (e < 0)
         e = 0;
+    if (fm_reduce_motion) { /* (less motion: one that never ends doesn't run; one that ends is shown ended) */
+        if (st->anim_count < 0)
+            return;
+        e = st->anim_dur * st->anim_count + 1;
+    }
     double iters = e / st->anim_dur;
     bool done = st->anim_count >= 0 && iters >= st->anim_count;
     if (done && st->anim_fill != 'f' && st->anim_fill != 'B')

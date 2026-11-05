@@ -41,6 +41,8 @@ static void glide(fm_node *n, float k, bool morphing) {
     }
 }
 
+bool fm_reduce_motion;
+
 static void animate_node(fm_node *n, float dt, bool morphing) {
     for (; n; n = n->next) {
         if (n->kind != FM_ELEM)
@@ -48,10 +50,12 @@ static void animate_node(fm_node *n, float dt, bool morphing) {
         float k = n->st.transition <= 1 ? 1 : 1 - expf(-dt / (n->st.transition * 0.35f));
         if (morphing) /* one version of the desktop turning into another */
             k = 1 - expf(-dt / 150.0f);
-        float kf = 1 - expf(-dt / 60.0f);
+        float kf = 1 - expf(-dt / 60.0f), ko = 1 - expf(-dt / 70.0f);
+        if (fm_reduce_motion) /* (straight to where it is going) */
+            k = kf = ko = 1;
         n->a_hover = approach(n->a_hover, n->hover ? 1 : 0, kf);
         n->a_press = approach(n->a_press, n->active ? 1 : 0, kf);
-        n->a_open = approach(n->a_open, n->open ? 1 : 0, 1 - expf(-dt / 70.0f));
+        n->a_open = approach(n->a_open, n->open ? 1 : 0, ko);
         if (fabsf(n->a_open - (n->open ? 1 : 0)) < 0.01f)
             n->a_open = n->open ? 1 : 0;
         if (n->flash > 0)
@@ -126,9 +130,11 @@ void fm_animate(fm_doc *d, float dt_ms) {
         dt_ms = 200;
     d->clock += dt_ms;
     bool morphing = d->morph_until > d->clock;
+    if (fm_reduce_motion)
+        morphing = false;
     if (d->desktop) {
         animate_node(d->desktop, dt_ms, morphing);
-        glide(d->desktop, 1 - expf(-dt_ms / 150.0f), morphing);
+        glide(d->desktop, fm_reduce_motion ? 1 : 1 - expf(-dt_ms / 150.0f), morphing);
     }
 }
 

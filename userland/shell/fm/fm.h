@@ -324,6 +324,9 @@ void fm_css_patch(fm_doc *d, const char *css);
 const char *fm_cursor(fm_doc *d, int x, int y);
 /* Something is animating (@keyframes): the host keeps frames coming */
 extern bool fm_animating;
+/* They asked for less motion (Settings): nothing glides, fades, blooms or plays; what has an end is shown at its end,
+ * what never ends doesn't run, a canvas's clock stands still. */
+extern bool fm_reduce_motion;
 /* The size @media rules are judged by (the screen); a change reloads the sheet */
 extern int fm_media_w, fm_media_h;
 /* After a patched rule for `sel`: the rules that still win on n for its properties, named in out. */

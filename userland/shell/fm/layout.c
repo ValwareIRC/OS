@@ -984,6 +984,16 @@ static void arrange_orbit(fm_doc *d, fm_node *n, fm_node **kids, int nk, rect c)
     if (R < rmin)
         R = rmin;
     float cx = c.x + c.w / 2.0f, cy = c.y + c.h / 2.0f;
+    /* in a menu or popover as it opens: its ring blooms out from the centre and unfolds, and folds back as it
+     * closes (with less motion asked for, it is simply there: a_open is 0 or 1) */
+    for (const fm_node *p = n; p; p = p->parent)
+        if (is_popover(p)) {
+            float o = p->a_open < 0 ? 0 : p->a_open > 1 ? 1 : p->a_open;
+            float e = 1 - (1 - o) * (1 - o) * (1 - o);
+            R *= 0.2f + 0.8f * e;
+            start -= 35 * (1 - e);
+            break;
+        }
     int slots = spread >= 359 ? nk : (nk > 1 ? nk - 1 : 1);
     for (int i = 0; i < nk; i++) {
         float a = (start + spread * i / (float)slots) * (float)M_PI / 180;

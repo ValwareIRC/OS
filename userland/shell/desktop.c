@@ -1685,7 +1685,7 @@ static void draw_window(int w, bool focused) {
     rect r = win->r;
     /* Arrive with a short glide upward, scaled by how much motion the
      * design wants. */
-    float e = ease_out((float)(A.now - win->opened_at) / 320.0f);
+    float e = A.prof.reduce_motion ? 1 : ease_out((float)(A.now - win->opened_at) / 320.0f); /* (less motion: there) */
     r.y += (int)((1 - e) * 36 * (0.3f + D.motion));
     rect body;
     win->body_opaque = false;
@@ -3348,6 +3348,7 @@ void desktop_draw(void) {
     last = A.now;
     ui->in = &A.in;
     PROF("layout", fm_layout(ui, (rect){0, 0, A.W, A.H}));
+    fm_reduce_motion = A.prof.reduce_motion; /* (Settings: less motion, in every design, app and preview) */
     PROF("animate", fm_animate(ui, dt));
     launcher_input(ui); /* while the launcher is up, input is its own */
 

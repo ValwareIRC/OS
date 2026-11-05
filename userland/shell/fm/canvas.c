@@ -428,7 +428,16 @@ void fmi_canvas_draw(fm_doc *d, canvas *cv, fm_node *n, rect r, float op) {
     cur_c = cv, cur_r = r, cur_s = n->vscale > 0 ? n->vscale : 1, cur_op = op, cur_d = d;
     lua_pushnumber(L, r.w / cur_s);
     lua_pushnumber(L, r.h / cur_s);
-    lua_pushnumber(L, (double)fm_host_time_ms() / 1000.0);
+    static double still_at = -1; /* (less motion asked for: its clock stands where it was) */
+    double t = (double)fm_host_time_ms() / 1000.0;
+    if (fm_reduce_motion) {
+        if (still_at < 0)
+            still_at = t;
+        t = still_at;
+    } else {
+        still_at = -1;
+    }
+    lua_pushnumber(L, t);
     lua_sethook(L, budget_hook, LUA_MASKCOUNT, BUDGET); /* the budget is per frame, not per lifetime */
     if (lua_pcall(L, 3, 0, 0)) {
         snprintf(c->error, sizeof c->error, "%s", lua_tostring(L, -1));
