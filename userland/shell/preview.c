@@ -108,6 +108,52 @@ static void reset(void) {
 }
 
 fm_doc *preview_doc(void) { return PV.state != PV_NONE ? PV.doc : NULL; }
+
+/* A right-click menu shown open in the preview while its look is being changed (a menu only opens where they
+ * right-click: there was nothing in the picture to see the change on). The system's, never kept: taken out before
+ * the design is applied. */
+static fm_node *sample_menu(fm_doc *d) {
+    for (fm_node *c = d && d->desktop ? d->desktop->first : NULL; c; c = c->next)
+        if (c->kind == FM_ELEM && !strcmp(c->id, "_menu"))
+            return c;
+    return NULL;
+}
+
+static void drop_sample_menu(fm_doc *d) {
+    fm_node *m = sample_menu(d);
+    if (!m)
+        return;
+    for (fm_node *p = d->hovered; p; p = p->parent)
+        if (p == m)
+            d->hovered = NULL;
+    for (fm_node *p = d->pressed; p; p = p->parent)
+        if (p == m)
+            d->pressed = NULL;
+    for (fm_node *p = d->focus; p; p = p->parent)
+        if (p == m)
+            d->focus = NULL;
+    fm_remove(m);
+}
+
+void preview_sample_menu(void) {
+    fm_doc *d = PV.doc;
+    if (!d || !d->desktop || sample_menu(d))
+        return;
+    char markup[600];
+    const char *name = A.d.ai_name[0] ? A.d.ai_name : "the companion";
+    snprintf(markup, sizeof markup,
+             "<menu id=\"_menu\" for=\"desktop\" placement=\"pointer\" at=\"%d %d\"><button>Redesign</button>"
+             "<button>Settings</button><divider/><button class=\"quiet\">Ask %s about this</button></menu>",
+             A.W * 55 / 100, A.H * 32 / 100, name);
+    fm_node *m = fm_parse_fragment(d, d->desktop, markup);
+    if (!m)
+        return;
+    m->generated = true;
+    fm_set_open(d, m, true);
+    d->changed = true;
+    PV.redraw = true;
+    LOG("preview: a menu shown open, its look being changed\n");
+}
 bool preview_showing(void) { return PV.state != PV_NONE; }
 
 fm_doc *preview_target(void) {
@@ -366,6 +412,7 @@ void preview_frame(void) {
                 PV.live = NULL;
             else
                 PV.doc = NULL;
+            drop_sample_menu(doc); /* (the one shown open while menus were restyled: the system's, not the design's) */
             reset();
             LOG("preview: applied\n");
             bool first = onboarding();

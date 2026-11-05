@@ -876,6 +876,8 @@ void wm_toggle_maximize(int w) {
         set_snap(w, ww[w].snap == SNAP_MAX ? SNAP_NONE : SNAP_MAX);
 }
 
+bool wm_is_maximized(int w) { return w >= 0 && w < WIN_MAX && A.win[w].open && ww[w].snap == SNAP_MAX; }
+
 void wm_activate(int w) {
     if (w < 0 || w >= WIN_MAX || !A.win[w].open)
         return;

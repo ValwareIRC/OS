@@ -413,7 +413,10 @@ bool fm_input(fm_doc *d, int layer_mask) {
         d->pressed = t;
         if (t)
             t->active = true;
-        if (!t || !(tag_is(t, "search") || tag_is(t, "input")))
+        bool in_menu = false; /* (a right-click menu's pick goes to the field it was opened on: it keeps it) */
+        for (const fm_node *p = hit; p && !in_menu; p = p->parent)
+            in_menu = tag_is(p, "menu") && !strcmp(p->id, "_menu");
+        if (!in_menu && (!t || !(tag_is(t, "search") || tag_is(t, "input"))))
             if (!(hit && d->focus && is_ancestor(d->focus, hit)))
                 d->focus = NULL;
         if (t && (tag_is(t, "search") || tag_is(t, "input"))) {

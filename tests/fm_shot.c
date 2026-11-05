@@ -89,6 +89,12 @@ color fm_host_wallpaper_tone(void) { return A.d.bg; }
 uint64_t fm_host_time_ms(void) { return 0; }
 const char *clipboard_text(void) { return ""; }
 void clipboard_set(const char *t) { (void)t; }
+const char *home_dir(void) { return "/home/user"; } /* (stylist_look.c: where a placeholder view reads from) */
+/* (the desktop's own timings and backdrop cache: nothing here) */
+fm_doc *fm_host_desktop_doc(void) { return NULL; }
+uint64_t fm_host_backdrop_sig(void) { return 0; }
+uint64_t prof_now_us(void) { return 0; }
+void prof_add(const char *name, uint64_t us) { (void)name, (void)us; }
 
 int main(int argc, char **argv) {
     if (argc < 2) {

@@ -532,6 +532,9 @@ static int run_ui_tags(char *text, bool act) {
             const char *v = c + strcspn(c, " ");
             v += strspn(v, " ");
             snprintf(last_look_target, sizeof last_look_target, "%.*s", (int)strcspn(v, " {<"), v);
+            char nx = last_look_target[4];
+            if (!strncasecmp(last_look_target, "menu", 4) && !isalnum((unsigned char)nx) && nx != '-' && nx != '_')
+                preview_sample_menu(); /* (a menu is only open where they right-click: one is, in the preview) */
         }
         LOG("ui command \"%.300s\"%s: %s\n", cmd, look ? " (preview)" : "", res);
         size_t tl = strlen(tag_report);
@@ -2528,6 +2531,27 @@ static void ask_companion(const char *text) {
 
 /* Right-click anything: why is it here? The designer's own reason if it
  * left one for this element (or what contains it), else ask the companion. */
+/* "Ask NAME about this": the chat opens with what it was named, for them to say what they want to know. Nothing is
+ * sent: it asked the companion "Why does this look like this?" by itself, at every right-click, for nothing. */
+static void ask_about(const fm_node *n) {
+    char what[120] = "this";
+    char *t = n ? fm_text_of(n) : NULL;
+    size_t tl = t ? strlen(t) : 0;
+    while (tl && strchr(" \t\r\n", t[tl - 1]))
+        t[--tl] = 0;
+    const char *ts = t ? t + strspn(t, " \t\r\n") : "";
+    if (*ts && strlen(ts) <= 32 && !strchr(ts, '\n'))
+        snprintf(what, sizeof what, "\u201c%s\u201d", ts);
+    else if (n && n->kind == FM_ELEM)
+        snprintf(what, sizeof what, "the %s", n->tag);
+    free(t);
+    fm_host_action(A.ui, NULL, "open:companion");
+    snprintf(A.chat.buf, sizeof A.chat.buf, "About %s: ", what);
+    A.chat.len = (int)strlen(A.chat.buf);
+    te_reset(&A.chat.ed, A.chat.buf);
+    LOG("context menu: asking about %s\n", what);
+}
+
 static void explain_why(fm_node *n) {
     fm_node *meta = NULL;
     for (fm_node *m = A.ui->root ? A.ui->root->first : NULL; m; m = m->next)
@@ -2550,10 +2574,7 @@ static void explain_why(fm_node *n) {
             }
         }
     }
-    char q[200];
-    const char *what = n->id[0] && n->id[0] != '_' ? n->id : n->tag;
-    snprintf(q, sizeof q, "Why does the %s look like this?", what);
-    ask_companion(q);
+    ask_about(n);
 }
 
 /* ---- right-click ----
@@ -2567,7 +2588,27 @@ static struct {
     char id[128], name[96];
 } uninstalling;
 
+/* A window's own: in a list of windows, or on its frame (title bar). */
+static void window_menu(int w) {
+    char act[40];
+    ctx_menu_for("window");
+    if (A.win[w].minimized) {
+        snprintf(act, sizeof act, "show:%d", w);
+        ctx_menu_add("Show", act, false);
+    } else {
+        snprintf(act, sizeof act, "min:%d", w);
+        ctx_menu_add("Minimize", act, false);
+    }
+    snprintf(act, sizeof act, "max:%d", w);
+    ctx_menu_add(wm_is_maximized(w) ? "Restore size" : "Maximize", act, false);
+    snprintf(act, sizeof act, "close:%d", w);
+    ctx_menu_item("Close", act, CM_SEP, NULL);
+}
+
 static void context_menu(fm_node *n) {
+    for (const fm_node *e = n; e; e = e->parent) /* (on a right-click menu itself: nothing, it stays as it is) */
+        if (e->kind == FM_ELEM && !strcmp(e->id, "_menu"))
+            return;
     const char *app = NULL;
     int win = -1;
     for (fm_node *e = n; e; e = e->parent) {
@@ -2584,9 +2625,9 @@ static void context_menu(fm_node *n) {
     ctx_menu_open(A.in.mx, A.in.my);
     char label[160], act[200];
     if (win >= 0 && win < WIN_MAX && A.win[win].open) {
-        snprintf(act, sizeof act, "close:%d", win);
-        ctx_menu_add("Close", act, false);
+        window_menu(win);
     } else if (app) {
+        ctx_menu_for("app");
         int k = fm_app_index(app);
         const char *name = k >= 0 ? fm_host_app_label(k) : app;
         snprintf(label, sizeof label, "Open %s", name);
@@ -2599,23 +2640,37 @@ static void context_menu(fm_node *n) {
             snprintf(act, sizeof act, "uninstall?%s", app);
             ctx_menu_add(label, act, false);
         }
+    } else { /* the desktop itself, or a part of it that is no app (a clock, a picture, the wallpaper) */
+        ctx_menu_for("desktop");
+        ctx_menu_add("Redesign", "do:redesign", false);
+        ctx_menu_add("Settings", "do:open:settings", false);
     }
-    /* why: by the nearest element with a name of its own, found again when chosen */
+    /* last, small: asking the companion about it (the chat opens with it named; nothing is sent). By the nearest
+     * element with a name of its own, found again when chosen. */
     const char *id = NULL;
     for (fm_node *e = n; e && !id; e = e->parent)
         if (e->kind == FM_ELEM && e->id[0] && e->id[0] != '_')
             id = e->id;
     snprintf(act, sizeof act, "why:%s:%s", id ? id : "", n->id[0] && n->id[0] != '_' ? n->id : n->tag);
-    ctx_menu_add("Why does it look like this?", act, false);
+    snprintf(label, sizeof label, "Ask %s about this", D.ai_name[0] ? D.ai_name : "the companion");
+    ctx_menu_item(label, act, CM_QUIET | CM_SEP, NULL);
 }
 
 void desktop_ctx_chosen(const char *act) {
     if (!strncmp(act, "open:", 5)) {
         fm_host_action(A.ui, NULL, act);
+    } else if (!strncmp(act, "do:", 3)) { /* a design's action (redesign, open:settings) */
+        fm_host_action(A.ui, NULL, act + 3);
     } else if (!strncmp(act, "close:", 6)) {
         int w = atoi(act + 6);
         if (w >= 0 && w < WIN_MAX && A.win[w].open)
             wm_close(w);
+    } else if (!strncmp(act, "min:", 4)) {
+        wm_minimize(atoi(act + 4));
+    } else if (!strncmp(act, "show:", 5)) {
+        wm_activate(atoi(act + 5));
+    } else if (!strncmp(act, "max:", 4)) {
+        wm_toggle_maximize(atoi(act + 4));
     } else if (!strncmp(act, "uninstall?", 10)) { /* the question first */
         const char *id = act + 10;
         int k = fm_app_index(id);
@@ -2623,6 +2678,7 @@ void desktop_ctx_chosen(const char *act) {
         snprintf(label, sizeof label, "Uninstall %s", k >= 0 ? fm_host_app_label(k) : id);
         snprintf(a, sizeof a, "uninstall:%s", id);
         ctx_menu_open(A.in.mx, A.in.my);
+        ctx_menu_for("app");
         ctx_menu_add(label, a, true);
         ctx_menu_add("Cancel", "", false);
         ctx_menu_note("Its settings go with it.");
@@ -2679,6 +2735,10 @@ static void uninstall_poll(void) {
 void fm_host_action(fm_doc *d, fm_node *src, const char *a) {
     (void)src;
     LOG("ui action %s\n", a);
+    if (!strncmp(a, "menu:", 5)) { /* a right-click menu's pick (textmenu.c) */
+        ctx_menu_take(atoi(a + 5));
+        return;
+    }
     if (!strncmp(a, "fx:", 3) && fxwin_action(d, a + 3))
         return;
     if (!strncasecmp(a, "open:", 5) || !strncasecmp(a, "launch:", 7)) {
@@ -3108,9 +3168,15 @@ void desktop_draw(void) {
     ui->in = &ui_in;
     fm_input(ui, 3);
     ui->in = &A.in;
+    ctx_menu_after_input();
     bool keys_to_ui = ui->focus != NULL;
     if (A.in.right_clicked && top < 0 && ui->hovered && !te_menu_state()->open) /* not on a field's own menu */
         context_menu(ui->hovered);
+    else if (A.in.right_clicked && top >= 0 && !pt_in(A.win[top].body, A.in.mx, A.in.my) &&
+             !te_menu_state()->open) { /* its frame (the title bar): the window's own menu */
+        ctx_menu_open(A.in.mx, A.in.my);
+        window_menu(top);
+    }
 
     if (!cached) {
         /* What the windows hide completely isn't drawn underneath them: an opaque frame (the corners aside), or

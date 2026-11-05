@@ -1427,6 +1427,26 @@ static void menu_open(int x, int y, int target) {
     F.menu_on = F.nm > 0;
     F.menu_target = target;
     LOG("files: menu open (%d items)\n", F.nm);
+    if (F.menu_on && A.screen == SCR_DESKTOP && A.ui) { /* the design's own menu, for="file" (textmenu.c) */
+        F.menu_on = false;
+        ctx_menu_open(x, y);
+        ctx_menu_for("file");
+        for (int i = 0; i < F.nm; i++) {
+            char act[40];
+            snprintf(act, sizeof act, "files:%d:%d", F.mi[i].id, target);
+            int fl = (F.mi[i].enabled ? 0 : CM_OFF) | (F.mi[i].checked ? CM_ON : 0) | (F.mi[i].sep ? CM_SEP : 0) |
+                     (F.mi[i].id == M_TRASH || F.mi[i].id == M_ERASE || F.mi[i].id == M_EMPTY_TRASH ? CM_DANGER : 0);
+            ctx_menu_item(F.mi[i].label, act, fl, NULL);
+        }
+    }
+}
+
+static void menu_run(int id, int target);
+
+void files_menu_take(const char *what) {
+    int id = 0, target = -1;
+    if (sscanf(what, "%d:%d", &id, &target) >= 1)
+        menu_run(id, target);
 }
 
 static void sort_by(int s) {

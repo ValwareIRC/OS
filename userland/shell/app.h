@@ -190,11 +190,21 @@ void ui_text_menu_draw(void);
  * chosen): opened at a point, items added, each a label and what choosing it does. */
 void ctx_menu_open(int x, int y);
 void ctx_menu_add(const char *label, const char *act, bool danger);
+/* What it is for (for="..." on the design's <menu>, which a design styles): app, window, desktop, text, file. */
+void ctx_menu_for(const char *kind);
+enum { CM_DANGER = 1, CM_OFF = 2, CM_ON = 4, CM_QUIET = 8, CM_SEP = 16 }; /* removes / can't now / chosen / small / a line before */
+void ctx_menu_item(const char *label, const char *act, int flags, const char *keys);
 void ctx_menu_note(const char *note);
 bool ctx_menu_showing(void);
 void ctx_menu_input(void);
 void ctx_menu_draw(void);
+void ctx_menu_take(int i);        /* what="menu:N" in the design's menu (desktop.c's fm_host_action) */
+void ctx_menu_after_input(void);  /* after the design took the pointer: the arrows' choice shown */
 void desktop_ctx_chosen(const char *act);
+void text_menu_take(int i);                /* a text field's item, picked from the design's menu */
+void files_menu_take(const char *what);    /* Files' (files.c) */
+void menus_check_styled(void);             /* the design has no menu of its own yet: the companion writes it */
+void menus_tick(void);                     /* (menus.c) its answer, each frame */
 void ui_orb(canvas *c, float cx, float cy, float r, color a, color b, bool active);
 void ui_cursor(canvas *c, int x, int y);
 void ui_backdrop(color base, color l1, color l2, color depth);

@@ -101,7 +101,20 @@ static const char *const builtin_css =
     " font-family: var(--font-heading, Inter); font-size: 15; }\n"
     "titlebar text { grow: 1; }\n"
     "titlebar button { size: 26; radius: 13; icon-size: 13; justify: center; }\n"
-    "titlebar button:hover { background: rgba(255,255,255,0.16); }\n";
+    "titlebar button:hover { background: rgba(255,255,255,0.16); }\n"
+    /* a right-click menu, until the design has styled its own (menus.c has the companion write them): its
+     * colours, font and corners, nothing more */
+    "menu { direction: column; align: stretch; padding: 6; gap: 2; min-width: 210; background: var(--surface, rgba(20,22,30,0.94));"
+    " color: var(--text, #fff); radius: var(--radius, 12); border: 1 rgba(255,255,255,0.12);"
+    " shadow: 0 14 36 rgba(0,0,0,0.42); font-family: var(--font-body, Inter); font-size: 14; }\n"
+    "menu button { justify: start; padding: 7 12; radius: 8; gap: 18; }\n"
+    "menu button:hover, menu button:focus { background: rgba(255,255,255,0.13); }\n"
+    "menu button.danger { color: #ff8a80; }\n"
+    "menu button.off { opacity: 0.4; }\n"
+    "menu button.quiet { font-size: 12; opacity: 0.72; padding: 5 12; }\n"
+    "menu text.keys { opacity: 0.6; font-size: 12; }\n"
+    "menu text.note { font-size: 12; opacity: 0.72; padding: 4 12 6 12; }\n"
+    "menu divider { height: 1; margin: 4 6; }\n";
 
 /* ---- values ---- */
 

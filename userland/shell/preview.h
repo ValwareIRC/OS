@@ -19,6 +19,8 @@ struct fm_doc;
 struct fm_doc *preview_target(void);
 /* The proposal as it stands (what a redesign starts from), or NULL. */
 struct fm_doc *preview_doc(void);
+/* A right-click menu shown open in the preview, while the companion changes how menus look. */
+void preview_sample_menu(void);
 /* A preview is open (its window on the desktop, or the onboarding one). */
 bool preview_showing(void);
 /* An edit was made to the preview's document (it glides into place). */

@@ -1314,8 +1314,27 @@ static void place_popover(fm_doc *d, fm_node *p) {
     if (w > S.w - 16 && !sheet) w = (float)S.w - 16;
     if (h > S.h - 16 && !sheet) h = (float)S.h - 16;
     const char *pl = fm_attr_get(p, "placement");
-    fm_node *a = sheet ? NULL : fmi_toggler_of(d, p);
     float x, y;
+    if (pl && !strcasecmp(pl, "pointer")) { /* a right-click menu: from where they clicked, away from the edges */
+        const char *at = fm_attr_get(p, "at");
+        int px = S.x + S.w / 2, py = S.y + S.h / 2;
+        if (at)
+            sscanf(at, "%d %d", &px, &py);
+        x = (float)px + 2, y = (float)py + 2;
+        if (x + w > S.x + S.w - 8)
+            x = (float)px - w - 2;
+        if (y + h > S.y + S.h - 8)
+            y = (float)py - h - 2;
+        x += s->margin[3] - s->margin[1];
+        y += s->margin[0] - s->margin[2];
+        if (x < S.x + 8) x = S.x + 8.0f;
+        if (y < S.y + 8) y = S.y + 8.0f;
+        if (x + w > S.x + S.w - 8) x = S.x + S.w - 8 - w;
+        if (y + h > S.y + S.h - 8) y = S.y + S.h - 8 - h;
+        fmi_arrange(d, p, (rect){(int)x, (int)y, (int)w, (int)h});
+        return;
+    }
+    fm_node *a = sheet ? NULL : fmi_toggler_of(d, p);
     if (!a || (pl && !strcasecmp(pl, "center")) || (pl && !strcasecmp(pl, "screen"))) {
         const char *place = fmi_place(p, "place");
         if (place) {
