@@ -124,6 +124,7 @@ int vfs_lookup_parent_path(const struct path *base, const char *path, struct pat
 int vfs_open(const struct path *base, const char *path, uint32_t flags, uint32_t mode, struct file **out);
 int vfs_mkdir_p(const char *path, uint32_t mode);
 int vfs_create_node(const char *path, struct vnode *node);
+int vfs_remove_node(const char *path); /* (a node the kernel made: a device that went) */
 
 /* Permissions (fs/vfs.c), as Unix has them: the owner's, the group's and everyone else's read, write and
  * execute bits decide what a process may do with a file, for every process but one holding the capability to

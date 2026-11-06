@@ -207,6 +207,7 @@ static void disconnect(struct usb_device *d, int i) {
     if (m) {
         m->gone = true;
         m->disk.readonly = true;
+        blkdev_unregister(&m->disk); /* (its name is free for the next stick; m stays, for whoever has it open) */
     }
 }
 

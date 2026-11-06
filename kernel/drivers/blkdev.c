@@ -27,8 +27,13 @@
 
 #define SCSI_DISK_MAJOR 8
 
+/* The disks, and which letters they have (a disk taken away gives its letter back: the next one plugged in takes
+ * the lowest free). Changed from more than one thread (the boot's drives, the USB thread's sticks): under
+ * disks_lock, which is never held across anything that may sleep. */
 static struct blkdev *disks;
 static int ndisks;
+static uint32_t letters; /* bit n: sd('a' + n) is someone's */
+static spinlock_t disks_lock = SPINLOCK_INIT;
 
 /* A disk request can take milliseconds and polls for completion, so waiters
  * yield instead of spinning with interrupts off. */
@@ -124,10 +129,12 @@ void blkdev_sync_all(void) {
 }
 
 struct blkdev *blkdev_find(const char *name) {
-    for (struct blkdev *d = disks; d; d = d->next)
-        if (!strcmp(d->name, name))
-            return d;
-    return NULL;
+    uint64_t f = spin_lock_irqsave(&disks_lock);
+    struct blkdev *d = disks;
+    while (d && strcmp(d->name, name))
+        d = d->next;
+    spin_unlock_irqrestore(&disks_lock, f);
+    return d;
 }
 
 /* ---- /dev/sdX ---- */
@@ -184,20 +191,32 @@ int blkdev_register(struct blkdev *d) {
     if (!d->rw || !d->sectors || !d->sector_size || d->sector_size > BOUNCE_BYTES ||
         BOUNCE_BYTES % d->sector_size)
         return -EINVAL;
-    if (!d->part_of && ndisks >= 26)
-        return -ENOSPC;
     d->bounce = kmalloc(BOUNCE_BYTES);
     if (!d->bounce)
         return -ENOMEM;
-    /* disks get the next letter; a partition is named after its disk (sda2) */
-    int index = d->part_of ? (d->part_of->name[2] - 'a') : ndisks++;
-    if (!d->part_of)
+    /* a disk gets the lowest free letter; a partition is named after its disk (sda2) */
+    uint64_t f = spin_lock_irqsave(&disks_lock);
+    int index = d->part_of ? (d->part_of->name[2] - 'a') : -1;
+    if (!d->part_of) {
+        for (int i = 0; i < 26 && index < 0; i++)
+            if (!(letters & (1u << i)))
+                index = i;
+        if (index < 0) {
+            spin_unlock_irqrestore(&disks_lock, f);
+            kfree(d->bounce);
+            d->bounce = NULL;
+            return -ENOSPC;
+        }
+        letters |= 1u << index;
+        ndisks++;
         ksnprintf(d->name, sizeof d->name, "sd%c", 'a' + index);
+    }
     d->next = NULL;
     struct blkdev **tail = &disks;
     while (*tail)
         tail = &(*tail)->next;
     *tail = d;
+    spin_unlock_irqrestore(&disks_lock, f);
 
     struct vnode *v = vnode_alloc(VN_BLK, 0660, &sd_ops);
     if (!v)
@@ -250,10 +269,40 @@ void blkdev_claim_if_ours(struct blkdev *d) {
 }
 
 int blkdev_count(void) {
+    uint64_t f = spin_lock_irqsave(&disks_lock);
     int n = 0;
     for (struct blkdev *d = disks; d; d = d->next)
         n += !d->part_of;
+    spin_unlock_irqrestore(&disks_lock, f);
     return n;
+}
+
+/* A disk taken away (a stick unplugged): it and its partitions leave the list and /dev, and its letter is free
+ * again. The records stay (its driver's): a program that still has it open reads errors from it, as the driver
+ * answers for a disk that is gone. */
+void blkdev_unregister(struct blkdev *disk) {
+    struct blkdev *gone[16];
+    int n = 0;
+    uint64_t f = spin_lock_irqsave(&disks_lock);
+    for (struct blkdev **pp = &disks; *pp;) {
+        struct blkdev *d = *pp;
+        if ((d == disk || d->part_of == disk) && n < 16) {
+            *pp = d->next; /* (its own next stays: a walk standing on it, such as sync's, goes on to the rest) */
+            gone[n++] = d;
+        } else {
+            pp = &d->next;
+        }
+    }
+    if (!disk->part_of && disk->name[0] == 's' && disk->name[2] >= 'a' && disk->name[2] <= 'z') {
+        letters &= ~(1u << (disk->name[2] - 'a'));
+        ndisks--;
+    }
+    spin_unlock_irqrestore(&disks_lock, f);
+    for (int i = 0; i < n; i++) {
+        char path[16];
+        ksnprintf(path, sizeof path, "/dev/%s", gone[i]->name);
+        vfs_remove_node(path);
+    }
 }
 
 void storage_init(void) {

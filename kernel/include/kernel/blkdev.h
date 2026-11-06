@@ -35,6 +35,8 @@ struct blkdev {
 
 /* Names the disk, creates /dev/<name> and returns 0, or a negative errno. */
 int blkdev_register(struct blkdev *d);
+/* The disk is gone (unplugged): its /dev names and its letter go; the record stays the driver's. */
+void blkdev_unregister(struct blkdev *d);
 struct blkdev *blkdev_find(const char *name);
 /* Byte-granular access; the range is clamped to the disk. */
 int64_t blkdev_read(struct blkdev *d, void *buf, size_t len, uint64_t off);

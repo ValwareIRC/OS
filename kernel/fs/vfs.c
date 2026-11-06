@@ -530,6 +530,17 @@ int vfs_mkdir_p(const char *path, uint32_t mode) {
     return 0;
 }
 
+int vfs_remove_node(const char *path) {
+    struct vnode *dir;
+    char name[NAME_MAX + 1];
+    int r = vfs_lookup_parent(NULL, path, &dir, name, sizeof name);
+    if (r < 0)
+        return r;
+    r = dir->ops->unlink ? dir->ops->unlink(dir, name, false) : -EPERM;
+    vnode_put(dir);
+    return r;
+}
+
 int vfs_create_node(const char *path, struct vnode *node) {
     struct vnode *dir;
     char name[NAME_MAX + 1];
