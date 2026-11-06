@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="prism-gadget://_sdk/base.css">
+<link rel="stylesheet" href="prism-gadget://_sdk/kit.css">
+<script src="prism-gadget://_sdk/prism.js"></script>
+<script src="prism-gadget://_sdk/kit.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box }
+  html, body { height: 100%; margin: 0 }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent) }
+  .bar input { flex: 1 1 140px; min-width: 0 }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 10px }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); background: transparent; color: var(--text) }
+  .chip.on { background: var(--accent); color: var(--bg); border-color: var(--accent) }
+  .item { display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent); min-width: 0 }
+  .item:hover { background: color-mix(in srgb, var(--text) 5%, transparent) }
+  .num { color: var(--muted, #888); font-variant-numeric: tabular-nums; flex: none }
+  .ttl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .meta { flex: none; font-size: 11px; opacity: .6 }
+  .lab { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 22%, transparent); margin-left: 4px; white-space: nowrap }
+  .detail { padding: 12px; overflow: auto }
+  .detail h2 { margin: 4px 0 6px; font-size: 16px; overflow-wrap: anywhere }
+  .text { line-height: 1.5; overflow-wrap: anywhere }
+  .text code { background: color-mix(in srgb, var(--text) 8%, transparent); padding: 0 4px; border-radius: 4px }
+  .text a.ref { color: var(--accent); cursor: pointer; text-decoration: underline }
+  .note { border-left: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); padding: 4px 10px; margin: 8px 0 }
+  .note .who { font-size: 11px; opacity: .6 }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 }
+  textarea, input { width: 100%; min-width: 0; font: inherit; color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid color-mix(in srgb, var(--text) 15%, transparent); border-radius: 6px; padding: 6px 8px }
+  textarea { min-height: 70px; resize: vertical }
+  .section { margin-top: 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; opacity: .6 }
+  .commit { font-size: 12px; padding: 3px 0; display: flex; gap: 6px; min-width: 0 }
+  .commit .h { font-family: var(--mono, monospace); flex: none; opacity: .8 }
+  .commit .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .status { font-size: 11px; padding: 1px 8px; border-radius: 8px }
+  .status.open { background: color-mix(in srgb, var(--amber, #d9a) 30%, transparent) }
+  .status.resolved { background: color-mix(in srgb, var(--mint, #7c9) 30%, transparent) }
+  .empty { padding: 30px 16px; text-align: center; opacity: .6 }
+  select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid color-mix(in srgb, var(--text) 15%, transparent); border-radius: 6px; padding: 4px; max-width: 100% }
+</style>
+</head>
+<body>
+<div class="k-app">
+  <div class="k-top"><div class="k-title">Issues</div><div class="k-grow"></div><span class="dim" style="font-size:11px">on this computer only</span></div>
+  <div id="view" class="k-body" style="padding:0"></div>
+</div>
+<script>
+const { h, mount, ago } = window.kit
+let tab = 'open', label = '', q = '', open = null, all = [], labelList = []
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+// a little Markdown: paragraphs, `code`, **bold**, and file:line references that open the file
+function md(s) {
+  return esc(s || '').split(/\n{2,}/).map((p) => '<p>' + p
+    .replace(/`([^`]+)`/g, (m, c) => /^[\w./-]+\.[a-z]+(:\d+)?$/i.test(c) ? `<a class="ref" data-path="${c}"><code>${c}</code></a>` : `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[\s(])((?:[\w-]+\/)+[\w.-]+\.(?:c|h|inc|mjs|js|ts|py|md|json|xml|sh|ps1|S)(?::\d+)?)/g, (m, pre, path) => `${pre}<a class="ref" data-path="${path}">${path}</a>`)
+    .replace(/\n/g, '<br>') + '</p>').join('')
+}
+function hookRefs(el) {
+  el.querySelectorAll('a.ref').forEach((a) => a.onclick = () => prism.ui.openFile(a.dataset.path.replace(/:\d+$/, '')))
+}
+const when = (iso) => iso ? ago(Date.parse(iso)) : ''
+
+async function load() {
+  all = await prism.call('list', { status: tab, label, q })
+  labelList = await prism.call('labels')
+  open ? showIssue(open) : showList()
+}
+
+function showList() {
+  open = null
+  const v = document.getElementById('view')
+  const search = h('input', { placeholder: 'Search', value: q })
+  search.oninput = () => { q = search.value; clearTimeout(search.t); search.t = setTimeout(load, 250) }
+  const tabs = ['open', 'resolved', 'all'].map((t) => { const b = h('button', { class: 'chip' + (tab === t ? ' on' : '') }, t === 'open' ? 'Open' : t === 'resolved' ? 'Resolved' : 'All'); b.onclick = () => { tab = t; load() }; return b })
+  const add = h('button', { class: 'primary' }, 'New issue')
+  add.onclick = showNew
+  const chips = labelList.map((l) => { const b = h('button', { class: 'chip' + (label === l ? ' on' : '') }, l); b.onclick = () => { label = label === l ? '' : l; load() }; return b })
+  const items = all.length ? all.map((i) => {
+    const it = h('div', { class: 'item' }, h('span', { class: 'num' }, '#' + i.id), h('span', { class: 'ttl', title: i.title }, i.title),
+      ...i.labels.slice(0, 3).map((l) => h('span', { class: 'lab' }, l)), h('span', { class: 'meta' }, i.status === 'resolved' ? 'resolved ' + when(i.resolved) : when(i.created)))
+    it.onclick = () => showIssue(i.id)
+    return it
+  }) : [h('div', { class: 'empty' }, q || label ? 'Nothing matches.' : tab === 'open' ? 'No open issues.' : 'None yet.')]
+  mount(v, h('div', { class: 'bar' }, ...tabs, search, add), h('div', { class: 'chips' }, ...chips), ...items)
+}
+
+function showNew() {
+  const v = document.getElementById('view')
+  const title = h('input', { placeholder: 'What is wrong, in a few words' })
+  const text = h('textarea', { placeholder: 'What happens, how to see it, and where (a file:line opens the file)' })
+  const labs = h('input', { placeholder: 'Labels, with commas (bug, kernel, desktop...)' })
+  const save = h('button', { class: 'primary' }, 'File it'), back = h('button', {}, 'Cancel')
+  back.onclick = showList
+  save.onclick = async () => {
+    try { const i = await prism.call('create', { title: title.value, text: text.value, labels: labs.value, by: 'Valerie' }); open = i.id; await load() }
+    catch (e) { window.kit.toast(String(e.message || e)) }
+  }
+  mount(v, h('div', { class: 'detail' }, h('h2', {}, 'New issue'), title, h('div', { style: 'height:6px' }), text, h('div', { style: 'height:6px' }), labs, h('div', { class: 'row' }, save, back)))
+  title.focus()
+}
+
+async function showIssue(id) {
+  open = id
+  const i = await prism.call('details', { id })
+  const v = document.getElementById('view')
+  const back = h('button', {}, '← All issues')
+  back.onclick = () => { open = null; load() }
+  const body = h('div', { class: 'text' }); body.innerHTML = md(i.text) || '<p class="dim">No description.</p>'; hookRefs(body)
+  const notes = i.notes.map((n) => { const t = h('div', { class: 'text' }); t.innerHTML = md(n.text); hookRefs(t); return h('div', { class: 'note' }, h('div', { class: 'who' }, `${n.by} · ${when(n.when)}`), t) })
+  const noteBox = h('textarea', { placeholder: 'Add a note' })
+  const addNote = h('button', {}, 'Add note')
+  addNote.onclick = async () => { if (!noteBox.value.trim()) return; await prism.call('note', { id, text: noteBox.value, by: 'Valerie' }); showIssue(id) }
+  const labs = h('input', { value: i.labels.join(', ') })
+  const saveLabs = h('button', {}, 'Save labels')
+  saveLabs.onclick = async () => { await prism.call('setLabels', { id, labels: labs.value, by: 'Valerie' }); showIssue(id) }
+  let act
+  if (i.status === 'open') {
+    const recent = await prism.call('recentCommits')
+    const pick = h('select', {}, h('option', { value: '' }, 'Fixed by... (optional)'), ...recent.map((c) => h('option', { value: c.hash }, `${c.hash} ${c.what.slice(0, 60)}`)))
+    const res = h('button', { class: 'primary' }, 'Resolve')
+    res.onclick = async () => { await prism.call('resolve', { id, commit: pick.value, text: noteBox.value, by: 'Valerie' }); noteBox.value = ''; showIssue(id) }
+    act = h('div', { class: 'row' }, pick, res)
+  } else {
+    const re = h('button', {}, 'Reopen')
+    re.onclick = async () => { await prism.call('reopen', { id, text: noteBox.value, by: 'Valerie' }); showIssue(id) }
+    act = h('div', { class: 'row' }, re)
+  }
+  const commits = i.commits.map((c) => h('div', { class: 'commit' }, h('span', { class: 'h' }, c.hash), h('span', { class: 'w', title: c.what }, (c.fixed ? 'fixed it: ' : '') + c.what)))
+  const hist = i.history.map((c) => h('div', { class: 'commit' }, h('span', { class: 'h' }, when(c.when)), h('span', { class: 'w', title: c.what }, `${c.what} (${c.by})`)))
+  mount(v, h('div', { class: 'detail' },
+    h('div', { class: 'row', style: 'margin:0 0 6px' }, back),
+    h('div', {}, h('span', { class: 'num' }, '#' + i.id + ' '), h('span', { class: 'status ' + i.status }, i.status === 'open' ? 'open' : 'resolved'), ...i.labels.map((l) => h('span', { class: 'lab' }, l))),
+    h('h2', {}, i.title),
+    h('div', { class: 'dim', style: 'font-size:11px' }, `filed by ${i.by || 'someone'} ${when(i.created)}`),
+    body,
+    i.notes.length ? h('div', { class: 'section' }, 'Notes') : '', ...notes,
+    h('div', { class: 'section' }, 'Add to it'), noteBox, h('div', { class: 'row' }, addNote), act,
+    h('div', { class: 'section' }, 'Labels'), h('div', { class: 'row' }, labs, saveLabs),
+    commits.length ? h('div', { class: 'section' }, 'Commits') : '', ...commits,
+    h('div', { class: 'section' }, 'History'), ...hist))
+}
+
+prism.ready(load)
+prism.on('changed', () => load())
+</script>
+</body>
+</html>

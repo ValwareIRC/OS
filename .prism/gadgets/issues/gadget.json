@@ -1,0 +1,8 @@
+{
+  "id": "issues",
+  "name": "Issues",
+  "description": "This project's issues, kept on this computer only: each one a file in .prism/issues, its own git repository with no remote, so every change has its history and nothing is ever published.",
+  "backend": "backend.mjs",
+  "permissions": { "shell": true, "workspace": "write" },
+  "agent": "The project's own issue list, local only (never on GitHub). File what you find with issue_create (the exact file:line, what goes wrong, how to see it); read with issue_list / issue_get; add what you learn with issue_note; when a commit fixes one, issue_resolve with that commit's hash."
+}
