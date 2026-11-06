@@ -136,6 +136,8 @@ const void *kpi_host_acpi_table(const char *sig, int index);
 bool kpi_host_framebuffer(uint64_t *phys, uint32_t *width, uint32_t *height, uint32_t *pitch, uint16_t *bpp);
 const char *kpi_host_smbios_string(int type, int offset); /* the string a structure's byte at offset names; NULL */
 int kpi_host_smbios_byte(int type, int offset);           /* -1 when there is no such structure */
+/* a file the boot left on the disc (PATH.ondisc says so: kernel/main.c) read now, in the background; 0 or -ENOENT */
+int kpi_host_medium_request(const char *path);
 
 /* random numbers */
 void kpi_host_random(void *buf, size_t n);

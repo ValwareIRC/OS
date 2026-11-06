@@ -53,9 +53,22 @@ NVIDIA's glue then compiles nearly unchanged, and a new driver version is a new 
 idea as FreeBSD's LinuxKPI, which runs Linux's graphics drivers.) The core object `nv-kernel.o` is linked in as
 NVIDIA builds it.
 
-What the person's computer downloads at runtime, never shipped with the OS: the GSP firmware
-(`gsp_ga10x.bin`, `gsp_tu10x.bin`, for Blackwell `gsp_gb*`) and NVIDIA's closed user-space libraries (`libcuda.so`,
-`libnvidia-ml.so`, `nvidia-smi`), all from NVIDIA's driver package of exactly the same version as the kernel part.
+The GSP firmware ships with the system. It is the four files of NVIDIA's driver package of exactly the kernel
+part's version: `gsp_ga10x.bin`, `gsp_tu10x.bin`, `ucodes_ga10x.bin` and `ucodes_tu10x.bin`, 99 MB.
+
+NVIDIA's licence (section 1.1(d)) lets them be distributed for use with a kernel under an OSI-approved licence
+(this one is MIT), on two conditions: the files stay unmodified, and the licence goes with them. Its 2.1 says the
+firmware may only be used on NVIDIA hardware.
+
+How they get into the image:
+- `NV_FW_DIR` (default `~/osbuild/nvidia-fw/620.70.06`) holds them, taken from
+  `NVIDIA-Linux-x86_64-620.70.06.run --extract-only`, with that package's SHA-256 checked against NVIDIA's;
+- the image carries them as boot modules. Booting UEFI, the bootloader loads them; booting BIOS (VMs), they are
+  left on the disc until the driver asks for them (`request_firmware`, through `medium_request`);
+- the licence is at `/lib/firmware/nvidia/620.70.06/LICENSE`.
+
+NVIDIA's closed user-space libraries (`libcuda.so`, `libnvidia-ml.so`, `nvidia-smi`), from the same package, are
+not in the image yet.
 
 ## Phases
 
@@ -94,7 +107,7 @@ Not done yet, in the layer:
 - `/proc/driver/nvidia` isn't shown;
 - video memory isn't saved over suspend.
 
-The GSP firmware has to be at `/lib/firmware/nvidia/620.70.06/` (`request_firmware` reads it from there).
+The GSP firmware is at `/lib/firmware/nvidia/620.70.06/` (see above), where `request_firmware` reads it.
 
 ## Risks
 

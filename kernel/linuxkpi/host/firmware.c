@@ -15,6 +15,9 @@ bool kpi_host_efi(void) {
 
 const void *kpi_host_acpi_table(const char *sig, int index) { return acpi_find_table(sig, index); }
 
+int medium_request(const char *dest); /* (kernel/main.c) */
+int kpi_host_medium_request(const char *path) { return medium_request(path); }
+
 bool kpi_host_framebuffer(uint64_t *phys, uint32_t *width, uint32_t *height, uint32_t *pitch, uint16_t *bpp) {
     struct limine_framebuffer_response *r = boot_fb_request.response;
     if (!r || !r->framebuffer_count)

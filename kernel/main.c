@@ -240,7 +240,7 @@ enum { LAZY_ON_DISC, LAZY_READING, LAZY_HERE };
 /* The big files left on the disc (the built-in model, 5 GB): read when something asks for one
  * (/proc/sys/kernel/os_from_disc: the desktop does, when the mind it uses is that model), not at every boot:
  * a person whose mind is elsewhere never waits for it, nor gives it the memory. PATH.ondisc says one is there. */
-#define LAZY_MAX 4
+#define LAZY_MAX 12 /* (the model, and the GPU firmware's files) */
 static struct lazy_file *lazies[LAZY_MAX];
 static int nlazies;
 static spinlock_t lazy_lock;

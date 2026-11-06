@@ -554,6 +554,22 @@ int request_firmware(const struct firmware **fw, const char *name, struct device
     int err = 0;
     kpi_host_file *hf = kpi_host_kopen(path, 0 /* O_RDONLY */, 0, &err);
     if (!hf) {
+        /* still on the disc (the boot leaves big files there until asked for): asked for, and waited for */
+        char ondisc[176];
+        snprintf(ondisc, sizeof ondisc, "%s.ondisc", path);
+        kpi_host_file *mark = kpi_host_kopen(ondisc, 0, 0, NULL);
+        if (mark) {
+            kpi_host_file_put(mark);
+            if (kpi_host_medium_request(path) == 0) {
+                printk("linuxkpi: firmware %s: reading it from the disc\n", path);
+                for (int waited = 0; !hf && waited < 1200; waited++) { /* (two minutes at most) */
+                    msleep(100);
+                    hf = kpi_host_kopen(path, 0, 0, &err);
+                }
+            }
+        }
+    }
+    if (!hf) {
         printk("linuxkpi: no firmware %s (%d)\n", path, err);
         return err ? err : -ENOENT;
     }

@@ -9,6 +9,12 @@ BUILD       := build$(if $(filter arm64,$(ARCH)),/arm64)
 ISO         := $(BUILD)/os.iso
 # LKPI=1: the kernel with NVIDIA's driver in (kernel/linuxkpi, docs/nvidia/plan.md), built in a folder of its own
 LKPI        ?= 0
+# NVIDIA's GPU firmware (the GSP's), for its driver: from NVIDIA's driver package of the same version, unmodified,
+# with its LICENSE (which allows that, for a system under an open source licence: docs/nvidia/plan.md). In the
+# image as files the driver reads (/lib/firmware/nvidia/VERSION/), left on the disc until asked for.
+NV_VERSION  := 620.70.06
+NV_FW_DIR   ?= $(HOME)/osbuild/nvidia-fw/$(NV_VERSION)
+NV_FW       := $(wildcard $(NV_FW_DIR)/*.bin)
 KERNEL      := $(BUILD)/kernel$(if $(filter 1,$(LKPI)),-lkpi/kernel).elf
 INITRD      := $(BUILD)/initrd.cpio
 BASE_CPIO   := $(BUILD)/base.cpio
@@ -109,6 +115,8 @@ initrd: userland
 	for app in $$($(BUSYBOX) --list); do \
 		[ -e $(BUILD)/initrd/bin/$$app ] || ln -s busybox $(BUILD)/initrd/bin/$$app; done
 	cp -r userland/rootfs/. $(BUILD)/initrd/
+	[ ! -f $(NV_FW_DIR)/LICENSE ] || { mkdir -p $(BUILD)/initrd/lib/firmware/nvidia/$(NV_VERSION) && \
+		cp $(NV_FW_DIR)/LICENSE $(BUILD)/initrd/lib/firmware/nvidia/$(NV_VERSION)/LICENSE; }
 	# the time zones (the tz database, from the build machine: tzdata)
 	tar -C /usr/share -cf - --exclude=zoneinfo/right --exclude=zoneinfo/posix zoneinfo | tar -C $(BUILD)/initrd/usr/share -xf -
 	# the build machine's CA bundle, so HTTPS works on images without the base system
@@ -162,6 +170,12 @@ iso: kernel $(ISO_MODULES) $(BASE_IDX) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/bu
 				"$$name" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
 		done; \
 	fi
+	for fw in $(NV_FW); do \
+		name=nvfw-$$(basename $$fw); cp $$fw $(BUILD)/iso_root/boot/UEFI/$$name; \
+		printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$fw)" > $(BUILD)/iso_root/boot/BIOS/$$name; \
+		printf '    module_path: boot():/boot/$${FW_TYPE}/%s\n    module_string: /lib/firmware/nvidia/$(NV_VERSION)/%s\n' \
+			"$$name" "$$(basename $$fw)" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
+	done
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \
 	   $(LIMINE_DIR)/limine-uefi-cd.bin $(BUILD)/iso_root/boot/limine/
 	cp $(LIMINE_DIR)/$(EFI_BOOT) $(BUILD)/iso_root/EFI/BOOT/
@@ -190,8 +204,9 @@ DEV_ISO := $(BUILD)/dev.iso
 BIG_ISO := $(BUILD)/big.iso
 MODEL   := $(wildcard $(BUILD)/mind/builtin.gguf)
 
-$(BIG_ISO): $(wildcard $(BASE_CPIO)) $(MODEL)
+$(BIG_ISO): $(wildcard $(BASE_CPIO)) $(MODEL) $(NV_FW)
 	rm -rf $(BUILD)/big_root && mkdir -p $(BUILD)/big_root/boot/UEFI
+	for fw in $(NV_FW); do cp $$fw $(BUILD)/big_root/boot/UEFI/nvfw-$$(basename $$fw); done
 	[ ! -s $(BASE_CPIO) ] || ln $(BASE_CPIO) $(BUILD)/big_root/boot/UEFI/base.cpio 2>/dev/null || cp $(BASE_CPIO) $(BUILD)/big_root/boot/UEFI/base.cpio
 	[ -z "$(MODEL)" ] || split -b 3221225472 -d -a 1 $(MODEL) $(BUILD)/big_root/boot/UEFI/mind.gguf.
 	xorriso -as mkisofs -R -r -J -V OS_BIG $(BUILD)/big_root -o $@ 2>/dev/null
@@ -213,6 +228,12 @@ dev-iso: kernel initrd $(LIMINE_DIR) $(BIG_ISO) $(BASE_IDX)
 		printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$part)" > $(BUILD)/dev_root/boot/BIOS/$$name; \
 		printf '    module_path: boot():/boot/BIOS/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
 			"$$name" >> $(BUILD)/dev_root/boot/limine/limine.conf; \
+	done
+	for fw in $(BUILD)/big_root/boot/UEFI/nvfw-*; do \
+		[ -e "$$fw" ] || continue; name=$$(basename $$fw); \
+		printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$fw)" > $(BUILD)/dev_root/boot/BIOS/$$name; \
+		printf '    module_path: boot():/boot/BIOS/%s\n    module_string: /lib/firmware/nvidia/$(NV_VERSION)/%s\n' \
+			"$$name" "$${name#nvfw-}" >> $(BUILD)/dev_root/boot/limine/limine.conf; \
 	done
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(BUILD)/dev_root/boot/limine/
 	xorriso -as mkisofs -R -r -J -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 \
