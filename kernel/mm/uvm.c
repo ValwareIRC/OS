@@ -25,7 +25,9 @@
  * An object with a source (a file's pages, mm.h) may not have the page yet:
  * the fault then lets go of the lock, has the page read (which waits for the
  * disk), and starts over, since anything may have changed meanwhile.
- *   VMA_PHYS: device memory, never freed. */
+ *   VMA_PHYS: device memory, never freed.
+ *   VMA_DEV: a driver's (proc.h): its PTEs are the driver's to fill and take away, never owned here; the driver
+ *       is told when the mapping goes (its `put`, called once the lock is let go: dev_reap). */
 
 static uint64_t pte_flags_for(uint32_t prot) {
     uint64_t f = PG_USER;
@@ -157,16 +159,45 @@ static struct vma *vma_dup(const struct vma *v) {
             pageobj_ref(n->obj);
         if (n->name)
             __atomic_add_fetch(&n->name->refcount, 1, __ATOMIC_RELAXED);
+        if (n->dev)
+            n->dev->get(n->dev_priv);
     }
     return n;
 }
 
-static void vma_free(struct vma *v) {
+/* A driver's mapping gone: its driver is told once nothing is held (dev_reap), since that may sleep. */
+static void vma_free_now(struct vma *v) {
     if (v->obj)
         pageobj_put(v->obj);
     if (v->name)
         vma_name_put(v->name);
     kfree(v);
+}
+
+/* (lock held) a driver's mapping waits on its mm's list for dev_reap */
+static void vma_free(struct mm *mm, struct vma *v) {
+    if (!v->dev) {
+        vma_free_now(v);
+        return;
+    }
+    v->next = mm->dev_dead;
+    mm->dev_dead = v;
+}
+
+/* Tells the drivers of mm's mappings that went. Nothing held (callers: just after letting go of mm's lock); mm
+ * lives until it returns, which the drivers may count on. */
+static void dev_reap(struct mm *mm) {
+    for (;;) {
+        uint64_t f = spin_lock_irqsave(&mm->lock);
+        struct vma *v = mm->dev_dead;
+        if (v)
+            mm->dev_dead = v->next;
+        spin_unlock_irqrestore(&mm->lock, f);
+        if (!v)
+            return;
+        v->dev->put(v->dev_priv);
+        vma_free_now(v);
+    }
 }
 
 struct vma_name *vma_name_create(const char *path, uint64_t ino) {
@@ -263,7 +294,7 @@ static void zap_locked(struct mm *mm, struct vma *v, uint64_t s, uint64_t e, str
         *pte = 0;
         arch_tlb_flush_page(va);
         b->changed = true;
-        if (v->flags & VMA_PHYS)
+        if (v->flags & (VMA_PHYS | VMA_DEV))
             continue;
         /* every page is counted (private ones may be shared copy-on-write since a fork) */
         b->pages[b->n++] = phys | BATCH_SHARED;
@@ -309,7 +340,7 @@ static void unmap_locked(struct mm *mm, uint64_t start, uint64_t end) {
             pp = &v->next;
         } else {
             *pp = v->next;
-            vma_free(v);
+            vma_free(mm, v);
         }
     }
 }
@@ -334,6 +365,7 @@ int mm_map(struct mm *mm, uint64_t start, uint64_t end, uint32_t prot, uint32_t 
     uint64_t f = spin_lock_irqsave(&mm->lock);
     insert_locked(mm, nv);
     spin_unlock_irqrestore(&mm->lock, f);
+    dev_reap(mm);
     return 0;
 }
 
@@ -362,7 +394,129 @@ int mm_unmap(struct mm *mm, uint64_t start, uint64_t end) {
     unsigned k = mm->ngone++ % (sizeof mm->gone / sizeof mm->gone[0]);
     mm->gone[k].start = start, mm->gone[k].end = ALIGN_UP(end, PAGE_SIZE), mm->gone[k].ns = time_monotonic_ns();
     spin_unlock_irqrestore(&mm->lock, f);
+    dev_reap(mm);
     return 0;
+}
+
+/* ---- a driver's mappings (VMA_DEV, proc.h) ---- */
+
+void mm_get(struct mm *mm) { __atomic_add_fetch(&mm->refcount, 1, __ATOMIC_RELAXED); }
+
+void (*kpi_mm_gone)(void *kpi);
+
+bool mm_vma_info(struct mm *mm, uint64_t addr, uint64_t *start, uint64_t *end, uint32_t *prot, uint32_t *flags,
+                 void **dev_priv) {
+    uint64_t f = spin_lock_irqsave(&mm->lock);
+    struct vma *v = mm->vmas;
+    while (v && v->end <= addr)
+        v = v->next;
+    if (v)
+        *start = v->start, *end = v->end, *prot = v->prot, *flags = v->flags, *dev_priv = v->dev ? v->dev_priv : NULL;
+    spin_unlock_irqrestore(&mm->lock, f);
+    return v != NULL;
+}
+
+int mm_dev_attach(struct mm *mm, uint64_t start, const struct vma_dev_ops *ops, void *priv) {
+    uint64_t f = spin_lock_irqsave(&mm->lock);
+    struct vma *v = mm_find_vma(mm, start);
+    bool ok = v && v->start == start && (v->flags & VMA_DEV) && !v->dev;
+    if (ok)
+        v->dev = ops, v->dev_priv = priv;
+    spin_unlock_irqrestore(&mm->lock, f);
+    return ok ? 0 : -EINVAL;
+}
+
+int mm_dev_insert(struct mm *mm, uint64_t va, uint64_t phys, uint64_t len, int cache, bool write) {
+    if ((va & 0xfff) || (phys & 0xfff) || !len || va + len < va || va + len > USER_TOP)
+        return -EINVAL;
+    len = ALIGN_UP(len, PAGE_SIZE);
+    int r = 0;
+    bool replaced = false;
+    uint64_t f = spin_lock_irqsave(&mm->lock);
+    for (uint64_t a = va; a < va + len; a += PAGE_SIZE, phys += PAGE_SIZE) {
+        struct vma *v = mm_find_vma(mm, a);
+        if (!v || !(v->flags & VMA_DEV)) {
+            r = -EFAULT;
+            break;
+        }
+        uint64_t *pte = pte_slot(mm, a, true);
+        if (!pte) {
+            r = -ENOMEM;
+            break;
+        }
+        uint32_t prot = write ? v->prot : v->prot & ~PROT_WRITE;
+        uint64_t pg = pte_flags_for(prot) | (cache == 0 ? PG_UNCACHED : cache == 1 ? PG_WC : 0);
+        if (pte_present(*pte)) {
+            arch_tlb_flush_page(a);
+            replaced = true;
+        }
+        pte_publish(pte, pte_make(phys, pg));
+    }
+    if (replaced)
+        tlb_shootdown(mm);
+    spin_unlock_irqrestore(&mm->lock, f);
+    return r;
+}
+
+void mm_dev_zap(struct mm *mm, uint64_t va, uint64_t len) {
+    bool changed = false;
+    uint64_t f = spin_lock_irqsave(&mm->lock), span;
+    for (uint64_t a = ALIGN_DOWN(va, PAGE_SIZE); a < va + len; a = walk_next(a, span)) {
+        uint64_t *pte = pte_find(mm, a, &span);
+        if (!pte || !pte_present(*pte))
+            continue;
+        struct vma *v = mm_find_vma(mm, a);
+        if (!v || !(v->flags & VMA_DEV))
+            continue; /* (only the driver's own pages: nothing it doesn't own is taken) */
+        *pte = 0;
+        arch_tlb_flush_page(a);
+        changed = true;
+    }
+    if (changed)
+        tlb_shootdown(mm);
+    spin_unlock_irqrestore(&mm->lock, f);
+}
+
+int mm_dev_lookup(struct mm *mm, uint64_t va, uint64_t *phys, bool *writable) {
+    int r = -EFAULT;
+    uint64_t f = spin_lock_irqsave(&mm->lock);
+    struct vma *v = mm_find_vma(mm, va);
+    if (v && (v->flags & (VMA_DEV | VMA_PHYS))) {
+        uint64_t *pte = pte_slot(mm, ALIGN_DOWN(va, PAGE_SIZE), false);
+        if (pte && pte_present(*pte)) {
+            *phys = pte_phys(*pte);
+            *writable = pte_flags(*pte) & PG_WRITE;
+            r = 0;
+        }
+    }
+    spin_unlock_irqrestore(&mm->lock, f);
+    return r;
+}
+
+/* (faulted in as the program would, then held by a reference of its own: the program may unmap it meanwhile,
+ * and the page stays the device's until it is let go) */
+int mm_pin_page(struct mm *mm, uint64_t va, bool write, uint64_t *phys) {
+    va = ALIGN_DOWN(va, PAGE_SIZE);
+    for (int tries = 0; tries < 4; tries++) {
+        uint64_t f = spin_lock_irqsave(&mm->lock);
+        struct vma *v = mm_find_vma(mm, va);
+        if (!v || (v->flags & (VMA_DEV | VMA_PHYS)) || (write && !(v->prot & PROT_WRITE))) {
+            spin_unlock_irqrestore(&mm->lock, f);
+            return -EFAULT;
+        }
+        uint64_t *pte = pte_slot(mm, va, false);
+        bool usable = pte && pte_present(*pte) && (!write || (pte_flags(*pte) & PG_WRITE));
+        if (usable) {
+            *phys = pte_phys(*pte);
+            page_ref(*phys);
+        }
+        spin_unlock_irqrestore(&mm->lock, f);
+        if (usable)
+            return 0;
+        if (!mm_handle_fault(mm, va, write, false, true))
+            return -EFAULT;
+    }
+    return -EFAULT;
 }
 
 int mm_protect(struct mm *mm, uint64_t start, uint64_t end, uint32_t prot) {
@@ -406,7 +560,7 @@ int mm_protect(struct mm *mm, uint64_t start, uint64_t end, uint32_t prot) {
     for (uint64_t va = start; va < end; va = walk_next(va, span)) {
         uint64_t *pte = pte_find(mm, va, &span);
         if (pte && pte_present(*pte)) {
-            uint64_t flags = pte_flags_for(prot) | (pte_flags(*pte) & (PG_WC | PG_COW));
+            uint64_t flags = pte_flags_for(prot) | (pte_flags(*pte) & (PG_WC | PG_UNCACHED | PG_COW));
             if (flags & PG_COW)
                 flags &= ~PG_WRITE; /* still shared: the first write copies it */
             *pte = pte_make(pte_phys(*pte), flags);
@@ -465,6 +619,7 @@ uint64_t mm_map_free(struct mm *mm, uint64_t len, uint64_t hint, uint32_t prot, 
         insert_locked(mm, nv);
     }
     spin_unlock_irqrestore(&mm->lock, f);
+    dev_reap(mm);
     if (!addr)
         kfree(nv);
     return addr;
@@ -502,6 +657,7 @@ static int64_t map_object(struct mm *mm, uint64_t addr, uint64_t len, uint32_t p
         insert_locked(mm, nv);
     }
     spin_unlock_irqrestore(&mm->lock, f);
+    dev_reap(mm);
     if (!ok) {
         kfree(nv);
         return -ENOMEM;
@@ -589,6 +745,7 @@ int64_t mm_remap(struct mm *mm, uint64_t old_addr, uint64_t old_len, uint64_t ne
         r = -ENOMEM;
     }
     spin_unlock_irqrestore(&mm->lock, f);
+    dev_reap(mm);
     return r;
 }
 
@@ -643,8 +800,8 @@ static uint64_t *fault_in(struct mm *mm, struct vma *v, uint64_t va, bool *missi
         p = pageobj_map_page_or_missing(v->obj, v->pgoff + (va - v->start) / PAGE_SIZE, missing);
         if (*missing)
             return NULL;
-    } else if (v->flags & VMA_PHYS) {
-        p = 0; /* device mappings are filled in completely at mmap time */
+    } else if (v->flags & (VMA_PHYS | VMA_DEV)) {
+        p = 0; /* device mappings are filled in completely at mmap time; a driver's by the driver (mm_handle_fault) */
     } else {
         p = page_alloc_shared(); /* counted: a fork shares it copy-on-write */
         if (p)
@@ -661,6 +818,8 @@ bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec, bool c
         return false;
     for (int tries = 0;; tries++) {
         struct pageobj *read = NULL;
+        const struct vma_dev_ops *dev = NULL;
+        void *dev_priv = NULL;
         uint64_t idx = 0;
         uint64_t f = spin_lock_irqsave(&mm->lock);
         struct vma *v = mm_find_vma(mm, addr);
@@ -679,6 +838,9 @@ bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec, bool c
                 ok = (!write || (pg & PG_WRITE)) && (!exec || (pg & PG_EXEC));
                 if (ok)
                     arch_tlb_flush_page(ALIGN_DOWN(addr, PAGE_SIZE));
+            } else if ((v->flags & VMA_DEV) && v->dev && v->dev->fault) {
+                dev = v->dev, dev_priv = v->dev_priv;
+                dev->get(dev_priv); /* (the mapping may go while the driver works: its record stays) */
             } else {
                 bool missing = false;
                 ok = fault_in(mm, v, ALIGN_DOWN(addr, PAGE_SIZE), &missing) != NULL;
@@ -690,6 +852,22 @@ bool mm_handle_fault(struct mm *mm, uint64_t addr, bool write, bool exec, bool c
             }
         }
         spin_unlock_irqrestore(&mm->lock, f);
+        if (dev) {
+            /* A driver's page: the driver puts it in, with nothing held and interrupts on (it may sleep) */
+            int r = -EFAULT;
+            if (can_wait && tries < 64) {
+                uint64_t fl = irq_save();
+                irq_enable();
+                r = dev->fault(dev_priv, mm, ALIGN_DOWN(addr, PAGE_SIZE), write);
+                dev->put(dev_priv);
+                irq_restore(fl);
+            } else {
+                dev->put(dev_priv);
+            }
+            if (r < 0)
+                return false;
+            continue; /* (and look again: the page is there now, or it was taken away meanwhile) */
+        }
         if (!read)
             return ok;
         /* The page is on the disk: read it with nothing held, interrupts on (as they were where the fault came
@@ -760,7 +938,14 @@ struct mm *mm_clone(struct mm *src) {
     struct vma **tail = &mm->vmas;
     bool cow = false;
     for (struct vma *v = src->vmas; v; v = v->next) {
-        struct vma *nv = vma_dup(v);
+        void *child_priv = NULL;
+        if (v->dev && !(child_priv = v->dev->fork(v->dev_priv)))
+            continue; /* the driver keeps this mapping to the parent */
+        struct vma copy = *v;
+        copy.dev = NULL; /* (copied without the driver: the child's record is its own, from fork) */
+        struct vma *nv = vma_dup(&copy);
+        if (nv)
+            nv->dev = v->dev, nv->dev_priv = child_priv;
         if (!nv)
             goto fail;
         *tail = nv;
@@ -773,7 +958,7 @@ struct mm *mm_clone(struct mm *src) {
             uint64_t *dpte = pte_slot(mm, va, true);
             if (!dpte)
                 goto fail;
-            if (v->flags & VMA_PHYS) {
+            if (v->flags & (VMA_PHYS | VMA_DEV)) {
                 *dpte = *spte; /* device memory is shared, not copied */
                 continue;
             }
@@ -832,6 +1017,9 @@ void mm_put(struct mm *mm) {
     uint64_t f = spin_lock_irqsave(&mm->lock);
     unmap_locked(mm, 0, USER_TOP);
     spin_unlock_irqrestore(&mm->lock, f);
+    dev_reap(mm);
+    if (mm->kpi && kpi_mm_gone)
+        kpi_mm_gone(mm->kpi);
     /* Leaf pages are gone; free the page-table pages of the lower half. */
     free_tables(mm->pml4, 4);
     pmm_free(virt_to_phys_hhdm(mm->pml4), 1);

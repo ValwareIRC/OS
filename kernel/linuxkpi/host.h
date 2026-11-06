@@ -15,6 +15,7 @@ int kpi_host_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 
 /* memory: the kernel heap, whole pages, the direct map, device memory */
 void *kpi_host_alloc(size_t n);          /* zeroed; NULL when out */
+size_t kpi_host_alloc_size(const void *p); /* what it can hold */
 void kpi_host_free(void *p);
 uint64_t kpi_host_pages(size_t count);   /* physically contiguous; 0 when out */
 void kpi_host_pages_free(uint64_t phys, size_t count);
@@ -26,6 +27,15 @@ uint64_t kpi_host_total_pages(void);
 uint64_t kpi_host_free_pages(void);
 uint64_t kpi_host_max_phys(void);
 uint64_t kpi_host_direct_map_base(void);
+/* the layer's own kernel addresses (vmalloc, vmap, ioremap): 4 KiB pages, each mapping with its caching */
+void *kpi_host_vmap(const uint64_t *phys, size_t pages, int cache, void *owner); /* NULL when out */
+void *kpi_host_ioremap(uint64_t phys, size_t len, int cache);  /* (the address of `phys` itself, offset kept) */
+void *kpi_host_vunmap(const void *v);         /* unmaps (not the pages): the owner given to kpi_host_vmap */
+bool kpi_host_vmapped(const void *v, void **start, size_t *pages, void **owner); /* inside one of them? */
+bool kpi_host_in_vmap_area(const void *v);
+void kpi_host_flush_cache(const void *v, size_t len); /* written back and dropped from every cache */
+void kpi_host_page_ref(uint64_t phys);   /* (pages programs had: counted, so a device can hold one) */
+void kpi_host_page_unref(uint64_t phys);
 
 /* time */
 uint64_t kpi_host_now_ns(void);
@@ -57,6 +67,28 @@ void kpi_host_on_each_cpu(void (*fn)(void *), void *arg); /* every processor, th
 bool kpi_host_copy_from_user(void *dst, uint64_t src, size_t n); /* false: not all of it could be read */
 bool kpi_host_copy_to_user(uint64_t dst, const void *src, size_t n);
 bool kpi_host_user_range_ok(uint64_t addr, size_t n);
+
+/* programs' address spaces (our kernel's, as they are) */
+typedef struct kpi_host_mm kpi_host_mm;
+kpi_host_mm *kpi_host_mm_current(void); /* NULL on a kernel thread */
+void **kpi_host_mm_slot(kpi_host_mm *mm); /* one pointer of the layer's in each */
+void kpi_host_on_mm_gone(void (*fn)(void *slot)); /* called with it when the address space ends */
+/* the first mapping ending after addr: its range, protection (PROT_*), whether a device's, and the layer's record
+ * when it is one of the layer's devices' */
+bool kpi_host_vma_find(kpi_host_mm *mm, uint64_t addr, uint64_t *start, uint64_t *end, int *prot, bool *io, void **rec);
+/* A driver's mappings (mmap of the layer's devices): the layer's callbacks, set once, then each mapping its record */
+struct kpi_host_devmap_ops {
+    void (*get)(void *rec);
+    void (*put)(void *rec);              /* (may sleep) */
+    void *(*fork)(void *rec);            /* the child's own record, or NULL: no copy (never sleeps) */
+    int (*fault)(void *rec, kpi_host_mm *mm, uint64_t va, bool write); /* (may sleep) */
+};
+void kpi_host_devmap_init(const struct kpi_host_devmap_ops *ops);
+int kpi_host_dev_attach(kpi_host_mm *mm, uint64_t start, void *rec);
+int kpi_host_dev_insert(kpi_host_mm *mm, uint64_t va, uint64_t phys, uint64_t len, int cache, bool write);
+void kpi_host_dev_zap(kpi_host_mm *mm, uint64_t va, uint64_t len);
+int kpi_host_dev_lookup(kpi_host_mm *mm, uint64_t va, uint64_t *phys, bool *writable);
+int kpi_host_pin(kpi_host_mm *mm, uint64_t va, bool write, uint64_t *phys); /* held until kpi_host_page_unref */
 
 /* PCI */
 int kpi_host_pci_count(void);

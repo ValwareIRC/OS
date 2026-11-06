@@ -6,7 +6,7 @@
  * interrupt (the driver's are written to allow either). */
 
 extern int lkpi_preempt_depth[256];
-struct mm_struct *lkpi_mm_of_process(int pid); /* (mm.c: the Linux-shaped view of a program's memory) */
+struct mm_struct *lkpi_mm_current(void); /* (mm.c: the Linux-shaped view of the program's memory, counted) */
 
 /* ---- tasks ---- */
 
@@ -36,6 +36,8 @@ static void task_put(struct lkpi_task *k) {
     if (last)
         list_del(&k->all);
     spin_unlock(&tasks_lock);
+    if (last && k->t.mm)
+        mmdrop(k->t.mm);
     if (last)
         kfree(k);
 }
@@ -54,7 +56,7 @@ static struct lkpi_task *task_new(kpi_host_thread *th) {
     strscpy(t->comm, kpi_host_comm(), sizeof t->comm);
     t->cred = &root_cred;
     t->group_leader = t;
-    t->mm = t->active_mm = t->tgid ? lkpi_mm_of_process(t->tgid) : NULL;
+    t->mm = t->active_mm = t->tgid ? lkpi_mm_current() : NULL;
     t->stack = k;
     spin_lock_init(&t->alloc_lock);
     t->lkpi_thread = th;

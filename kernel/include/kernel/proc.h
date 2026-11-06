@@ -60,6 +60,7 @@ void multiwait_end(struct multiwait *m); /* out of every queue, the files let go
 /* A private map of `obj`'s pages (a big MAP_PRIVATE file map): read in place, copy-on-write, so the file is
  * never changed through it and costs no copy until a page is written */
 #define VMA_PRIVOBJ  16
+#define VMA_DEV      32 /* a driver's (mm_dev_*): its pages are put in and taken away by it, never owned here */
 
 struct pageobj;
 
@@ -84,8 +85,37 @@ struct vma {
     struct pageobj *obj; /* VMA_SHARED: referenced backing object */
     uint64_t pgoff;      /* VMA_SHARED: page index in `obj` of `start`; file maps: file page, for maps */
     struct vma_name *name; /* referenced, or NULL (anonymous) */
+    const struct vma_dev_ops *dev; /* VMA_DEV: the driver's, and its own record of the mapping */
+    void *dev_priv;
     struct vma *next;
 };
+
+/* A driver's mappings (VMA_DEV: a GPU's memory and registers, mapped by the driver page by page, or as they are
+ * touched). Each piece of a split mapping holds the driver's record once (get); `put` lets one go, and is called
+ * with nothing held (it may sleep: the driver's close). `fork` gives the child's own record, or NULL for none (the
+ * child then has no such mapping); it never sleeps. `fault` fills in the page at `va` (mm_dev_insert) or fails
+ * (<0: the program gets SIGSEGV); it is called with nothing held, and may sleep. */
+struct vma_dev_ops {
+    void (*get)(void *priv);
+    void (*put)(void *priv);
+    void *(*fork)(void *priv);
+    int (*fault)(void *priv, struct mm *mm, uint64_t va, bool write);
+};
+/* Gives the VMA_DEV mapping at `start` (made by mmap for a device with mmap_dev) its driver */
+int mm_dev_attach(struct mm *mm, uint64_t start, const struct vma_dev_ops *ops, void *priv);
+/* Maps [va, va+len) of a VMA_DEV mapping to phys..: cache 0 uncached, 1 write-combining, 2 cached */
+int mm_dev_insert(struct mm *mm, uint64_t va, uint64_t phys, uint64_t len, int cache, bool write);
+/* Takes the pages of [va, va+len) away again (touching them faults to the driver) */
+void mm_dev_zap(struct mm *mm, uint64_t va, uint64_t len);
+/* The page at `va` faulted in (for writing, if `write`) and held (page_ref) for a device to use; -EFAULT for no
+ * memory there, or a device's (which can't be held) */
+int mm_pin_page(struct mm *mm, uint64_t va, bool write, uint64_t *phys);
+/* What a device mapping maps at `va`: 0, or -EFAULT when nothing (or not a device's) */
+int mm_dev_lookup(struct mm *mm, uint64_t va, uint64_t *phys, bool *writable);
+void mm_get(struct mm *mm);
+/* The first mapping that ends after `addr` (find_vma): its range, protection and kind; false when none */
+bool mm_vma_info(struct mm *mm, uint64_t addr, uint64_t *start, uint64_t *end, uint32_t *prot, uint32_t *flags,
+                 void **dev_priv);
 
 struct mm {
     uint64_t *pml4;
@@ -100,7 +130,10 @@ struct mm {
         uint64_t start, end, ns;
     } gone[128];
     unsigned ngone;
+    struct vma *dev_dead; /* a driver's mappings that went, for dev_reap (mm/uvm.c) */
+    void *kpi; /* the Linux-shaped layer's view of it (linuxkpi: its mm_struct), ended by kpi_mm_gone */
 };
+extern void (*kpi_mm_gone)(void *kpi);
 
 struct mm *mm_create(void);
 struct mm *mm_clone(struct mm *src);

@@ -78,6 +78,23 @@ uint64_t vmm_translate(uint64_t *pml4, uint64_t virt) {
 
 uint64_t *vmm_kernel_pml4(void) { return kernel_pml4; }
 
+/* Clears the 4 KiB mapping of `virt` (none, or a huge page's: 0); the page it mapped. The caller flushes the TLBs. */
+uint64_t vmm_unmap_page(uint64_t *pml4, uint64_t virt) {
+    uint64_t *table = pml4;
+    for (int l = 4; l > 1; l--) {
+        uint64_t e = table[(virt >> (12 + 9 * (l - 1))) & 0x1ff];
+        if (!pte_present(e) || pte_is_huge(e))
+            return 0;
+        table = phys_to_virt(pte_phys(e));
+    }
+    uint64_t *slot = &table[(virt >> 12) & 0x1ff];
+    if (!pte_present(*slot))
+        return 0;
+    uint64_t phys = pte_phys(*slot);
+    pte_publish(slot, 0);
+    return phys;
+}
+
 static spinlock_t kernel_map_lock = SPINLOCK_INIT;
 
 void vmm_map_mmio(uint64_t phys, uint64_t len, bool uncached) {

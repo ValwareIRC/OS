@@ -51,6 +51,24 @@ SYSCALL(mmap) {
             return -EBADF;
         if (f->vnode->type == VN_REG)
             name = vma_name_for_file(f);
+        if (f->vnode->ops->mmap_dev) {
+            int64_t r = 0;
+            if (!shared)
+                r = -EINVAL; /* (a driver's memory is only ever shared) */
+            else if (!fixed)
+                addr = mm_map_free(mm, len, addr, (uint32_t)prot, VMA_DEV);
+            else
+                r = mm_map(mm, addr, addr + len, (uint32_t)prot, VMA_DEV);
+            if (r == 0 && !addr)
+                r = -ENOMEM;
+            if (r == 0) {
+                r = f->vnode->ops->mmap_dev(f->vnode, f, mm, addr, len, (uint32_t)prot, off);
+                if (r < 0)
+                    mm_unmap(mm, addr, addr + len);
+            }
+            file_put(f);
+            return r < 0 ? r : (int64_t)addr;
+        }
         if (f->vnode->ops->mmap_phys) {
             uint64_t phys;
             int r = f->vnode->ops->mmap_phys(f->vnode, off, len, &phys);

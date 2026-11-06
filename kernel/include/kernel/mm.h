@@ -128,6 +128,7 @@ bool vmm_map(uint64_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags);
 bool vmm_map_huge(uint64_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags);
 uint64_t vmm_translate(uint64_t *pml4, uint64_t virt);
 uint64_t *vmm_kernel_pml4(void);
+uint64_t vmm_unmap_page(uint64_t *pml4, uint64_t virt); /* (4 KiB mappings; TLBs are the caller's) */
 /* Makes [phys, phys+len) reachable through the direct map (for firmware
  * tables and device registers outside the memory map). Pages already mapped
  * are left alone. `uncached` selects strong-uncacheable for device MMIO. */
@@ -138,3 +139,4 @@ void heap_init(void);
 void *kmalloc(size_t size);
 void *kzalloc(size_t size);
 void kfree(void *p);
+size_t kmalloc_size(const void *p); /* what the block can hold (at least what was asked for) */

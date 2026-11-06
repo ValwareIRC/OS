@@ -20,6 +20,7 @@ int kpi_host_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) { re
 
 /* ---- memory ---- */
 void *kpi_host_alloc(size_t n) { return kzalloc(n ? n : 1); }
+size_t kpi_host_alloc_size(const void *p) { return kmalloc_size(p); }
 void kpi_host_free(void *p) { kfree(p); }
 uint64_t kpi_host_pages(size_t count) { return pmm_alloc(count); }
 void kpi_host_pages_free(uint64_t phys, size_t count) { pmm_free(phys, count); }

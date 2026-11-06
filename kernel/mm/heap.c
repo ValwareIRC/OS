@@ -123,6 +123,13 @@ void *kmalloc(size_t size) {
     return b + 1;
 }
 
+size_t kmalloc_size(const void *p) {
+    const struct block *b = (const struct block *)p - 1;
+    if (b->magic != HEAP_MAGIC)
+        panic("kmalloc_size: not a heap block: %p", p);
+    return b->cls == BIG ? (size_t)b->pages * PAGE_SIZE - sizeof *b : class_bytes(b->cls);
+}
+
 void *kzalloc(size_t size) {
     void *p = kmalloc(size);
     if (p)

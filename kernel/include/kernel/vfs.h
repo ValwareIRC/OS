@@ -58,6 +58,10 @@ struct vnode_ops {
     /* Files kept in pages (ramfs, memfd): returns the backing object, with
      * a reference, for MAP_SHARED. May refuse a writable mapping (seals). */
     int (*mmap_shared)(struct vnode *v, uint32_t prot, struct pageobj **out);
+    /* A driver's own mappings (proc.h: VMA_DEV): mmap has reserved [addr, addr+len) as one; the driver fills it in
+     * (mm_dev_insert) and gives it its record (mm_dev_attach), or fails and it is taken away again. */
+    int (*mmap_dev)(struct vnode *v, struct file *f, struct mm *mm, uint64_t addr, uint64_t len, uint32_t prot,
+                    uint64_t off);
     void (*close)(struct vnode *v, struct file *f);
     void (*release)(struct vnode *v); /* last reference dropped */
     /* fsync/fdatasync: make written data durable (block devices). */
