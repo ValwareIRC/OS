@@ -15,7 +15,9 @@ os.conf
 lumen.conf
 
 # Editor and tool state
-.prism/
+.prism/*
+!.prism/gadgets/
+!.prism/lessons/
 .playwright-mcp/
 .vscode/
 *.orig

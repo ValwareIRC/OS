@@ -1,0 +1,20 @@
+{
+  "title": "12 Building the system",
+  "steps": [
+    { "do": "say", "say": "This lesson shows how the system is built: the main Makefile targets, the base system, and where the output goes. It only shows where things are and runs nothing. Builds run inside WSL or Linux." },
+    { "do": "tree.open", "path": "Makefile" },
+    { "do": "spotlight", "file": "Makefile", "anchor": "ARCH        ?= x86_64", "through": "BASE_DIR    ?= $(HOME)/osbuild/base", "say": "Everything is built into build/. That gives the kernel, build/kernel.elf; the OS's own files, build/initrd.cpio; the base system, build/base.cpio; and the bootable image, build/os.iso." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "kernel:", "through": "$(MAKE) -C kernel BUILD=../$(BUILD)/kernel OUT=../$(KERNEL)", "select": "kernel", "say": "`make kernel` builds only the kernel, using kernel/Makefile. It is the quickest check that kernel code compiles." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "initrd: userland", "through": "cd $(BUILD)/initrd && find . | LC_ALL=C sort | cpio -o -H newc --quiet > ../initrd.cpio", "say": "`initrd` builds user space (init, os-shell and the tools) and packs it, with userland/rootfs, into one cpio archive. A cpio archive is a plain bundle of files that the kernel unpacks at boot." },
+    { "do": "spotlight", "file": "userland/Makefile", "anchor": "SHELL_OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(wildcard shell/*.c shell/fm/*.c shell/wl/*.c shell/fx/*.c shell/m3d/*.c))", "say": "Every .c file in these folders becomes part of os-shell automatically. A new file there needs no Makefile change." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "iso: kernel $(ISO_MODULES) $(BASE_IDX) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/builtin.gguf)", "say": "`make` (the same as `make iso`) makes the release image: kernel, initrd, base system, the built-in model if there is one, and the Limine bootloader. It boots with UEFI and with BIOS." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "# For development: the system in two discs. dev.iso (tens of MB, rebuilt in seconds) holds the kernel, the OS", "through": "# exactly as from the one release image (make iso). BIOS only, as the VMs boot.", "say": "For everyday work there is `make dev-iso`. The small disc is rebuilt in seconds, and the big files sit on a second disc, big.iso, which is rebuilt only when they change." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "base-system:", "through": "bash scripts/build-base.sh", "say": "The base system is the Freedesktop Platform that Flatpak apps run on, plus what it lacks. It is built separately, rarely, and installed into ~/osbuild/base." },
+    { "do": "tree.open", "path": "scripts/build-base.sh" },
+    { "do": "spotlight", "file": "scripts/build-base.sh", "anchor": "# The OS's base system: the Freedesktop Platform runtime (the same", "through": "# org.freedesktop.Sdk//26.08 runtime installed for this user.", "say": "scripts/build-base.sh builds each part from source: bubblewrap, D-Bus, OSTree, Flatpak, llama.cpp, whisper.cpp and more. You can build one part at a time by giving its name." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "run: iso | $(DISK_IMG)", "say": "`make run` boots the image in QEMU in WSL with a 1 GB disk of its own. On Windows, Operating System.cmd starts it in Windows QEMU instead. First scripts/launcher.ps1 shows a small window of choices, then scripts/os-win.ps1 starts the VM." },
+    { "do": "spotlight", "file": ".gitignore", "anchor": "build/", "say": "build/ is never committed. Logs, test output and screenshots all land there, and build/tmp is free for scratch files." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Next: **13 Making your first change**." }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "title": "07 Facet, the design language",
+  "steps": [
+    { "do": "say", "say": "This lesson shows **Facet**, the language the AI writes every desktop in, and how a design file becomes what is on the screen. A Facet document is markup for structure and a small stylesheet for looks, like HTML and CSS but much smaller and made for this OS." },
+    { "do": "tree.expand", "path": "userland/shell/fm", "say": "The engine is in userland/shell/fm: xml.c reads the markup, css.c the styles, layout.c places things, render.c draws them, doc.c handles input, lint.c spots mistakes." },
+    { "do": "tree.open", "path": "userland/shell/fm/fm.h" },
+    { "do": "spotlight", "file": "userland/shell/fm/fm.h", "anchor": "/* Facet markup engine.", "through": "* to write, easy to validate, and easy for the companion to read and drive.", "say": "Nothing about the layout is built in. A taskbar with a start menu and a dock with a menu bar are just two different documents." },
+    { "do": "spotlight", "file": "userland/shell/fm/xml.c", "anchor": "/* A lenient XML subset parser. Models write markup well but not perfectly,", "say": "Models make small mistakes, so the reader mends what it can, such as unclosed tags or bare ampersands, and notes each problem rather than refusing the document." },
+    { "do": "spotlight", "file": "userland/shell/fm/fm.h", "anchor": "fm_doc *fm_parse(const char *text);", "through": "char *fm_serialize(const fm_doc *d);", "say": "Text becomes a document tree with `fm_parse`, and goes back to text with `fm_serialize`. That is how the design is saved." },
+    { "do": "spotlight", "file": "userland/shell/fm/fm.h", "anchor": "void fm_layout(fm_doc *d, rect screen);", "through": "void fm_render_layer(fm_doc *d, canvas *c, int layer);", "say": "Each frame the desktop calls `fm_layout` to place everything at the screen's size, then `fm_render_layer` to draw it into the frame." },
+    { "do": "tree.expand", "path": "userland/rootfs/usr/share/os/themes", "say": "The 34 starter themes are Facet documents too. Reading one is the quickest way to learn the language." },
+    { "do": "tree.open", "path": "userland/rootfs/usr/share/os/themes/calm.xml" },
+    { "do": "spotlight", "file": "userland/rootfs/usr/share/os/themes/calm.xml", "anchor": ":root { --bg:#ebe6de; --surface:#fdfcfa; --surface-2:#f3f0ea; --surface-text:#2a2825; --text:#2a2825;", "through": "--muted:#5f5b54; --accent:#4f7a68; --accent2:#c98b6b; --font-heading:Outfit; --font-body:Inter; --radius:16; }", "say": "`<style>` starts with variables for colours, fonts and corners. Every theme uses the same names, so changing them recolours the whole desktop." },
+    { "do": "spotlight", "file": "userland/rootfs/usr/share/os/themes/calm.xml", "anchor": "<desktop>", "through": "</desktop>", "say": "`<desktop>` is the structure: columns, clocks, app lists, buttons and popovers. A button's `what` is its action, such as `toggle:#all`, from a fixed set." },
+    { "do": "spotlight", "file": "userland/rootfs/usr/share/os/themes/calm.xml", "anchor": "<template id=\"window\">", "through": "</template>", "say": "`<template id=\"window\">` is the frame drawn around every window, apps' windows included. `<slot/>` is where the window's content goes." },
+    { "do": "tree.open", "path": "userland/shell/desktop.c" },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "void desktop_enter(void) {", "through": "A.ui = fm_parse(m);", "select": "desktop_enter", "say": "The design in use is kept in /etc/os/facet.xml and read at start (main.c). `desktop_enter` puts it on screen, and makes one from the older design settings if there is no document." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "void desktop_save_ui(void) {", "select": "desktop_save_ui", "say": "Every change is saved back to that file. The version before is kept as a change that can be put back (lesson 10)." },
+    { "do": "tree.open", "path": "userland/shell/stylist_look.c" },
+    { "do": "spotlight", "file": "userland/shell/stylist_look.c", "anchor": "char *stylist_expand_base(const char *reply) {", "select": "stylist_expand_base", "say": "The AI may start from a theme, `<facet base=\"paper\">`, and write only what changes. Its style rules go after the theme's, and later rules win." },
+    { "do": "spotlight", "file": "userland/shell/stylist_look.c", "anchor": "char *names[24];", "say": "One thing to know: the list of themes offered to the AI stops at 24 names, but there are 34 theme files. The rest are not offered here." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Apps the companion writes use **Facet 2**, a separate app language (.facet files, docs/facet2.md, userland/shell/fx). Next: **08 The companion**." }
+  ]
+}

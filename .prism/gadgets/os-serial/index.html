@@ -1,0 +1,120 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="prism-gadget://_sdk/base.css">
+<script src="prism-gadget://_sdk/prism.js"></script>
+<link rel="stylesheet" href="prism-gadget://_sdk/kit.css">
+<script src="prism-gadget://_sdk/kit.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box }
+html, body { height: 100%; margin: 0 }
+.k-app { height: 100%; display: flex; flex-direction: column }
+.top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px 6px }
+.top .k-title { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; padding: 0 12px 8px }
+.stat { padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,0.04); min-width: 0 }
+.stat b { display: block; font-size: 18px }
+.stat span { font-size: 11px; opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block }
+.stat.bad b { color: var(--rose) } .stat.warn b { color: var(--amber) } .stat.ai b { color: var(--accent) } .stat.ok b { color: var(--mint) }
+.bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; align-items: center }
+.chip { border: 1px solid rgba(255,255,255,0.14); background: none; color: inherit; border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer }
+.chip.on { background: var(--accent); color: #000; border-color: var(--accent) }
+.bar input { flex: 1 1 120px; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: inherit; border-radius: 6px; padding: 4px 8px; font-size: 12px }
+.where { padding: 0 12px 6px; font-size: 11px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.last { margin: 0 12px 8px; padding: 6px 8px; border-radius: 6px; background: rgba(255,90,110,0.1); color: var(--rose); font-size: 12px; overflow-wrap: anywhere }
+#log { flex: 1; overflow: auto; padding: 0 12px 12px; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; line-height: 1.45 }
+.ln { display: flex; gap: 8px; padding: 1px 0; min-width: 0 }
+.ln .tag { flex: 0 0 52px; font-size: 10px; text-transform: uppercase; opacity: .8; padding-top: 2px }
+.ln .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap }
+.ln.error .tag, .ln.error .tx { color: var(--rose) }
+.ln.timeout .tag, .ln.timeout .tx { color: var(--amber) }
+.ln.ai .tag { color: var(--accent) }
+.ln.screen .tag { color: var(--mint) }
+.ln.other .tx { opacity: .55 }
+.ln.empty .tx { color: var(--amber) }
+.sep { margin: 10px 0 6px; font-size: 11px; opacity: .7; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px }
+</style></head>
+<body>
+<div class="k-app">
+  <div class="top">
+    <span class="k-dot" id="dot"></span>
+    <div class="k-title" id="title">the OS VM serial log</div>
+    <button class="chip" id="follow" title="Keep the newest line in view">Follow</button>
+    <button class="chip" id="restart">Restart the OS</button>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="bar" id="chips"></div>
+  <div class="bar"><input id="q" placeholder="Find in this boot"></div>
+  <div class="where" id="where"></div>
+  <div class="last" id="last" hidden></div>
+  <div id="log"></div>
+</div>
+<script>
+const { h, mount } = window.kit
+const FILTERS = [['all', 'All'], ['ai', 'AI calls'], ['error', 'Errors'], ['timeout', 'Timeouts'], ['screen', 'Screens']]
+const TAG = { ai: 'AI', error: 'error', timeout: 'timeout', screen: 'screen', other: '' }
+let filter = 'all', lines = [], follow = true, sum = null, q = ''
+
+function isEmptyReply(l) { return l.text.trim() === 'shell: ai' }
+function visible(l) {
+  if (filter !== 'all' && l.kind !== filter) return false
+  if (q && !l.text.toLowerCase().includes(q)) return false
+  return true
+}
+function row(l) {
+  const empty = isEmptyReply(l)
+  return h('div', { class: 'ln ' + l.kind + (empty ? ' empty' : '') },
+    h('span', { class: 'tag' }, TAG[l.kind] || ''),
+    h('span', { class: 'tx' }, empty ? 'shell: ai (empty reply)' : l.text))
+}
+function renderLog() {
+  const box = document.getElementById('log')
+  const shown = lines.filter(visible).slice(-1200)
+  mount(box, ...(shown.length ? shown.map(row) : [h('div', { class: 'k-empty' }, sum && !sum.exists ? 'No log yet. Start it with Operating System.cmd.' : 'Nothing matches yet.')]))
+  if (follow) box.scrollTop = box.scrollHeight
+}
+function stat(cls, n, label) { return h('div', { class: 'stat ' + cls }, h('b', {}, String(n)), h('span', {}, label)) }
+function renderTop() {
+  if (!sum) return
+  document.getElementById('title').textContent = 'the OS boot ' + sum.boot + (sum.lastScreen ? ' · ' + sum.lastScreen : '')
+  const dot = document.getElementById('dot')
+  dot.className = 'k-dot ' + (sum.counts.error ? 'bad' : sum.exists ? 'ok' : 'warn')
+  mount(document.getElementById('stats'),
+    stat('ai', sum.replies, 'AI replies'),
+    stat(sum.empty ? 'warn' : 'ok', sum.empty, 'empty replies'),
+    stat(sum.counts.error ? 'bad' : 'ok', sum.counts.error, 'errors'),
+    stat(sum.counts.timeout ? 'warn' : 'ok', sum.counts.timeout, 'timeouts'))
+  mount(document.getElementById('chips'), ...FILTERS.map(([id, label]) =>
+    h('button', { class: 'chip' + (filter === id ? ' on' : ''), onclick: () => setFilter(id) }, label)))
+  document.getElementById('where').textContent = sum.file + ' · ' + window.kit.bytes(sum.size)
+  const last = document.getElementById('last')
+  last.hidden = !sum.lastError
+  last.textContent = sum.lastError ? 'Last error: ' + sum.lastError : ''
+  document.getElementById('follow').className = 'chip' + (follow ? ' on' : '')
+}
+async function refresh() {
+  const s = await prism.call('state')
+  sum = s; filter = s.filter || 'all'; lines = s.recent
+  renderTop(); renderLog()
+}
+async function setFilter(f) { filter = f; await prism.call('setFilter', { filter: f }); renderTop(); renderLog() }
+let pending = false
+function later() {
+  if (pending) return
+  pending = true
+  setTimeout(async () => { pending = false; sum = { ...(await prism.call('state')) }; lines = sum.recent; renderTop(); renderLog() }, 300)
+}
+prism.ready(() => {
+  refresh()
+  prism.on('line', l => { lines.push(l); if (lines.length > 3000) lines.splice(0, 1000); later() })
+  prism.on('boot', () => refresh())
+  prism.on('filter', f => { filter = f; renderTop(); renderLog() })
+  document.getElementById('follow').onclick = () => { follow = !follow; renderTop(); renderLog() }
+  document.getElementById('restart').onclick = () => window.kit.act(() => prism.call('restart'), 'Restarting the OS')
+  document.getElementById('q').oninput = e => { q = e.target.value.toLowerCase(); renderLog() }
+  document.getElementById('log').addEventListener('scroll', e => {
+    const b = e.target; const atEnd = b.scrollHeight - b.scrollTop - b.clientHeight < 30
+    if (follow !== atEnd) { follow = atEnd; renderTop() }
+  })
+})
+</script>
+</body></html>

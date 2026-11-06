@@ -1,0 +1,24 @@
+{
+  "title": "11 Voice, sound and the screen reader",
+  "steps": [
+    { "do": "say", "say": "This lesson shows how the companion speaks and listens, how sound reaches the speakers, and how the screen reader works. All of it runs on this computer unless a cloud voice was chosen." },
+    { "do": "tree.open", "path": "userland/shell/voice.c" },
+    { "do": "spotlight", "file": "userland/shell/voice.c", "anchor": "/* The companion's voice and ears, on this computer: speech comes from Kokoro (Piper until a voice is chosen)", "through": "* on screen, so the voice is never the only way in. */", "say": "Kokoro and Piper turn text into speech. whisper.cpp turns speech into text. Everything said aloud is also written on screen." },
+    { "do": "spotlight", "file": "userland/shell/voice.c", "anchor": "void voice_say(const char *text) {", "through": "voice_hush(); /* the newest words win */", "select": "voice_say", "say": "`voice_say` is how anything is spoken. It stops whatever was being said, so the newest words always win." },
+    { "do": "spotlight", "file": "userland/shell/voice.c", "anchor": "KOKORO \"/os-speak \" KOKORO \"/model \" VOICES \"/%s.bin %s 2>/tmp/os-speak.err%s | /bin/os-play %d 1\", v,", "say": "Speaking is a pipeline of small programs. os-speak makes the sound, os-voicefx can shape it on the way (pitch, warmth, effects), and os-play sends it to the sound card." },
+    { "do": "spotlight", "file": "userland/shell/voice.c", "anchor": "execl(\"/bin/os-rec\", \"os-rec\", \"16000\", MIC_WAV, (char *)NULL);", "say": "Listening records the microphone with os-rec into a file in /tmp." },
+    { "do": "spotlight", "file": "userland/shell/voice.c", "anchor": "FILE *f = popen(\"/usr/bin/whisper-cli -m \" HEAR_MODEL \" -f \" MIC_WAV \" -t 4 -nt -np 2>/dev/null\", \"r\");", "say": "When they stop talking, whisper.cpp writes it down in the background. The words then go to the companion as if they had been typed." },
+    { "do": "spotlight", "file": "userland/shell/voice.c", "anchor": "/* Ctrl+Space starts and stops listening. */", "say": "Ctrl+Space starts and stops listening, on any screen." },
+    { "do": "tree.expand", "path": "userland/tools", "say": "The sound programs themselves are here: os-audio, os-voicefx and os-speak." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "ln -sf os-audio $(BUILD)/initrd/bin/os-play", "through": "ln -sf os-audio $(BUILD)/initrd/bin/os-rec", "say": "os-play and os-rec are one program, os-audio, under two names." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "hda_init(); /* drivers/hda.c: /dev/dsp, /dev/mixer */", "say": "Under them is the kernel's Intel HD Audio driver. It offers the old Linux sound devices, /dev/dsp and /dev/mixer." },
+    { "do": "tree.open", "path": "userland/shell/reader.c" },
+    { "do": "spotlight", "file": "userland/shell/reader.c", "anchor": "/* The screen reader: the companion reads what has their attention, anywhere on the computer, in its own voice and", "through": "* it off. */", "say": "The screen reader says what has their attention, in the companion's own words. It also lists its keys: Ctrl+Alt+R turns it on or off, and Ctrl+Alt+W says where you are." },
+    { "do": "spotlight", "file": "userland/shell/reader.c", "anchor": "void a11y_note(rect r, const char *role, const char *label, const char *state, bool focused) {", "say": "Each control the OS draws says what it is as it is drawn, with `a11y_note`. For other apps' windows, the reader asks os-a11y, which listens on the accessibility bus." },
+    { "do": "spotlight", "file": "userland/shell/reader.c", "anchor": "int ch = code == 19 ? 'r' : code == 17 ? 'w' : code == 30 ? 'a' : code == 32 ? 'd' : 0;", "say": "Its keys are read here, early in every frame, before anything else sees them. Any other key cuts it off." },
+    { "do": "spotlight", "file": "userland/shell/reader.c", "anchor": "static void say(const char *text) {", "through": "voice_read(text);", "say": "It speaks through `voice_read`, a plain version of `voice_say`: no tone, and it works even when the companion's talking is turned off." },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "{\"Screen reader\", \"The screen read out loud, everywhere (Ctrl+Alt+R)\", reader_on()},", "say": "It can be switched on in Settings, Appearance, as well as by its key." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Next: **12 Building the system**." }
+  ]
+}

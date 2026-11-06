@@ -1,0 +1,7 @@
+{
+  "id": "kernel-tests",
+  "name": "Kernel test results",
+  "description": "Runs `make test` for the the OS kernel (UEFI and BIOS boots in QEMU) and shows pass/fail per milestone, boot log excerpts and a history of runs.",
+  "backend": "backend.mjs",
+  "permissions": { "shell": true, "workspace": "read" }
+}

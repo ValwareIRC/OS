@@ -1,0 +1,22 @@
+{
+  "title": "01 The map of the project",
+  "steps": [
+    { "do": "say", "say": "This lesson is a map: what lives where in this project, and what each part is for. The project is a whole operating system: its own kernel, the programs on top of it, and the AI-designed desktop." },
+    { "do": "rail", "view": "explorer" },
+    { "do": "tree.expand", "path": "kernel", "say": "**kernel/** is the kernel, written from scratch in C. A kernel is the core that runs programs and talks to the hardware. This one speaks Linux's language to programs, so Linux programs run on it unchanged." },
+    { "do": "tree.expand", "path": "boot", "say": "**boot/** holds the bootloader's setup, Limine's limine.conf. Everything after Limine is this project's own code." },
+    { "do": "tree.expand", "path": "userland", "say": "**userland/** is the programs that run on the kernel, as opposed to the kernel itself." },
+    { "do": "tree.expand", "path": "userland/init", "say": "**userland/init** is the first program to start. It prepares the disk and the person's account, and starts the desktop." },
+    { "do": "tree.expand", "path": "userland/shell", "say": "**userland/shell** is os-shell: the desktop, the companion, the built-in apps, Settings, and the compositor that shows other apps' windows. Most of the work happens here." },
+    { "do": "tree.expand", "path": "userland/shell/fm", "say": "**userland/shell/fm** is Facet, the design language the AI writes every desktop in." },
+    { "do": "tree.expand", "path": "userland/rootfs", "say": "**userland/rootfs** is copied into the system as it is: the 34 starter themes, the built-in Facet apps, and files for /etc such as passwd and hosts." },
+    { "do": "tree.expand", "path": "tests", "say": "**tests/** is how it is checked: boot tests, tests that drive a VM like a person would (`*_vm_win.py`), and checks that run on the build machine." },
+    { "do": "tree.expand", "path": "scripts", "say": "**scripts/** builds the base system and helpers, and holds the Windows launcher that Operating System.cmd starts." },
+    { "do": "tree.open", "path": "README.md" },
+    { "do": "spotlight", "file": "README.md", "anchor": "| `boot/` | bootloader config (Limine loads us; everything after that is ours) |", "through": "| `docs/` | Facet 2, the companion API, the GPU plan, arm64, the list of what still feels unfinished (`toy-audit.md`) |", "say": "The README has this table of the same map. It is a little behind: kernel/drivers now also has USB, NVMe and Realtek network code, which it doesn't list." },
+    { "do": "spotlight", "file": ".gitignore", "anchor": "build/", "say": "**build/** is where everything built goes, with logs and test output. It is never committed. build/tmp is free for scratch files." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "all: iso", "say": "The top-level Makefile builds it all. Plain `make` builds `iso`, the bootable image build/os.iso. Lesson 12 goes through the targets." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "docs/ has the few written documents: Facet 2, the companion API, the GPU plan, arm64. Next: **02 How it starts**." }
+  ]
+}

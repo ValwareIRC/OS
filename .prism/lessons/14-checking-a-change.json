@@ -1,0 +1,23 @@
+{
+  "title": "14 Checking a change",
+  "steps": [
+    { "do": "say", "say": "This lesson shows how to make sure a change is right: which check covers which part, and where each one lives. Nothing here is run except one small, read-only check." },
+    { "do": "say", "say": "Start small and fast, and go bigger only when you need to. That means compiling first, then checks that run on the build machine, then a VM, and the long suite last." },
+    { "do": "tree.open", "path": "scripts/kbuild.sh", "say": "**A kernel change:** compile it first. scripts/kbuild.sh builds only the kernel and shows only the errors. scripts/shell-build.sh does the same for the desktop, os-shell." },
+    { "do": "tree.open", "path": "tests/boot_test.sh" },
+    { "do": "spotlight", "file": "tests/boot_test.sh", "anchor": "EXPECT=(", "through": "\"USERLAND TESTS PASSED\"", "say": "Then `make test`. It builds the image and boots it twice in QEMU, once with UEFI and once with BIOS. Each line in this list must appear in the boot's serial log, the text the system prints as it starts." },
+    { "do": "spotlight", "file": "userland/init/init.c", "anchor": "printf(\"USERLAND TESTS PASSED\\n\");", "say": "The last line comes from init's test mode: about two hundred self-tests of the kernel, file systems, permissions, sockets and more. Each prints a `utest:` line, ok or FAILED." },
+    { "do": "spotlight", "file": "tests/selftest_win.py", "anchor": "\"\"\"The OS's own self-tests (init's test mode: kernel, file systems, permissions, namespaces, sockets, disk...) run", "say": "On Windows, tests/selftest_win.py runs the same self-tests in Windows QEMU with hardware speed. That is much quicker than the emulated boot in WSL." },
+    { "do": "spotlight", "file": "tests/fm-dump.sh", "anchor": "# Builds and runs tests/fm_dump.c natively (gcc + the engine + renderer).", "say": "**A design change** (a theme, Facet's engine): tests/fm-dump.sh runs the Facet engine on the build machine, with no VM, and prints the laid-out tree. scripts/fm-check.sh runs it over every sample design." },
+    { "do": "spotlight", "file": "tests/facet_cli.c", "anchor": " *   facet check FILE...          every load-time error in each file, at once; exit 1 if any", "say": "**A Facet 2 app** (a .facet file): `facet check` reads it and lists every error without running it. tests/facet.sh builds this tool into build/host/facet." },
+    { "do": "terminal", "command": "wsl -e build/host/facet check tests/facet2/notes.facet", "say": "This check only reads. Here it checks the sample Notes app." },
+    { "do": "await.output", "match": "notes.facet", "say": "It answers \"ok\", with a count of the app's parts, or the errors it found. If the checker's own code has changed, rebuild it first with tests/facet.sh." },
+    { "do": "spotlight", "file": "tests/vmkit.py", "anchor": "\"\"\"What the Windows VM tests share: QEMU (Hyper-V, silent sound, the image in", "say": "**A change you can see on the desktop:** the `*_vm_win.py` tests boot the real image in Windows QEMU and use it as a person would. tests/vmkit.py is what they all share." },
+    { "do": "spotlight", "file": "tests/vmkit.py", "anchor": "*fw(\"mind.json\", self.mind), *(fw(\"facet.xml\", self.desk) if self.facet else []), *fw(\"alive.conf\", self.alive),", "say": "It hands the VM a design and a mind through fw_cfg, the QEMU feature that kernel/main.c reads at boot. The mind is tests/fake_ai.py, a stand-in AI that answers from a script, so tests repeat exactly." },
+    { "do": "spotlight", "file": "tests/vmkit.py", "anchor": "def say(self, text, expect, secs=90):", "say": "Keys and clicks go in through QMP, QEMU's control socket, never through the real mouse. Then the test waits for a line in the serial log. That is how a test knows something happened." },
+    { "do": "spotlight", "file": "tests/lock_vm_win.py", "anchor": "\"\"\"The lock screen and the optional password, used as a person would (keys and clicks through QMP, never the", "say": "A typical test, the lock screen. Each one says at the top what it checks and how to run it: here `python tests\\lock_vm_win.py`. Look for the test named after the part you changed." },
+    { "do": "spotlight", "file": "scripts/feature_checks.py", "anchor": "RUNS = [", "say": "**Before you call a feature done:** scripts/feature_checks.py runs the whole end-to-end suite, one VM per run, for about an hour. The Feature tests gadget watches it." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Builds and VM runs are slow, and each test VM takes 12 GB of memory by default, so start them on purpose. Next: **15 The gadgets**, the panels that run and watch these checks." }
+  ]
+}

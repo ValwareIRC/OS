@@ -1,0 +1,182 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="prism-gadget://_sdk/base.css">
+<link rel="stylesheet" href="prism-gadget://_sdk/kit.css">
+<script src="prism-gadget://_sdk/prism.js"></script>
+<script src="prism-gadget://_sdk/kit.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box }
+  html, body { height: 100%; margin: 0 }
+  .k-body { overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+  .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .head .k-grow { min-width: 0; }
+  .big { font-size: 15px; font-weight: 600; }
+  .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fw-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .fw-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .fw-title b { font-size: 14px; }
+  .ms { margin: 6px 0 2px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .ms span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .checks { margin: 0 0 4px 18px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+  .checks .bad { color: var(--rose); }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; margin-top: 8px; }
+  .utests { margin-top: 8px; font-size: 12px; }
+  .utests .bad { color: var(--rose); }
+  .panic { color: var(--rose); font-size: 12px; margin-top: 6px; word-break: break-word; }
+  .k-log { max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; }
+  .progress .k-log { max-height: 180px; }
+  .hist { display: flex; flex-direction: column; gap: 2px; }
+  .hrow { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
+  .hrow:hover { background: rgba(255,255,255,0.04); }
+  .hrow.sel { background: rgba(255,255,255,0.08); }
+  .hrow .when { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pair { display: flex; gap: 6px; align-items: center; font-size: 11px; }
+  .strip { display: flex; gap: 3px; align-items: flex-end; height: 26px; flex-wrap: nowrap; overflow: hidden; }
+  .strip i { width: 8px; height: 100%; border-radius: 2px; background: var(--mint); opacity: .85; flex: none; }
+  .strip i.fail { background: var(--rose); }
+  .strip i.unknown { background: var(--amber); }
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="k-app">
+  <div class="k-top">
+    <div class="k-title">Kernel test results</div>
+    <div class="k-grow"></div>
+    <button id="runBtn" class="primary">Run tests</button>
+  </div>
+  <div class="k-body" id="body"></div>
+</div>
+<script>
+const { h, mount, ago, dur } = kit;
+let view = { running: null, history: [] };
+let selected = null;   // run id
+let detail = null;     // full run
+let logTab = 'uefi';
+
+const LABEL = { pass: 'passed', fail: 'failed', skip: 'skipped', none: 'did not run', unknown: 'unclear' };
+const pill = (s) => h('span', { class: 'k-pill ' + (s === 'pass' ? 'ok' : s === 'fail' ? 'bad' : 'warn') }, LABEL[s] || s);
+const dot = (ok) => h('span', { class: 'k-dot ' + (ok ? 'ok' : 'bad') });
+
+async function load() {
+  view = await prism.call('state');
+  if (!selected || !view.history.find(r => r.id === selected)) selected = view.history[0]?.id || null;
+  detail = selected ? await prism.call('details', { id: selected }) : null;
+  render();
+}
+
+function firmwareCard(fw, f) {
+  if (!f) return h('div', { class: 'k-card' }, h('b', {}, fw.toUpperCase()), h('div', { class: 'dim' }, 'No result.'));
+  const children = [
+    h('div', { class: 'fw-title' }, h('b', {}, fw.toUpperCase()), pill(f.status),
+      f.exitCode != null ? h('span', { class: 'dim' }, f.timedOut ? 'timed out' : `QEMU exit ${f.exitCode}`) : null),
+  ];
+  for (const m of f.milestones || []) {
+    children.push(h('div', { class: 'ms' }, dot(m.ok), h('span', {}, m.name)));
+    const bad = m.checks.filter(c => !c.ok);
+    if (bad.length) children.push(h('div', { class: 'checks' }, ...bad.map(c => h('span', { class: 'bad' }, 'missing: ' + c.label))));
+  }
+  if (f.utests?.length) {
+    const bad = f.utests.filter(u => !u.ok);
+    children.push(h('div', { class: 'utests' },
+      h('span', { class: 'dim' }, `Userland checks: ${f.utests.length - bad.length} of ${f.utests.length} ok`),
+      ...bad.map(u => h('div', { class: 'bad' }, `✗ ${u.name} — ${u.detail}`))));
+  }
+  if (f.panic) children.push(h('div', { class: 'panic mono' }, f.panic));
+  const facts = f.facts || {};
+  const factEls = [];
+  if (facts.cpus) factEls.push(h('span', { class: 'dim' }, `${facts.cpus} cores`));
+  if (facts.memory) factEls.push(h('span', { class: 'dim' }, `${facts.memory} MiB`));
+  if (facts.apic) factEls.push(h('span', { class: 'dim' }, facts.apic));
+  if (facts.tsc) factEls.push(h('span', { class: 'dim' }, `${facts.tsc} MHz TSC`));
+  if (f.notImpl?.length) factEls.push(h('span', { class: 'dim', title: [...new Set(f.notImpl)].join(', ') }, `${new Set(f.notImpl).size} missing syscall(s) hit`));
+  if (factEls.length) children.push(h('div', { class: 'facts' }, ...factEls));
+  return h('div', { class: 'k-card' }, ...children);
+}
+
+function render() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = !!view.running;
+  btn.textContent = view.running ? 'Running…' : 'Run tests';
+  const parts = [];
+
+  if (view.running) {
+    parts.push(h('div', { class: 'k-card progress' },
+      h('div', { class: 'head' }, h('span', { class: 'k-dot run' }), h('div', { class: 'k-grow' },
+        h('div', { class: 'big' }, view.running.phase || 'Running'),
+        h('div', { class: 'dim sub' }, `started ${ago(view.running.startedAt)}`)),
+        h('button', { onclick: () => prism.call('cancel') }, 'Stop')),
+      view.running.lines?.length ? h('pre', { class: 'k-log mono' }, view.running.lines.join('\n')) : null));
+  }
+
+  const run = detail;
+  if (!run) {
+    parts.push(h('div', { class: 'k-empty' }, 'No test runs yet. Press “Run tests” to build the kernel and boot it under UEFI and BIOS.'));
+    mount(document.getElementById('body'), ...parts);
+    return;
+  }
+
+  const isLatest = run.id === view.history[0]?.id;
+  parts.push(h('div', { class: 'head' },
+    pill(run.result),
+    h('div', { class: 'k-grow' },
+      h('div', { class: 'big sub' }, (isLatest ? 'Latest run · ' : 'Earlier run · ') + new Date(run.startedAt).toLocaleString()),
+      h('div', { class: 'dim sub' }, run.source === 'found on disk' ? 'Read from the boot logs already on disk' :
+        `${ago(run.startedAt)} · took ${dur(run.durationMs)}`)),
+    !isLatest ? h('button', { onclick: () => { selected = view.history[0].id; load(); } }, 'Back to latest') : null));
+
+  if (run.buildFailed) {
+    parts.push(h('div', { class: 'k-card' }, h('h3', {}, 'The build failed before anything booted'),
+      h('pre', { class: 'k-log mono' }, run.outputTail || '(no output)')));
+  } else {
+    parts.push(h('div', { class: 'fw-grid' }, firmwareCard('uefi', run.firmware.uefi), firmwareCard('bios', run.firmware.bios)));
+    const f = run.firmware[logTab];
+    parts.push(h('div', { class: 'k-card' },
+      h('div', { class: 'head' }, h('h3', { class: 'k-grow' }, 'Boot log'),
+        kit.tabs([['uefi', 'UEFI'], ['bios', 'BIOS']], logTab, (t) => { logTab = t; render(); }),
+        h('button', { onclick: async () => { if (!await prism.call('openLog', { id: run.id, fw: logTab })) kit.toast('Full log not kept for this run'); } }, 'Open full log')),
+      h('pre', { class: 'k-log mono' }, f?.excerpt || 'No boot log for this firmware.')));
+  }
+
+  if (view.history.length) {
+    const strip = h('div', { class: 'strip', title: 'Oldest to newest' },
+      ...view.history.slice(0, 40).reverse().map(r => h('i', { class: r.result, title: `${new Date(r.startedAt).toLocaleString()}: ${LABEL[r.result]}` })));
+    parts.push(h('div', { class: 'k-card' },
+      h('div', { class: 'head' }, h('h3', { class: 'k-grow' }, `History (${view.history.length})`), strip),
+      h('div', { class: 'hist' }, ...view.history.map(r => h('div', {
+          class: 'hrow' + (r.id === selected ? ' sel' : ''),
+          onclick: () => { selected = r.id; load(); },
+        },
+        h('span', { class: 'k-dot ' + (r.result === 'pass' ? 'ok' : r.result === 'fail' ? 'bad' : 'warn') }),
+        h('span', { class: 'when' }, new Date(r.startedAt).toLocaleString()),
+        r.buildFailed ? h('span', { class: 'pair dim' }, 'build failed') :
+          h('span', { class: 'pair' }, ...['uefi', 'bios'].map(fw => h('span', { class: 'pair' }, dot(r.firmware[fw]?.status === 'pass'), fw.toUpperCase()))),
+        h('span', { class: 'dim', style: 'font-size:11px' }, r.durationMs ? dur(r.durationMs) : '—'))))));
+  }
+  mount(document.getElementById('body'), ...parts);
+}
+
+prism.ready(() => {
+  document.getElementById('runBtn').onclick = async () => {
+    await prism.call('run');
+  };
+  prism.on('run', (r) => {
+    view.running = r.running ? r : null;
+    render();
+    if (!r.running) { selected = null; load(); }
+  });
+  prism.on('history', () => { selected = null; load(); });
+  // Fallback while a run is in progress, in case an event is missed.
+  setInterval(async () => {
+    if (!view.running) return;
+    const s = await prism.call('state');
+    if (!s.running) { selected = null; load(); }
+  }, 3000);
+  load();
+});
+</script>
+</body>
+</html>

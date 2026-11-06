@@ -1,0 +1,15 @@
+{
+  "id": "performance-fixes",
+  "name": "Performance fixes",
+  "description": "The slow spots found in the OS, each with its measured numbers, and each fix as it lands: before and after, from the same measurements run again (wake-up delay, idle desktop CPU, Firefox launch, network, disk, window resizing).",
+  "backend": "backend.mjs",
+  "permissions": { "shell": true, "workspace": "read" },
+  "widget": {
+    "title": "Performance",
+    "ratio": 0.8,
+    "actions": [
+      { "label": "Wake-up test", "call": "run", "args": { "id": "wake" } },
+      { "label": "Stop", "call": "stop" }
+    ]
+  }
+}

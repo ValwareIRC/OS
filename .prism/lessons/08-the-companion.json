@@ -1,0 +1,25 @@
+{
+  "title": "08 The companion",
+  "steps": [
+    { "do": "say", "say": "This lesson shows how the companion thinks and acts. It is told what it needs on every turn, and it acts by putting **tags** in its replies: short commands in double square brackets, such as `[[ui:press #start]]`." },
+    { "do": "tree.open", "path": "userland/shell/desktop.c" },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "static const char *companion_system(void) {", "select": "companion_system", "say": "`companion_system` writes the companion's instructions, its system prompt, afresh each time it is asked something. It covers who it is, how it talks, what it knows about them, and what it can do." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "\"You can see and work their desktop. This is it right now (element, #id, .class, attributes, text):\\n%s\\n\"", "say": "It is shown the desktop as a compact text tree (`fm_describe`), so it can name any element by its #id." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "static void companion_update(void) {", "select": "companion_update", "say": "Each frame, `companion_update` checks for a finished reply and carries out its tags, in a fixed order." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "bool stepping = agent_take(c, from_person);", "say": "First come its body tags (agent.c): the shell, files, windows, installs. Their results go back to it as its next step, so it can work through a job step by step." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "if (actions_take(c, &from_person)) { /* senses and hands (actions.c): it looked something up */", "say": "Then the tags in actions.c: lights, settings, notifications, looking things up, writing files, undo." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "static int run_ui_tags(char *text, bool act) {", "through": "fm_doc *doc = look ? preview_target() : A.ui;", "say": "Then the `[[ui:...]]` tags. Pressing, opening and closing work the real desktop. Anything that changes how it looks goes to a copy in the preview instead." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "snprintf(tag_report + tl, sizeof tag_report - tl, \"- %.70s%s -> %s\\n\", cmd, strlen(cmd) > 70 ? \"...\" : \"\", res);", "say": "What each tag did is written down and shown to it next turn. So it knows the difference between a change it made and one that FAILED." },
+    { "do": "tree.open", "path": "userland/shell/preview.h" },
+    { "do": "spotlight", "file": "userland/shell/preview.h", "anchor": "/* The preview: every change to the look of the space, from a small tweak to", "through": "* only Apply makes it real. */", "say": "The **preview** is a window with the proposed desktop in it. Nothing about the look changes until the person presses Apply." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "char *tag = strstr(m->text, \"[[redesign:\");", "say": "For a whole new look it writes `[[redesign:...]]`, which calls `design_begin` from lesson 09. That takes minutes rather than seconds." },
+    { "do": "tree.open", "path": "userland/shell/agent.c" },
+    { "do": "spotlight", "file": "userland/shell/agent.c", "anchor": "static const char *const body_tags[] = {\"sh\", \"ls\", \"cat\", \"find\", \"grep\", \"mv\", \"cp\", \"rm\", \"mkdir\", \"fetch\", \"see\",", "say": "These are its body tags, its hands on the system. agent.c also explains each one to it, in `body_prompt`." },
+    { "do": "spotlight", "file": "userland/shell/agent.c", "anchor": "\"  [[sh: command]] or [[sh]]a script, many lines[[/sh]]: a shell (busybox, as them, starting in their home folder ~), up to 5 minutes; you get the exit \"", "say": "For example `[[sh: ...]]` runs a shell command as the person, not as root, for up to five minutes. Changes are kept in a journal so `[[undo]]` can take them back." },
+    { "do": "spotlight", "file": "userland/shell/agent.c", "anchor": "static const char *const strict[] = {\"sh\", \"mv\", \"cp\", \"rm\", \"kill\", \"fetch\", \"install\", \"uninstall\", NULL};", "say": "On a child's computer, the child lock turns these off. It answers with a reason instead of doing them." },
+    { "do": "tree.open", "path": "userland/shell/actions.c" },
+    { "do": "spotlight", "file": "userland/shell/actions.c", "anchor": "/* What the companion can do beyond the desktop, from tags in its replies:", "through": "* written to /etc/os/actions.log and, where it can be, undone. */", "say": "actions.c lists its own tags at the top. One caution: this comment says `[[run:]]` waits for a yes, but agent.c also lists \"run\" as a body tag and treats it as `[[sh:]]`, which runs first. Check the code before relying on either." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Next: **09 Onboarding**, where the companion first meets the person." }
+  ]
+}

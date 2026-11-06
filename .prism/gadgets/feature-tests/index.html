@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="prism-gadget://_sdk/base.css">
+<link rel="stylesheet" href="prism-gadget://_sdk/kit.css">
+<script src="prism-gadget://_sdk/prism.js"></script>
+<script src="prism-gadget://_sdk/kit.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box }
+  html, body { height: 100%; margin: 0 }
+  .k-body { overflow: auto; }
+  .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .head .k-grow { min-width: 0; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .now { margin-top: 10px; }
+  .now .name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 8px 0 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); transition: width .6s; }
+  .checks { font-size: 12px; line-height: 1.5; max-height: 112px; overflow: auto; }
+  .checks div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ok { color: var(--mint); } .bad { color: var(--rose); }
+  .runs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .run { padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); cursor: pointer; }
+  .run:hover { background: rgba(255,255,255,0.06); }
+  .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .row .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .m { font-size: 12px; white-space: nowrap; }
+  .more { margin-top: 8px; font-size: 12px; }
+  .more .err { font-family: var(--mono, monospace); font-size: 11px; white-space: pre-wrap; word-break: break-word;
+               background: rgba(0,0,0,0.25); border-radius: 6px; padding: 6px 8px; margin-top: 6px; max-height: 180px; overflow: auto; }
+  .more ul { margin: 4px 0 0 16px; padding: 0; }
+  .hist { margin-top: 12px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .hist span { padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.05); white-space: nowrap; }
+  .sect { margin-top: 14px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
+</style>
+</head>
+<body>
+<div class="k-app">
+  <div class="k-top"><div class="k-title">Feature test runs</div></div>
+  <div class="k-body" id="body"><div class="k-empty">Loading...</div></div>
+</div>
+<script>
+const { h, mount, dur, act } = window.kit;
+let st = null, open = new Set();
+const secs = s => s == null ? '' : s < 90 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+const dot = r => h('span', { class: 'k-dot ' + ({ passed: 'ok', failed: 'bad', running: 'run', stopped: 'warn' }[r.status] || '') });
+
+function pill(s, on) {
+  if (!s) return h('span', { class: 'k-pill' }, 'No runs yet');
+  const fails = s.runs.filter(r => r.status === 'failed').length;
+  const passed = s.runs.filter(r => r.status === 'passed').length;
+  if (on) return h('span', { class: 'k-pill warn' }, `Running · ${passed + fails} of ${s.runs.length}`);
+  if (s.stopped) return h('span', { class: 'k-pill warn' }, 'Stopped');
+  return fails ? h('span', { class: 'k-pill bad' }, `${fails} failed`) : h('span', { class: 'k-pill ok' }, `All ${s.runs.length} passed`);
+}
+
+function current(s) {
+  const r = s.runs.find(x => x.status === 'running');
+  if (!r) return null;
+  const el = st.now - r.started, typ = st.typical[r.name];
+  const pct = typ ? Math.min(98, 100 * el / typ) : 30;
+  return h('div', { class: 'k-card now' },
+    h('div', { class: 'row' }, h('span', { class: 'k-dot run' }), h('div', { class: 'name' }, r.name)),
+    h('div', { class: 'bar' }, h('i', { style: `width:${pct}%` })),
+    h('div', { class: 'dim', style: 'font-size:12px' }, `${secs(el)}${typ ? ' of about ' + secs(typ) : ''} · ${r.ok} checks passed${r.fails.length ? ' · ' + r.fails.length + ' failed' : ''}`),
+    r.checks.length ? h('div', { class: 'checks', style: 'margin-top:6px' },
+      ...r.checks.slice(-6).map(c => h('div', { class: c.passed ? 'ok' : 'bad' }, (c.passed ? '✓ ' : '✗ ') + c.text))) : null);
+}
+
+function runRow(r) {
+  const isOpen = open.has(r.name);
+  const meta = r.status === 'running' ? 'running' : r.status === 'waiting' ? 'waiting' :
+    `${r.ok} checks · ${secs(r.secs)}${r.timedOut ? ' · timed out' : ''}`;
+  const kids = [h('div', { class: 'row' }, dot(r), h('span', { class: 'n' }, r.name),
+    r.design ? null : null, h('span', { class: 'm dim' }, meta))];
+  if (isOpen && (r.status === 'passed' || r.status === 'failed' || r.status === 'stopped')) {
+    kids.push(h('div', { class: 'more' },
+      r.fails.length ? h('div', {}, h('b', { class: 'bad' }, 'Failed'), h('ul', {}, ...r.fails.map(f => h('li', {}, f)))) : h('div', { class: 'ok' }, 'Every check passed.'),
+      r.summary.length ? h('div', { class: 'dim', style: 'margin-top:4px' }, r.summary.join(' · ')) : null,
+      r.errors.length ? h('div', {}, h('div', { class: 'dim', style: 'margin-top:6px' }, 'From its serial log'), h('div', { class: 'err' }, r.errors.join('\n'))) : null,
+      h('div', { class: 'btns', style: 'margin-top:8px' },
+        h('button', { onclick: e => { e.stopPropagation(); openLog(r.name, 'log'); } }, 'Output'),
+        r.out ? h('button', { onclick: e => { e.stopPropagation(); openLog(r.name, 'serial'); } }, 'Serial log') : null,
+        h('button', { onclick: e => { e.stopPropagation(); act(() => prism.call('start', { only: r.name }), 'Started'); } }, 'Run again'))));
+  }
+  return h('div', { class: 'run', onclick: () => { isOpen ? open.delete(r.name) : open.add(r.name); render(); } }, ...kids);
+}
+
+async function openLog(name, which) {
+  const d = await prism.call('details', { name });
+  const p = which === 'serial' ? d && d.serialPath : d && d.logPath;
+  if (p) prism.ui.openFile(p);
+}
+
+function render() {
+  const body = document.getElementById('body');
+  if (!st) return;
+  const s = st.suite;
+  const failedLast = s && s.runs.some(r => r.status === 'failed' || r.status === 'stopped');
+  const head = h('div', { class: 'head' }, h('div', { class: 'k-grow' }, pill(s, st.running)),
+    h('div', { class: 'btns' },
+      st.running ? h('button', { onclick: () => act(() => prism.call('stop'), 'Stopped') }, 'Stop') :
+        h('button', { class: 'primary', onclick: () => act(() => prism.call('start'), 'Started') }, 'Run all'),
+      !st.running && failedLast ? h('button', { onclick: () => act(() => prism.call('start', { failed: true }), 'Started') }, 'Rerun failed') : null));
+  if (!s) { mount(body, head, h('div', { class: 'k-empty' }, 'No suite has run yet. Run all starts the twelve VM runs (about an hour).')); return; }
+  const started = new Date(s.started * 1000);
+  mount(body, head,
+    h('div', { class: 'dim', style: 'font-size:12px;margin-top:6px' }, `Started ${started.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` +
+      (s.ended ? ` · took ${secs(s.ended - s.started)}` : ` · ${secs(st.now - s.started)} so far`)),
+    current(s),
+    h('div', { class: 'sect' }, 'Runs'),
+    h('div', { class: 'runs' }, ...s.runs.map(runRow)),
+    st.history.length ? h('div', { class: 'sect' }, 'Earlier') : null,
+    st.history.length ? h('div', { class: 'hist' }, ...st.history.map(x => h('span', { class: x.failed ? 'bad' : x.stopped ? 'dim' : 'ok' },
+      `${new Date(x.started * 1000).toLocaleDateString([], { day: 'numeric', month: 'short' })} ${new Date(x.started * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ` +
+      (x.stopped ? 'stopped' : x.failed ? `${x.failed} failed` : `${x.passed}/${x.total}`)))) : null);
+}
+
+prism.ready(async () => {
+  st = await prism.call('state');
+  render();
+  prism.on('state', s => { st = s; render(); });
+  setInterval(() => { if (st && st.running) { st.now = Date.now() / 1000; render(); } }, 1000);
+});
+</script>
+</body>
+</html>

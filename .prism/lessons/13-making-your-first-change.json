@@ -1,0 +1,27 @@
+{
+  "title": "13 Making your first change",
+  "stage": [
+    {
+      "path": "prism-lesson/my-theme.xml",
+      "content": "<facet>\n<meta\n      rationale=\"A copy the lesson made from the Calm theme. It goes away when the lesson ends.\"/>\n<wallpaper kind=\"gradient\" colors=\"#ebe6de #f5f2ec #e2dcd2 #d6cfc3\" seed=\"2\" intensity=\"0.35\"/>\n<style>\n:root { --bg:#ebe6de; --surface:#fdfcfa; --surface-2:#f3f0ea; --surface-text:#2a2825; --text:#2a2825;\n        --muted:#5f5b54; --accent:#4f7a68; --accent2:#c98b6b; --font-heading:Outfit; --font-body:Inter; --radius:16; }\ndesktop { color:var(--text); font-family:var(--font-body); font-size:15; }\n#time { font:\"Outfit 132\"; color:var(--text); line-height:1; }\n</style>\n<desktop>\n  <column id=\"hello\" place=\"top-left\">\n    <clock id=\"time\" format=\"%H:%M\"/>\n    <applist apps=\"companion,notes,files\" labels=\"below\"/>\n  </column>\n</desktop>\n</facet>\n"
+    }
+  ],
+  "steps": [
+    { "do": "say", "say": "This lesson walks through a first change, changing a theme. It types only into its own scratch copy in prism-lesson/, which goes away when the lesson ends. Every real file stays as it is." },
+    { "do": "rail", "view": "explorer" },
+    { "do": "tree.expand", "path": "userland/rootfs/usr/share/os/themes", "say": "The starter themes are here, one Facet file each. A theme is a finished desktop the companion can start from and make the person's own." },
+    { "do": "tree.open", "path": "userland/rootfs/usr/share/os/themes/calm.xml", "say": "This is Calm, the real one. Only look at it here." },
+    { "do": "spotlight", "file": "userland/rootfs/usr/share/os/themes/calm.xml", "anchor": ":root { --bg:#ebe6de; --surface:#fdfcfa; --surface-2:#f3f0ea; --surface-text:#2a2825; --text:#2a2825;", "through": "--muted:#5f5b54; --accent:#4f7a68; --accent2:#c98b6b; --font-heading:Outfit; --font-body:Inter; --radius:16; }", "say": "Every theme takes its colours, fonts and corners from these variables. To recolour a theme, change them, not each rule." },
+    { "do": "tree.expand", "path": "prism-lesson" },
+    { "do": "tree.open", "path": "prism-lesson/my-theme.xml", "say": "Here is the lesson's copy of the beginning of Calm. All the typing happens in this file." },
+    { "do": "type", "file": "prism-lesson/my-theme.xml", "after": "--muted:#5f5b54; --accent:#4f7a68; --accent2:#c98b6b; --font-heading:Outfit; --font-body:Inter; --radius:16; }", "text": ":root { --accent:#b5523b; }", "say": "A rule written later wins. One more line gives the accent a warm red. The companion's own small edits work the same way." },
+    { "do": "type", "file": "prism-lesson/my-theme.xml", "after": "<clock id=\"time\" format=\"%H:%M\"/>", "text": "    <clock id=\"day\" format=\"%A\"/>", "say": "Structure is markup. A second clock with a different format shows the day of the week under the time." },
+    { "do": "save", "file": "prism-lesson/my-theme.xml", "say": "**Ctrl+S** saves. Until then the change is only on screen." },
+    { "do": "rail", "view": "git", "say": "The git view lists what changed. The lesson's scratch file shows here too, until the lesson ends. Check this list before every commit." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "cp -r userland/rootfs/. $(BUILD)/initrd/", "say": "How a real theme edit reaches the OS: everything under userland/rootfs is copied into the initrd, the archive the kernel unpacks at boot. So the change shows only after a new image, such as `make dev-iso`." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "\"Starter designs come with the system: aqua aquarium arcade bento beos blueprint brutalist calm codec \"", "say": "If you **add** a theme rather than change one, its name must be added here as well. The companion's instructions list the themes by name; this list is not read from the folder." },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "} rows[4] = {{\"Strong contrast\", \"Text reads at 7:1 against whatever is behind it\", A.prof.high_contrast},", "say": "Words in the OS's own screens live in C. This is a Settings row: a name and a line under it. To change what a row says, change the text between the quotes, then rebuild os-shell." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Either way, the steps are the same: find the real place, change as little as you can, and check it. Next: **14 Checking a change**." }
+  ]
+}

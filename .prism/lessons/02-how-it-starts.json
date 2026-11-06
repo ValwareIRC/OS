@@ -1,0 +1,23 @@
+{
+  "title": "02 How it starts",
+  "steps": [
+    { "do": "say", "say": "This lesson follows the start of the system, from the bootloader to the first program. A **bootloader** is the small program the firmware runs first. Its job is to load the kernel into memory and start it." },
+    { "do": "tree.open", "path": "boot/limine.conf" },
+    { "do": "spotlight", "file": "boot/limine.conf", "anchor": "/Operating System", "through": "module_path: boot():/boot/initrd.cpio", "say": "The bootloader is Limine, and this is its whole setup. It loads the kernel and two **modules**, files handed to the kernel in memory: the base system (base.cpio) and the OS's own files (initrd.cpio)." },
+    { "do": "spotlight", "file": "boot/limine.conf", "anchor": "#     cmdline: os.provider=anthropic os.key=YOUR-KEY os.model=claude-opus-5-5", "say": "A `cmdline:` line gives the kernel words at start. This one connects an AI on a real PC. `verbose` and `netlog` are others the kernel looks for." },
+    { "do": "tree.open", "path": "kernel/main.c" },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "/* ---- the big files, read by the kernel itself ----", "through": "* UEFI (a real computer, from a USB stick the kernel can't read yet) the files come whole, as before. */", "say": "`${FW_TYPE}` in limine.conf picks a folder by firmware. With BIOS (the VMs) the bootloader loads only a small placeholder, and the kernel reads the big file from the disc itself, which is much faster." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "void kmain(void) {", "through": "KASSERT(thread_create(\"init\", init_main, NULL));", "select": "kmain", "say": "`kmain` is where the kernel begins. It sets up memory, interrupts and the other processor cores, then starts a thread to run `init_main`. The boot thread becomes the first core's idle loop." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "static void init_main(void *arg) {", "through": "usb_init(); /* drivers/usb: keyboards, mice, sticks (its own thread: nothing waits for it) */", "select": "init_main", "say": "`init_main` runs the kernel's self-tests, starts the clock and the file system layer, then finds devices: PCI, the screen, input and USB." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "storage_init();", "say": "The disks come next, before anything is unpacked, because the base system may have to be read from the disc by the kernel." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "struct limine_file *base = find_module(\"base.cpio\");", "through": "initramfs_unpack(initrd->address, initrd->size);", "say": "The archives are unpacked into ramfs, a file system in memory. The base system goes first (the Freedesktop Platform as /usr), then the OS's own files over it." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "files_from_modules();", "through": "mind_from_cmdline();", "say": "Then the model file is placed. `preload_state_from_fwcfg` is a development aid: a VM can hand in a mind and a design through fw_cfg, so tests skip onboarding. The command line's AI settings are read last." },
+    { "do": "spotlight", "file": "kernel/main.c", "anchor": "proc_start_init(\"/sbin/init\");", "select": "proc_start_init", "say": "Last, \"OS BOOT OK\" is printed (the tests wait for that line) and the first program, /sbin/init, starts." },
+    { "do": "tree.open", "path": "kernel/proc/proc.c" },
+    { "do": "spotlight", "file": "kernel/proc/proc.c", "anchor": "void proc_start_init(const char *path) {", "through": "thread_start_ready(t);", "select": "proc_start_init", "say": "init becomes process 1. Its first three open files, input, output and errors, are all the console." },
+    { "do": "spotlight", "file": "kernel/proc/proc.c", "anchor": "ksnprintf(mode, sizeof mode, \"OS_MODE=%s\", test ? value : \"interactive\");", "say": "init is told OS_MODE. A test can ask for a mode through fw_cfg, otherwise it is \"interactive\", a normal start." },
+    { "do": "spotlight", "file": "Makefile", "anchor": "cp $(BUILD)/userland/init $(BUILD)/initrd/sbin/init", "say": "/sbin/init is userland/init, put into the initrd when the image is built." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Next: **03 The kernel's core**, the parts kmain just set up." }
+  ]
+}

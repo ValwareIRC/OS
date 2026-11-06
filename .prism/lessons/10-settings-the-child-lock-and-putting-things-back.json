@@ -1,0 +1,23 @@
+{
+  "title": "10 Settings, the child lock and putting things back",
+  "steps": [
+    { "do": "say", "say": "This lesson shows how Settings keeps choices, how the child lock works, and how any change can be put back." },
+    { "do": "tree.open", "path": "userland/shell/settings.c" },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "/* Settings: a sidebar of pages, drawn in the design's own type and colours.", "through": "* how the desktop looks, into the design itself), and comes back at boot. */", "say": "Settings is drawn in the person's own design. Each choice takes effect at once and is kept for the next start." },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "static int page_list(struct page *out) {", "through": "{\"About\", SYM_INFO, page_about, NULL}};", "say": "The pages are a plain list: a title, an icon and the function that draws the page. Pages that other parts add with `settings_register_page` go between AI and Users." },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "void settings_set(const char *key, const char *value) {","select": "settings_set", "say": "Every setting goes through `settings_set`, into /etc/os/settings.conf. Note the limit: it holds 48 keys, and a new key past that is quietly dropped." },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "changes_note_setting(key, kv[i].val, value); /* (kept, to be put back: changes.c) */", "say": "Before a value changes, the old one is written down. That is what makes putting it back possible." },
+    { "do": "tree.open", "path": "userland/shell/changes.h" },
+    { "do": "spotlight", "file": "userland/shell/changes.h", "anchor": "/* What changed, kept so it can be put back (changes.c): every setting chosen (settings_set) and every change to", "through": "* locked, not even on a child's computer. */", "say": "The last thirty changes are kept, settings and designs both. The companion is told the recent ones. If someone seems upset after a change, it offers to put it back, and does so only on their yes." },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "while ((o = strstr(m->text, \"[[putback\"))) { /* a change put back, on their yes (changes.c): never locked */", "say": "It does that with a `[[putback]]` tag in its reply, which `changes_put_back` carries out. A design is restored from the copy kept in /etc/os/changes." },
+    { "do": "tree.open", "path": "userland/shell/family.h" },
+    { "do": "spotlight", "file": "userland/shell/family.h", "anchor": "/* The child lock (family.c): a computer a grown-up set up for a child. What is locked and the grown-up's password", "through": "* When something locked is asked for, a small box asks for the grown-up's password; once typed, the computer", "say": "The **child lock** is for a computer a grown-up set up for a child. Five things can be locked: time, the web, Settings and the design, installing apps, and what the companion may do." },
+    { "do": "spotlight", "file": "userland/shell/family.h", "anchor": "void family_ask(const char *doing, void (*then)(const char *arg), const char *arg);", "say": "Code that does something locked calls `family_ask`. It shows the password box and carries on only once the grown-up's password is right." },
+    { "do": "spotlight", "file": "userland/shell/family.c", "anchor": "#define OPEN_MS (10 * 60 * 1000) /* a grown-up's password keeps it open this long */", "say": "Once typed, the password keeps the computer open to the grown-up for ten minutes." },
+    { "do": "spotlight", "file": "userland/init/family.inc", "anchor": "static bool family_errand(int fd, const char *id, const char *cmd, const char *arg) {", "say": "The desktop runs as the child, so it never decides alone. The lock and the password are kept and checked by init, as root, through the errands of lesson 05." },
+    { "do": "spotlight", "file": "userland/shell/settings.c", "anchor": "if (family_locks('s')) {", "say": "Each locked place asks the same question, `family_locks`, with one letter for what it guards. Here 's' guards Settings." },
+    { "do": "spotlight", "file": "userland/shell/lock.c", "anchor": "L.state_req = priv_send(\"password-state\");", "say": "The lock screen works the same way: whether there is a password, and whether a guess is right, is asked of init." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Next: **11 Voice, sound and the screen reader**." }
+  ]
+}

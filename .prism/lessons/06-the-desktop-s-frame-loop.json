@@ -1,0 +1,23 @@
+{
+  "title": "06 The desktop's frame loop",
+  "steps": [
+    { "do": "say", "say": "This lesson shows the loop at the heart of os-shell, the one program that draws everything a person sees. Each turn of the loop is a **frame**: read input, decide what to show, draw it, put it on the screen, then sleep until something happens." },
+    { "do": "tree.open", "path": "userland/shell/main.c" },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "int main(void) {", "through": "fonts_init(\"/usr/share/fonts\");", "say": "At start it opens the framebuffer, the screen's memory that it draws into, and the keyboard and pointer." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "if (wls_start(SESSION_RUNTIME)) {", "say": "It is also a Wayland compositor, the program Linux apps send their windows to. That is how Firefox or Prism appear inside the person's design." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "FILE *ff = A.provider ? fopen(STATE_DIR \"/facet.xml\", \"r\") : NULL;", "say": "If a mind is set up, the saved design comes back from /etc/os/facet.xml. That is the desktop document of lesson 07." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "for (;;)", "say": "Then it runs `main_frame` for ever." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "void main_frame(void) {", "through": "if (A.now < paced_until) { /* between two frames: only the apps answered */", "select": "main_frame", "say": "A frame is drawn at most every 16 ms, about 60 a second. Between frames only the apps' messages are answered." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "PROF(\"input\", input_poll(&A.in));", "say": "Input is read into `A.in` once per frame. `A` holds the whole desktop's state, and `PROF` times each step for the performance log." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "PROF(\"deciding\", A.drawing = frame_wanted());", "say": "`frame_wanted` decides whether anything may have changed. If not, nothing is drawn, apart from one frame every 250 ms for clocks and blinking cursors." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "static const char *const names[] = {\"asked\", \"screen\", \"input\", \"app frame\", \"app message\", \"app waiting\",", "say": "These are the reasons it may draw. Every 30 seconds the log says which ones kept it busy, in a line starting `frames:`." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "if (lock_frame()) /* locked: the lock screen is everything (lock.c) */", "through": "if (family_frame()) /* a child's computer, time's up (or outside the hours set): that is everything */", "say": "The lock screen comes first, then the child lock's \"time's up\". Either can take the whole frame." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "switch (A.screen) {", "through": "case SCR_DESKTOP: PROF(\"desktop\", desktop_draw()); break;", "say": "Otherwise one screen is drawn: the first-boot screens, onboarding, the designing screen, or the desktop itself." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "PROF(\"present\", display_present(A.frame));", "say": "Drawing happens in memory, in software. **Presenting** copies the finished picture to the screen in one go, so nothing half-drawn is seen." },
+    { "do": "spotlight", "file": "userland/shell/main.c", "anchor": "int woke = poll(p, (nfds_t)(2 + nw), wait_ms);", "say": "Then it sleeps in `poll` until a key, the pointer, an app or a timer wakes it. Sleeping is what keeps an idle desktop from using the processor." },
+    { "do": "tree.open", "path": "userland/shell/desktop.c" },
+    { "do": "spotlight", "file": "userland/shell/desktop.c", "anchor": "void desktop_draw(void) {", "select": "desktop_draw", "say": "`desktop_draw` is the desktop's own part of the frame: the preview, the companion, the agent, voice, then the design's layout and the windows, in order." },
+    { "do": "spotlight.off" },
+    { "do": "say", "say": "Next: **07 Facet, the design language**, which is what desktop_draw lays out and draws." }
+  ]
+}

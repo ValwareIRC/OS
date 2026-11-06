@@ -1,0 +1,20 @@
+{
+  "title": "15 The gadgets",
+  "steps": [
+    { "do": "say", "say": "This lesson shows the project's own **gadgets** and what each one is for. A gadget is a small app that lives in a Prism panel: a page you look at, and sometimes a part that runs commands for it in the background." },
+    { "do": "rail", "view": "gadgets", "say": "They are listed here. This project has four of its own: kernel tests, feature tests, the VM's serial log, and performance fixes." },
+    { "do": "gadget.open", "id": "kernel-tests", "say": "**Kernel test results** runs `make test` and shows what passed. Its **Run tests** button starts a real build and two boots in QEMU, so press it only when you mean to." },
+    { "do": "spotlight", "file": ".prism/gadgets/kernel-tests/backend.mjs", "anchor": "const MILESTONES = [", "say": "Its checks are lines the boot must print, grouped into milestones: kernel core, cores and scheduling, user space. They mirror the list in tests/boot_test.sh." },
+    { "do": "spotlight", "file": ".prism/gadgets/kernel-tests/backend.mjs", "anchor": "const cmd = `cd '${wslPath(api.root)}' && make test`;", "say": "This is what the button runs, inside WSL. It keeps a history of runs, so you can compare today's boot with yesterday's." },
+    { "do": "gadget.open", "id": "feature-tests", "say": "**Feature test runs** watches the end-to-end suite: the launcher, windows, apps, the companion, the tray, Settings, the terminal and more, each in a VM of its own. A whole run takes about an hour." },
+    { "do": "spotlight", "file": ".prism/gadgets/feature-tests/backend.mjs", "anchor": "const a = ['-d', 'Ubuntu', '--', 'python3', wslPath(path.join(api.root, 'scripts', 'feature_checks.py'))];", "say": "**Run all** starts scripts/feature_checks.py. The gadget reads build/feature-checks/events.jsonl as that script writes it, so it also follows a run started by hand." },
+    { "do": "gadget.open", "id": "os-serial", "say": "**The OS VM serial log** follows the log of the VM that Operating System.cmd starts. A serial log is the text the kernel and programs print while the system runs. The gadget sorts its lines into AI calls, errors, timeouts and screens." },
+    { "do": "spotlight", "file": ".prism/gadgets/os-serial/backend.mjs", "anchor": "async function restartVm() {", "through": "return 'restarting'", "say": "Be careful with **Restart the OS**: it stops every running qemu-system-x86_64, test VMs included, then starts Operating System.cmd again." },
+    { "do": "gadget.open", "id": "performance-fixes", "say": "**Performance fixes** lists the slow spots found so far, the plan for each, and the numbers before and after each fix." },
+    { "do": "spotlight", "file": ".prism/gadgets/performance-fixes/backend.mjs", "anchor": "const MEASUREMENTS = {", "say": "Each measurement is one of the project's own test scripts, tests/*_win.py. Each one boots a VM, so only one runs at a time." },
+    { "do": "spotlight.off" },
+    { "do": "gadget.open", "id": "system-pulse", "say": "Prism also brings gadgets of its own. **System pulse** shows how busy this PC is. That is worth a look before you start a test VM, since vmkit gives each one 12 GB of memory by default." },
+    { "do": "say", "say": "Prism's other built-in gadgets include **Graphics card** (gpu), **Decisions** and **Profiling**. They are listed in the same panel." },
+    { "do": "say", "say": "The agent can use these gadgets too: each one gives it tools, such as `kernel_test_latest`, `tests_status` or `serial_summary`. That is the end of the series. Lesson 01 is the place to start again, and the gadgets are where to look after every change." }
+  ]
+}

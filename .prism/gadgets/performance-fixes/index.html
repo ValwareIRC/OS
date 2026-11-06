@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="prism-gadget://_sdk/base.css">
+<link rel="stylesheet" href="prism-gadget://_sdk/kit.css">
+<script src="prism-gadget://_sdk/prism.js"></script>
+<script src="prism-gadget://_sdk/kit.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box }
+  html, body { height: 100%; margin: 0 }
+  .sum { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0 }
+  .sum .k-stat { flex: 1 1 110px; min-width: 0 }
+  .fix { margin-top: 10px }
+  .fix-head { display: flex; gap: 8px; align-items: center; min-width: 0; cursor: pointer }
+  .fix-head .t { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .num { color: var(--dim, #8a93a6); font-size: 11px; flex: 0 0 auto; width: 18px }
+  .what { margin: 6px 0 4px; font-size: 12px; line-height: 1.45 }
+  .plan { font-size: 12px; margin-bottom: 6px }
+  table.m { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed }
+  table.m td { padding: 3px 4px; border-top: 1px solid rgba(255,255,255,.06); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  table.m td.n { width: 46% }
+  table.m td.v { text-align: right; font-variant-numeric: tabular-nums }
+  table.m th { font-weight: 500; font-size: 10.5px; text-align: right; padding: 2px 4px; color: var(--dim, #8a93a6) }
+  table.m th:first-child { text-align: left }
+  .gain { color: var(--mint) }
+  .loss { color: var(--rose) }
+  .unit { color: var(--dim, #8a93a6); font-size: 10.5px }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px }
+  .btns button { font-size: 11.5px; padding: 4px 9px }
+  .runbox { margin-top: 6px }
+  .runbox .k-log { max-height: 170px; overflow: auto; font-size: 11px; white-space: pre-wrap; word-break: break-word }
+  .hist { font-size: 11px; margin-top: 4px; overflow-wrap: anywhere }
+  .pill-found { background: rgba(255,255,255,.08) }
+  .runs { font-size: 11.5px }
+  .runs .k-item { display: flex; gap: 8px; min-width: 0 }
+  .runs .k-item .g { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+</style>
+</head>
+<body>
+<div class="k-app">
+  <div class="k-top"><div class="k-title">Performance fixes</div><div class="k-grow"></div><div id="runstate" class="dim" style="font-size:12px"></div></div>
+  <div class="k-body" id="body"><div class="k-empty">Loading…</div></div>
+</div>
+<script>
+const { h, mount } = window.kit
+let S = null
+const open = new Set()
+const STATUS = { found: ['Found', ''], working: ['Working on it', 'run'], fixed: ['Fixed', 'warn'], verified: ['Fixed and measured', 'ok'] }
+
+function fmt(v, m) {
+  if (v === undefined || v === null) return '—'
+  if (m && m.unit === 'yes/no') return v ? 'yes' : 'no'
+  const n = Number(v)
+  return (Math.abs(n) >= 100 ? n.toFixed(0) : Math.abs(n) >= 10 ? n.toFixed(1) : n.toFixed(2)).replace(/\.0+$|(\.\d*[1-9])0+$/, '$1')
+}
+
+function change(m) {
+  if (!m.before || !m.after) return null
+  const b = Number(m.before.value), a = Number(m.after.value)
+  if (m.unit === 'yes/no') return a > b ? { text: 'now works', good: true } : a < b ? { text: 'broke', good: false } : { text: 'same', good: null }
+  if (b === 0) return null
+  const better = m.better === 'lower' ? b / a : a / b
+  if (!isFinite(better)) return null
+  if (Math.abs(better - 1) < 0.03) return { text: 'same', good: null }
+  return better > 1 ? { text: (better >= 2 ? better.toFixed(better >= 10 ? 0 : 1) + '× better' : Math.round((better - 1) * 100) + '% better'), good: true }
+                    : { text: Math.round((1 - better) * 100) + '% worse', good: false }
+}
+
+function ago(t) { return t ? window.kit.ago(t) : '' }
+
+function render() {
+  if (!S) return
+  const fixes = S.fixes
+  const done = fixes.filter(f => f.status === 'fixed' || f.status === 'verified').length
+  const measured = fixes.filter(f => f.status === 'verified').length
+  const running = S.run && !S.run.done
+  document.getElementById('runstate').textContent = running ? 'Measuring: ' + S.run.name : ''
+
+  const summary = h('div', { class: 'sum' },
+    h('div', { class: 'k-stat' }, h('b', {}, `${done} of ${fixes.length}`), h('span', {}, 'fixed')),
+    h('div', { class: 'k-stat' }, h('b', {}, `${measured}`), h('span', {}, 'measured after')),
+    h('div', { class: 'k-stat' }, h('b', {}, running ? window.kit.dur(Date.now() - S.run.started) : '—'), h('span', {}, running ? 'measuring' : 'nothing running')))
+
+  const runbox = S.run ? h('div', { class: 'k-card runbox' },
+    h('div', { class: 'k-row' },
+      h('span', { class: 'k-dot ' + (running ? 'run' : S.run.code === 0 ? 'ok' : 'bad') }),
+      h('b', { style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, S.run.name),
+      h('span', { class: 'dim', style: 'font-size:11px' }, running ? 'running for ' + window.kit.dur(Date.now() - S.run.started) : (S.run.code === 0 ? 'finished' : 'ended (exit ' + S.run.code + ')')),
+      running ? h('button', { onclick: () => prism.call('stop').then(set) }, 'Stop') : null),
+    Object.keys(S.run.perf || {}).length ? h('div', { class: 'hist' }, Object.entries(S.run.perf).map(([k, v]) => `${k} = ${v}`).join('   ·   ')) : null,
+    h('div', { class: 'k-log mono' }, (S.run.lines || []).join('\n') || 'starting…')) : null
+
+  const cards = fixes.map((f, i) => {
+    const st = STATUS[f.status] || STATUS.found
+    const isOpen = open.has(f.id)
+    const byWhat = [...new Set(f.metrics.map(m => m.by).filter(Boolean))]
+    const rows = f.metrics.map(m => {
+      const c = change(m)
+      return h('tr', {},
+        h('td', { class: 'n', title: m.name }, m.name),
+        h('td', { class: 'v', title: m.before ? (m.before.note || m.before.source || '') : 'not measured yet' }, fmt(m.before?.value, m)),
+        h('td', { class: 'v' }, fmt(m.after?.value, m)),
+        h('td', { class: 'v ' + (c ? (c.good ? 'gain' : c.good === false ? 'loss' : '') : '') }, c ? c.text : h('span', { class: 'unit' }, m.unit)))
+    })
+    return h('div', { class: 'k-card fix' },
+      h('div', { class: 'fix-head', onclick: () => { open.has(f.id) ? open.delete(f.id) : open.add(f.id); render() } },
+        h('span', { class: 'num' }, String(i + 1)),
+        h('span', { class: 't', title: f.title }, f.title),
+        h('span', { class: 'k-pill ' + st[1] }, st[0])),
+      isOpen ? h('div', { class: 'what dim' }, f.what) : null,
+      isOpen ? h('div', { class: 'plan' }, 'Fix: ' + f.plan + (f.commit ? '  ·  ' + f.commit : '') + (f.note ? '  ·  ' + f.note : '')) : null,
+      h('table', { class: 'm' }, h('tr', {}, h('th', {}, ''), h('th', {}, 'Before'), h('th', {}, 'After'), h('th', {}, 'Change')), ...rows),
+      isOpen ? h('div', { class: 'hist dim' }, f.metrics.filter(m => m.history.length).map(m => m.name + ': ' + m.history.slice(-6).map(e => fmt(e.value, m)).join(' → ')).join('\n') || 'No runs yet.') : null,
+      isOpen || byWhat.length ? h('div', { class: 'btns' },
+        ...byWhat.map(id => {
+          const meas = S.measurements.find(x => x.id === id)
+          return h('button', { disabled: running, onclick: () => prism.call('run', { id }).then(set).catch(e => window.kit.toast(String(e.message || e))) },
+            'Measure: ' + meas.name.toLowerCase() + ' (~' + meas.minutes + ' min)')
+        })) : null)
+  })
+
+  const runs = S.runs.length ? h('div', { class: 'k-card' }, h('b', {}, 'Recent measurements'),
+    h('div', { class: 'k-list runs' }, ...S.runs.map(r => h('div', { class: 'k-item' },
+      h('span', { class: 'k-dot ' + (r.stopped ? 'warn' : r.code === 0 ? 'ok' : 'bad') }),
+      h('span', { class: 'g', title: Object.entries(r.perf || {}).map(([k, v]) => k + '=' + v).join(', ') }, r.name + ': ' + (Object.entries(r.perf || {}).map(([k, v]) => k.replace(/_/g, ' ') + ' ' + v).join(', ') || (r.stopped ? 'stopped' : 'no numbers'))),
+      h('span', { class: 'dim' }, ago(r.at)))))) : null
+
+  mount(document.getElementById('body'), summary, runbox, ...cards, runs)
+}
+
+function set(s) { S = s; render() }
+prism.ready(async () => {
+  prism.on('state', set)
+  set(await prism.call('state'))
+  setInterval(() => { if (S && S.run && !S.run.done) render() }, 1000)
+  /* (the backend restarts when it is changed: its events stop reaching this page, so it is asked as well) */
+  setInterval(() => prism.call('state').then(set).catch(() => {}), 4000)
+})
+</script>
+</body>
+</html>

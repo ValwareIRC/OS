@@ -1,0 +1,17 @@
+{
+  "id": "feature-tests",
+  "name": "Feature test runs",
+  "description": "Watches the end-to-end feature suite (launcher, windows, apps, companion, stylist, tray, settings, terminal, boot: 12 VM runs, about an hour) live: pass/fail per run and design, the run in progress, and the errors in each run's serial log.",
+  "backend": "backend.mjs",
+  "agent": "Use after every build of the Operating System tree instead of running scripts/feature-checks.sh by hand: tests_start (optionally only some runs), tests_status while it runs, tests_details for a failed run's checks, errors and log tail.",
+  "widget": {
+    "title": "Feature tests",
+    "ratio": 0.9,
+    "actions": [
+      { "label": "Run all", "call": "start" },
+      { "label": "Rerun failed", "call": "start", "args": { "failed": true } },
+      { "label": "Stop", "call": "stop" }
+    ]
+  },
+  "permissions": { "shell": true, "workspace": "read" }
+}
