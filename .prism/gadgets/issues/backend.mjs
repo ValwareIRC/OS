@@ -287,8 +287,9 @@ ${changes}
 
 Check: does this really fix the problem described? Could it break anything else (other callers, other cases, error
 paths, threads, memory)? Was anything missed (another place with the same bug, a test, a comment now wrong)?
-${list && list.tools ? 'You may read and search the project to check (read only). Look at the code around the change.' : 'You only have what is above.'}
+${list && list.tools ? 'You may read and search the project\'s files to check (look at the code around the change). Use no other tool at all: do not record decisions, write, run or ask anything.' : 'You only have what is above.'}
 
+Your whole reply is the review itself, nothing before or after it, and it starts with the line "VERDICT:".
 Answer in plain words, in exactly this shape:
 VERDICT: looks right   (or)   VERDICT: concerns
 LOOKED AT:
