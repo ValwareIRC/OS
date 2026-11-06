@@ -7,7 +7,9 @@ ARCH        ?= x86_64
 LIMINE_DIR  := vendor/limine
 BUILD       := build$(if $(filter arm64,$(ARCH)),/arm64)
 ISO         := $(BUILD)/os.iso
-KERNEL      := $(BUILD)/kernel.elf
+# LKPI=1: the kernel with NVIDIA's driver in (kernel/linuxkpi, docs/nvidia/plan.md), built in a folder of its own
+LKPI        ?= 0
+KERNEL      := $(BUILD)/kernel$(if $(filter 1,$(LKPI)),-lkpi/kernel).elf
 INITRD      := $(BUILD)/initrd.cpio
 BASE_CPIO   := $(BUILD)/base.cpio
 BASE_IDX    := $(BUILD)/base.idx
@@ -79,7 +81,7 @@ base-system:
 	touch $(BASE_DIR)/.stamp
 
 kernel:
-	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel OUT=../$(KERNEL)
+	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel$(if $(filter 1,$(LKPI)),-lkpi) OUT=../$(KERNEL) LKPI=$(LKPI)
 
 ports:
 	$(PORTS_ENV) bash ports/build-ports.sh

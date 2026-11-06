@@ -113,8 +113,11 @@ static void fadt_init(void) {
 /* The layer, then NVIDIA's driver (its module init: the character devices, then the PCI driver, which probes the
  * GPUs). On a thread of its own: probing sleeps, and reads the GSP firmware from /lib/firmware. */
 int lkpi_start(void) {
+    kpi_host_log("linuxkpi: memory\n", 17);
     lkpi_mm_init();
+    printk("linuxkpi: threads\n");
     lkpi_sched_init();
+    printk("linuxkpi: files\n");
     lkpi_fs_init();
     fadt_init();
     framebuffer_init();

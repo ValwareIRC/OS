@@ -4,8 +4,10 @@
 #include <kernel/platform.h>
 #include <kernel/spinlock.h>
 
-/* Minimal printf: %d %i %u %x %X %p %s %c %%, with optional '0' flag, width,
- * and l/ll/z length modifiers. Enough for kernel logging. */
+/* Minimal printf: %d %i %u %x %X %p %s %c %%, with the '0' and '-' flags, a width and a precision (either may be
+ * '*': taken from the arguments), and the hh/h/l/ll/z length modifiers. Enough for kernel logging; anything else is
+ * printed as it is, and takes no argument (so nothing after it is read from the wrong one only if it took none:
+ * keep to these). */
 
 struct out {
     char *buf;
@@ -46,10 +48,21 @@ int kvsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
         }
         fmt++;
         char pad = ' ';
-        int width = 0, lng = 0;
-        if (*fmt == '0') {
-            pad = '0';
+        bool left = false;
+        int width = 0, lng = 0, shrt = 0;
+        for (;; fmt++) {
+            if (*fmt == '0')
+                pad = '0';
+            else if (*fmt == '-')
+                left = true;
+            else
+                break;
+        }
+        if (*fmt == '*') {
+            width = va_arg(ap, int);
             fmt++;
+            if (width < 0)
+                left = true, width = -width;
         }
         while (*fmt >= '0' && *fmt <= '9')
             width = width * 10 + (*fmt++ - '0');
@@ -57,27 +70,41 @@ int kvsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
         if (*fmt == '.') {
             prec = 0;
             fmt++;
+            if (*fmt == '*') {
+                prec = va_arg(ap, int);
+                fmt++;
+            }
             while (*fmt >= '0' && *fmt <= '9')
                 prec = prec * 10 + (*fmt++ - '0');
         }
-        while (*fmt == 'l' || *fmt == 'z') {
-            lng++;
+        while (*fmt == 'l' || *fmt == 'z' || *fmt == 'h') {
+            if (*fmt == 'h')
+                shrt++;
+            else
+                lng++;
             fmt++;
         }
+        if (left)
+            pad = ' ';
+        size_t start = o.len;
         switch (*fmt) {
         case 'd':
         case 'i': {
             int64_t v = lng ? va_arg(ap, int64_t) : va_arg(ap, int);
-            put_num(&o, v < 0 ? -(uint64_t)v : (uint64_t)v, 10, false, v < 0, width, pad);
+            if (!lng && shrt)
+                v = shrt > 1 ? (int64_t)(signed char)v : (int64_t)(short)v;
+            put_num(&o, v < 0 ? -(uint64_t)v : (uint64_t)v, 10, false, v < 0, left ? 0 : width, pad);
             break;
         }
         case 'u':
-            put_num(&o, lng ? va_arg(ap, uint64_t) : va_arg(ap, unsigned), 10, false, false, width, pad);
-            break;
         case 'x':
-        case 'X':
-            put_num(&o, lng ? va_arg(ap, uint64_t) : va_arg(ap, unsigned), 16, *fmt == 'X', false, width, pad);
+        case 'X': {
+            uint64_t v = lng ? va_arg(ap, uint64_t) : va_arg(ap, unsigned);
+            if (!lng && shrt)
+                v = shrt > 1 ? (uint8_t)v : (uint16_t)v;
+            put_num(&o, v, *fmt == 'u' ? 10 : 16, *fmt == 'X', false, left ? 0 : width, pad);
             break;
+        }
         case 'p':
             put(&o, '0');
             put(&o, 'x');
@@ -90,7 +117,7 @@ int kvsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
             size_t l = 0;
             while (s[l] && (prec < 0 || l < (size_t)prec))
                 l++;
-            for (; width > (int)l; width--)
+            for (; !left && width > (int)l; width--)
                 put(&o, ' ');
             for (size_t i = 0; i < l; i++)
                 put(&o, s[i]);
@@ -109,6 +136,8 @@ int kvsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
             put(&o, '%');
             put(&o, *fmt);
         }
+        for (size_t done = o.len - start; left && done < (size_t)width; done++)
+            put(&o, ' ');
     }
     if (size)
         buf[o.len < size ? o.len : size - 1] = '\0';

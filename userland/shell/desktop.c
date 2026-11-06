@@ -1836,8 +1836,11 @@ static void scan_flatpak_apps_in(const char *apps) {
         }
         if (hidden || !b->exec[0])
             continue;
-        if (!b->name[0])
-            snprintf(b->name, sizeof b->name, "%s", b->id);
+        if (!b->name[0]) { /* (its ID for a name: copied, so GCC doesn't take the two fields for one) */
+            size_t k = strnlen(b->id, sizeof b->name - 1);
+            memcpy(b->name, b->id, k);
+            b->name[k] = 0;
+        }
         LOG("flatpak app %s (%s)\n", b->id, b->name);
         nbundled++;
     }
@@ -1926,8 +1929,11 @@ static void scan_bundled(void) {
             else if (!strcmp(line, "about")) snprintf(b->about, sizeof b->about, "%s", eq + 1);
         }
         fclose(f);
-        if (!b->name[0])
-            snprintf(b->name, sizeof b->name, "%s", b->id);
+        if (!b->name[0]) { /* (its ID for a name: copied, so GCC doesn't take the two fields for one) */
+            size_t k = strnlen(b->id, sizeof b->name - 1);
+            memcpy(b->name, b->id, k);
+            b->name[k] = 0;
+        }
         LOG("bundled app %s (%s)\n", b->id, b->name);
         nbundled++;
     }

@@ -590,6 +590,7 @@ static void mind_from_cmdline(void) {
 int lkpi_start(void);
 static void nvidia_main(void *arg) {
     (void)arg;
+    kprintf("nvidia: the layer starts\n");
     lkpi_start();
 }
 #endif

@@ -5,17 +5,44 @@
 
 /* ---- printing ---- */
 
+/* Lines as Linux logs them: the KERN_* levels (\001 and a digit, or 'c' to go on with the line before) are not
+ * shown, wherever they come (NVIDIA formats a message, then prints it with "%s"); a message without its newline
+ * waits for the rest of its line, which a KERN_CONT message gives and anything else ends. */
+static char line[512];
+static size_t line_len;
+static DEFINE_SPINLOCK(line_lock);
+
+static void line_flush(void) {
+    if (!line_len)
+        return;
+    if (line[line_len - 1] != '\n' && line_len < sizeof line)
+        line[line_len++] = '\n';
+    kpi_host_log(line, line_len);
+    line_len = 0;
+}
+
 int vprintk(const char *fmt, va_list ap) {
     char buf[512];
-    const char *f = fmt;
-    if (f[0] == '\001' && f[1]) /* KERN_ERR and friends: the level is not shown */
-        f += 2;
-    int n = kpi_host_vsnprintf(buf, sizeof buf, f, ap);
+    int n = vsnprintf(buf, sizeof buf, fmt, ap);
     size_t len = n < 0 ? 0 : (size_t)n < sizeof buf ? (size_t)n : sizeof buf - 1;
-    kpi_host_log("nvidia: ", 8);
-    kpi_host_log(buf, len);
-    if (len && buf[len - 1] != '\n')
-        kpi_host_log("\n", 1);
+    unsigned long f = lkpi_spin_lock_irqsave(&line_lock);
+    bool cont = false;
+    size_t i = 0;
+    while (i + 1 < len && buf[i] == '\001') /* its levels */
+        cont |= buf[i + 1] == 'c', i += 2;
+    if (!cont)
+        line_flush(); /* (a new message: the one before was a whole line after all) */
+    for (; i < len; i++) {
+        if (buf[i] == '\001' && i + 1 < len) { /* (a level inside the text: not shown either) */
+            i++;
+            continue;
+        }
+        if (line_len < sizeof line - 1)
+            line[line_len++] = buf[i];
+        if (buf[i] == '\n')
+            line_flush();
+    }
+    spin_unlock_irqrestore(&line_lock, f);
     return n;
 }
 
@@ -45,7 +72,7 @@ void lkpi_bug(const char *file, int line) {
 void lkpi_warn(const char *file, int line, const char *what) { printk("WARNING at %s:%d: %s\n", file, line, what); }
 void dump_stack(void) { kpi_host_backtrace(); }
 
-int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) { return kpi_host_vsnprintf(buf, size, fmt, ap); }
+/* (vsnprintf: printf.c) */
 
 int snprintf(char *buf, size_t size, const char *fmt, ...) {
     va_list ap;

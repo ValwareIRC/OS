@@ -325,7 +325,7 @@ static void on_sigsys(int sig, siginfo_t *si, void *ctx) {
     trapped_code = si->si_code;
     trapped_nr = si->si_syscall;
     /* Chromium checks the saved register holds the call's number, then answers in the return register */
-    if (UC_NR(uc) == (unsigned long)si->si_syscall)
+    if (UC_NR(uc) == (long long)si->si_syscall)
         UC_RET(uc) = 777;
 }
 
