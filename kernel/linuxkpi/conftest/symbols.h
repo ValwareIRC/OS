@@ -1,0 +1,52 @@
+#define NV_IS_EXPORT_SYMBOL_PRESENT_vmap_pfn 1
+#define NV_IS_EXPORT_SYMBOL_GPL_vmap_pfn 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_cc_mkenc 0
+#define NV_IS_EXPORT_SYMBOL_GPL_cc_mkenc 0
+#define NV_IS_EXPORT_SYMBOL_GPL_sme_active 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_swiotlb_map_sg_attrs 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_swiotlb_dma_ops 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT___close_fd 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_close_fd 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_pxm_to_node 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_screen_info 0
+#define NV_IS_EXPORT_SYMBOL_GPL_screen_info 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_sysfb_primary_display 1
+#define NV_IS_EXPORT_SYMBOL_GPL_sysfb_primary_display 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_i2c_bus_status 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_tegra_fuse_control_read 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_pci_find_host_bridge 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_tsec_comms_send_cmd 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_tsec_comms_set_init_cb 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_tsec_comms_clear_init_cb 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_tsec_comms_alloc_mem_from_gscco 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_tsec_comms_free_gscco_mem 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_memory_block_size_bytes 0
+#define NV_CRYPTO_PRESENT
+#undef NV_CRYPTO_AKCIPHER_VERIFY_PRESENT
+#define NV_IS_EXPORT_SYMBOL_PRESENT_follow_pte 0
+#undef NV_FOLLOW_PTE_ARG1_VMA
+#undef NV_DMA_BUF_OPS_ATTACH_ARG2_DEV
+#define NV_IS_EXPORT_SYMBOL_PRESENT_follow_pfnmap_start 1
+#define NV_IS_EXPORT_SYMBOL_GPL_pci_ats_supported 1
+#define NV_ECC_DIGITS_FROM_BYTES_PRESENT
+#define NV_IS_EXPORT_SYMBOL_GPL_set_memory_encrypted 1
+#define NV_IS_EXPORT_SYMBOL_GPL_set_memory_decrypted 1
+#define NV_IS_EXPORT_SYMBOL_GPL___platform_driver_register 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT___platform_driver_register 1
+#define NV_IS_EXPORT_SYMBOL_GPL_mutex_destroy 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_hrtimer_setup 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_timer_delete_sync 1
+#define NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_enable_feature 0
+#define NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_disable_feature 0
+#define NV_IS_EXPORT_SYMBOL_GPL___vma_start_write 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_lockdep_register_key 0
+#define NV_IS_EXPORT_SYMBOL_GPL_pci_find_dvsec_capability 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_wait_for_device_probe 1
+#define NV_IS_EXPORT_SYMBOL_GPL_dma_iova_try_alloc 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_shmem_kernel_file_setup 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_int_active_memcg 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT_migrate_vma_setup 0
+#define NV_IS_EXPORT_SYMBOL_PRESENT___iowrite64_lo_hi 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT_make_device_exclusive 0
+#define NV_IS_EXPORT_SYMBOL_GPL_platform_device_put 1
+// Kernel version:             "7.2.0"
