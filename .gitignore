@@ -27,3 +27,6 @@ __pycache__/
 *.cmd
 # VRM models people bring (their licences are their own)
 *.vrm
+
+# The issues line's memory of what was last shown (scripts/issues-line.sh)
+.claude/issues-seen
