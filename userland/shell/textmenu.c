@@ -475,6 +475,37 @@ void ctx_menu_after_input(void) {
         items[k]->hover = k == CM.sel;
 }
 
+bool ctx_menu_reading(char *out, size_t n) {
+    fm_node *m = CM.live ? live_menu() : NULL;
+    if (!m || !m->open) {
+        if (!CM.open)
+            return false;
+        /* (the plain one, before the desktop) */
+        int i = CM.sel;
+        snprintf(out, n, "%s", i >= 0 && i < CM.spec.n ? CM.spec.a[i].label : "A menu");
+        return true;
+    }
+    fm_node *items[MF_MAX];
+    int k = actions_in(m, items, 0), at = -1;
+    for (int j = 0; j < k && at < 0; j++)
+        if (j == CM.sel || items[j]->hover)
+            at = j;
+    if (at < 0) { /* just opened: what it is, how many, the first */
+        int first = k ? index_of(items[0]) : -1;
+        snprintf(out, n, "Menu, %d things%s%s%s", k, CM.typed[0] ? ", narrowed to " : "", CM.typed,
+                 first >= 0 ? "" : "");
+        return true;
+    }
+    int ai = index_of(items[at]);
+    if (ai < 0 || ai >= CM.spec.n)
+        return false;
+    const mf_action *a = &CM.spec.a[ai];
+    snprintf(out, n, "%s%s%s%s%s", a->label, a->flags & MF_OFF ? ", can't be used now" : "",
+             (a->flags & MF_OFF) && a->why_off[0] ? ": " : "", (a->flags & MF_OFF) ? a->why_off : "",
+             a->flags & MF_ON ? ", chosen" : "");
+    return true;
+}
+
 void ctx_menu_take(int i) {
     if (i < 0 || i >= CM.spec.n)
         return;

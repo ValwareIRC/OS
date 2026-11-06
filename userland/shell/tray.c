@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "tray.h"
 #include "app.h"
+#include "reader.h"
 #include "controls.h"
 #include "settings.h"
 #include "fm/fm.h"
@@ -369,6 +370,12 @@ int notify_unread(void) { return unread; }
 static uint64_t toast_life(const struct note *n) { return 5200 + 38 * (uint64_t)(strlen(n->title) + strlen(n->body)); }
 
 void notify(const char *title, const char *body, const char *app) {
+    {
+        char said[400];
+        snprintf(said, sizeof said, "%s%s%s. %s", app && *app ? app : "", app && *app ? ": " : "", title ? title : "",
+                 body ? body : "");
+        reader_announce(said); /* (heard, with the screen reader on) */
+    }
     if (!title || !*title)
         title = "Notification";
     remember_app(app);

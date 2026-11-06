@@ -8,6 +8,8 @@ bool voice_can_hear(void);
 void voice_set_enabled(bool on);
 bool voice_enabled(void);
 void voice_say(const char *text); /* interrupts anything still being said */
+/* The screen reader's words: in the companion's voice even when its talking is off (reader.c). */
+void voice_read(const char *text);
 /* Each line said gets a number: the last one, and whether it was cut off
  * (hushed) rather than finished. */
 unsigned voice_said(void);

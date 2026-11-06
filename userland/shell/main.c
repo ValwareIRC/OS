@@ -3,6 +3,7 @@
  * the desktop itself, drawn straight to /dev/fb0 from the AI's design. */
 #include "presence.h"
 #include "app.h"
+#include "reader.h"
 #include "lock.h"
 #include "clock.h"
 #include "priv.h"
@@ -71,6 +72,7 @@ void toast(const char *fmt, ...) {
         snprintf(toast_heard + l, sizeof toast_heard - l, "- the screen said: \"%s\"\n", A.toast);
     }
     A.toast_until = A.now + 2500 + 45 * strlen(A.toast); /* long enough to read */
+    reader_announce(A.toast); /* (and heard, with the screen reader on) */
 }
 
 /* The start: nothing of its own to show (the boot screen, os-boot, is still up and the desktop fades in from it,
@@ -437,6 +439,7 @@ void main_frame(void) {
     PROF("built-in model", mind_builtin_tick()); /* the model that comes with it, once it has been read from the disc */
     PROF("presence", presence_poll()); /* its frames, and what it should know */
     PROF("input", input_poll(&A.in));
+    reader_keys(); /* the screen reader's keys (Ctrl+Alt+R...), and any key cuts its words off */
     if (A.in.clicked || A.in.pressed || A.in.nkeys || A.in.wheel)
         nerve_person_touched(); /* what follows from this is theirs (nerve.c) */
     PROF("text menu", ui_text_menu_input()); /* a text field's right-click menu, when it is up, has the pointer */
@@ -453,6 +456,8 @@ void main_frame(void) {
         input_clear(&A.in);
     PROF("clock", clock_frame()); /* the automatic time zone, the network's time (clock.c) */
     PROF("onboarding", onboard_keep()); /* onboarding's place, kept as it changes (onboard_talk.inc) */
+    if (A.drawing)
+        a11y_frame_begin(); /* (what the controls say they are: noted again as they are drawn) */
     if (lock_frame()) /* locked: the lock screen is everything (lock.c) */
         goto drawn;
     switch (A.screen) {
@@ -480,6 +485,7 @@ drawn:
         if (!quick) {
             ui_text_menu_draw();
             ctx_menu_draw();
+            reader_draw(); /* (the first screens: how to have them read aloud) */
             desktop_note_clean(); /* (before the pointer: it isn't part of the window) */
             capture_frame(false); /* a recording without the pointer takes this */
             pointer_save(A.in.mx, A.in.my);
@@ -505,6 +511,7 @@ drawn:
         PROF("frame done", wls_frame_done((uint32_t)A.now));
         frames_done_at = A.now;
     }
+    PROF("reader", reader_tick()); /* the screen reader: what has their attention, said when it changes */
     PROF("save", keep_on_disk());
     PROF("home owner", keep_home_theirs());
     PROF("account", keep_account_name());

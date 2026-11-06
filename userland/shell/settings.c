@@ -11,6 +11,7 @@
 #include "appgate.h"
 #include "nerve.h"
 #include "app.h"
+#include "reader.h"
 #include "emblem.h"
 #include "fm/fm.h"
 #include "keymap.h"
@@ -352,6 +353,7 @@ static int note_text(rect c, int y, const char *s) {
 
 /* A row with a label on the left and something on the right. */
 static void row_label(rect c, int y, int h, const char *label, const char *sub) {
+    a11y_note((rect){c.x, y, c.w / 2, h}, "label", label, sub ? sub : "", false);
     font *f = BODY();
     if (sub) {
         draw_text(A.frame, f, c.x, y + h / 2 - LH(f) + 2, label, P.ink);
@@ -646,12 +648,22 @@ static int page_appearance(rect c, int y) {
     struct {
         const char *label, *sub;
         bool on;
-    } rows[2] = {{"Strong contrast", "Text reads at 7:1 against whatever is behind it", A.prof.high_contrast},
-                 {"Less movement", "A static wallpaper and minimal animation", A.prof.reduce_motion}};
-    for (int i = 0; i < 2; i++) {
+    } rows[4] = {{"Strong contrast", "Text reads at 7:1 against whatever is behind it", A.prof.high_contrast},
+                 {"Less movement", "A static wallpaper and minimal animation", A.prof.reduce_motion},
+                 {"Screen reader", "The screen read out loud, everywhere (Ctrl+Alt+R)", reader_on()},
+                 {"Says more", "A fuller description when you stop on something", reader_full()}};
+    for (int i = 0; i < 4; i++) {
         row_label(c, y, 48, rows[i].label, rows[i].sub);
         if (ctl_switch((rect){c.x + c.w - 52, y + 12, 48, 26}, rows[i].on, &P)) {
-            if (i == 0) {
+            if (i == 2) {
+                reader_set(!reader_on());
+                y += 56;
+                continue;
+            } else if (i == 3) {
+                reader_set_full(!reader_full());
+                y += 56;
+                continue;
+            } else if (i == 0) {
                 A.prof.high_contrast = !A.prof.high_contrast;
                 fm_contrast_floor = A.prof.high_contrast ? 7.0f : 4.5f;
             } else {

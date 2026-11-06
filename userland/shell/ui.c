@@ -2,6 +2,7 @@
 #include "wallpaper.h"
 #include "image.h"
 #include "fm/fm.h"
+#include "reader.h"
 #include <stdio.h>
 #include <strings.h>
 #include <math.h>
@@ -10,6 +11,7 @@
 bool ui_hover(rect r) { return pt_in(r, A.in.mx, A.in.my); }
 
 bool ui_button(rect r, const char *label, font *f, color bg, color fg, float radius, bool enabled) {
+    a11y_note(r, "button", label, enabled ? "" : "can't be used now", false);
     bool hover = enabled && ui_hover(r);
     color b = enabled ? (hover ? color_mix(bg, RGBA(255, 255, 255, C_A(bg)), 0.12f) : bg) : color_alpha(bg, 0.4f);
     fill_round(A.frame, r, radius, b);
@@ -19,6 +21,9 @@ bool ui_button(rect r, const char *label, font *f, color bg, color fg, float rad
 
 void ui_textfield(rect r, struct textfield *t, bool focused, const char *placeholder, font *f, color bg, color fg,
                   color muted, float radius) {
+    char says[140];
+    snprintf(says, sizeof says, "%s%.120s", t->buf[0] ? "says " : "", t->secret && t->buf[0] ? "a password" : t->buf);
+    a11y_note(r, "field", placeholder, says, focused);
     fill_round(A.frame, r, radius, bg);
     if (focused)
         stroke_round(A.frame, r, radius, 1.5f, color_alpha(fg, 0.5f));

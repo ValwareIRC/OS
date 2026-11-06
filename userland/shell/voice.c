@@ -419,10 +419,21 @@ static const char *speak_lang(const char *text, const char *voice) {
     return base[0] == 'p' ? "pt-br" : base[0] == 'b' ? "en" : "en-us";
 }
 
+static bool reading; /* (the screen reader's words: said with its talking off too) */
+
+void voice_read(const char *text) {
+    const struct tone *keep = tone_next;
+    tone_next = NULL; /* (plainly: no tone of a reply) */
+    reading = true;
+    voice_say(text);
+    reading = false;
+    tone_next = keep;
+}
+
 void voice_say(const char *text) {
     tone_now = tone_next; /* this line's tone, and only this line's */
     tone_next = NULL;
-    if (!enabled || !text || !*text || !voice_can_speak())
+    if ((!enabled && !reading) || !text || !*text || !voice_can_speak())
         return;
     voice_hush(); /* the newest words win */
     said++;

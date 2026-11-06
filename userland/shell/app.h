@@ -206,6 +206,10 @@ void ctx_menu_input(void);
 void ctx_menu_draw(void);
 void ctx_menu_take(int i);        /* what="menu:N" in the design's menu (desktop.c's fm_host_action) */
 void ctx_menu_after_input(void);  /* after the design took the pointer: the arrows' choice shown */
+/* For the screen reader: the menu up, and what is chosen in it (under the pointer or by the keys); false if none. */
+bool ctx_menu_reading(char *out, size_t n);
+int desktop_focused_window(void);
+const char *desktop_window_title(int w);
 void desktop_ctx_chosen(const char *act);
 void text_menu_take(int i);                /* a text field's item, picked from the design's menu */
 void files_menu_take(const char *what);    /* Files' (files.c) */

@@ -50,6 +50,7 @@ SOURCES=(
 fetch() { # name -> unpacked source directory
     local name=$1 line ver url file dir
     if [ "$name" = os-portal ]; then echo "$ROOT/userland/portal"; return; fi
+    if [ "$name" = os-a11y ]; then echo "$ROOT/userland/a11y"; return; fi
     if [ "$name" = os-record ]; then echo "$ROOT/userland/recorder"; return; fi
     for line in "${SOURCES[@]}"; do
         read -r n ver url <<<"$line"
@@ -268,6 +269,7 @@ build_one() {
             -Dgeoclue=disabled -Dgudev=disabled -Dman-pages=disabled -Dsandboxed-image-validation=disabled \
             -Dsandboxed-sound-validation=disabled -Dinstalled-tests=false ;;
     os-portal) meson_build os-portal ;;
+    os-a11y) meson_build os-a11y ;; # (the screen reader's ears in other apps: AT-SPI)
     os-record) meson_build os-record ;;
     llama-server) llama_server ;;
     voice) voice ;;
@@ -287,7 +289,7 @@ build_one() {
     echo "build-base: $1 done"
 }
 
-ALL="platform host-etc bubblewrap dbus xdg-dbus-proxy libxmlb libfyaml appstream ostree fuse flatpak xdg-desktop-portal os-portal os-record llama-server voice pulseaudio e2fsprogs flatpak-system prism-app"
+ALL="platform host-etc bubblewrap dbus xdg-dbus-proxy libxmlb libfyaml appstream ostree fuse flatpak xdg-desktop-portal os-portal os-a11y os-record llama-server voice pulseaudio e2fsprogs flatpak-system prism-app"
 for c in ${*:-$ALL}; do
     build_one "$c"
 done

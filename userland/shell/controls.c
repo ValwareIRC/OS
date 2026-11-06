@@ -1,5 +1,6 @@
 #include "controls.h"
 #include "app.h"
+#include "reader.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -90,6 +91,9 @@ int ctl_drag_id(void) { return drag_id; }
 
 int ctl_slider(int id, rect r, float *v, const palette *p) {
     float t = *v < 0 ? 0 : *v > 1 ? 1 : *v;
+    char pct[16];
+    snprintf(pct, sizeof pct, "%d percent", (int)(t * 100 + 0.5f));
+    a11y_note(r, "slider", "", pct, false);
     int knob = r.h < 22 ? r.h : 22;
     float x0 = r.x + knob / 2.0f, x1 = r.x + r.w - knob / 2.0f, cy = r.y + r.h / 2.0f;
     rect hit = {r.x - 4, r.y - 6, r.w + 8, r.h + 12};
@@ -135,6 +139,7 @@ int ctl_slider(int id, rect r, float *v, const palette *p) {
 /* ---- switches, choices, buttons ---- */
 
 bool ctl_switch(rect r, bool on, const palette *p) {
+    a11y_note(r, "switch", "", on ? "on" : "off", false);
     bool hover = ui_hover(r);
     float rad = r.h / 2.0f;
     color track = on ? p->accent : color_alpha(p->ink, hover ? 0.26f : 0.18f);
@@ -153,6 +158,7 @@ int ctl_segmented(rect r, const char *const *labels, int n, int sel, font *f, co
     int w = (r.w - 6) / n, picked = sel;
     for (int i = 0; i < n; i++) {
         rect s = {r.x + 3 + i * w, r.y + 3, w, r.h - 6};
+        a11y_note(s, "choice", labels[i], i == sel ? "on" : "", false);
         bool hover = ui_hover(s);
         if (i == sel) {
             shadow_round(A.frame, (rect){s.x, s.y + 1, s.w, s.h}, s.h / 2.0f, 6, RGBA(0, 0, 0, (int)(50 * p->op)));
@@ -168,6 +174,7 @@ int ctl_segmented(rect r, const char *const *labels, int n, int sel, font *f, co
 }
 
 bool ctl_button(rect r, const char *label, font *f, bool primary, bool enabled, const palette *p) {
+    a11y_note(r, "button", label, enabled ? "" : "can't be used now", false);
     bool hover = enabled && ui_hover(r);
     float rad = r.h / 2.0f;
     color bg = primary ? p->accent : color_alpha(p->ink, 0.1f);
@@ -182,6 +189,7 @@ bool ctl_button(rect r, const char *label, font *f, bool primary, bool enabled, 
 }
 
 bool ctl_tile(rect r, bool on, const palette *p) {
+    a11y_note(r, "tile", "", on ? "on" : "off", false);
     bool hover = ui_hover(r);
     float rad = r.h * 0.3f > 18 ? 18 : r.h * 0.3f;
     color bg = on ? p->accent : color_alpha(p->ink, hover ? 0.14f : 0.08f);
