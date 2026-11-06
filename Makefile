@@ -7,8 +7,10 @@ ARCH        ?= x86_64
 LIMINE_DIR  := vendor/limine
 BUILD       := build$(if $(filter arm64,$(ARCH)),/arm64)
 ISO         := $(BUILD)/os.iso
-# LKPI=1: the kernel with NVIDIA's driver in (kernel/linuxkpi, docs/nvidia/plan.md), built in a folder of its own
-LKPI        ?= 0
+# LKPI=1: the kernel with NVIDIA's driver in (kernel/linuxkpi, docs/nvidia/plan.md), built in a folder of its own.
+# On by itself where NVIDIA's source is built (NV_SRC, x86-64); LKPI=0 leaves it out ("nonvidia" at boot does too).
+NV_SRC      ?= $(HOME)/osbuild/nvidia-open
+LKPI        ?= $(if $(filter x86_64,$(ARCH)),$(if $(wildcard $(NV_SRC)/src/nvidia/_out/Linux_x86_64/nv-kernel.o),1,0),0)
 # NVIDIA's GPU firmware (the GSP's), for its driver: from NVIDIA's driver package of the same version, unmodified,
 # with its LICENSE (which allows that, for a system under an open source licence: docs/nvidia/plan.md). In the
 # image as files the driver reads (/lib/firmware/nvidia/VERSION/), left on the disc until asked for.
@@ -87,7 +89,7 @@ base-system:
 	touch $(BASE_DIR)/.stamp
 
 kernel:
-	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel$(if $(filter 1,$(LKPI)),-lkpi) OUT=../$(KERNEL) LKPI=$(LKPI)
+	$(MAKE) -C kernel BUILD=../$(BUILD)/kernel$(if $(filter 1,$(LKPI)),-lkpi) OUT=../$(KERNEL) LKPI=$(LKPI) NV_SRC=$(NV_SRC)
 
 ports:
 	$(PORTS_ENV) bash ports/build-ports.sh
