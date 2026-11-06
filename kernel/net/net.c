@@ -455,6 +455,7 @@ static void net_thread(void *arg) {
 
 void net_init(void) {
     e1000_init();
+    r8169_init();
     if (!nnetif)
         kprintf("net: no supported network adapter, loopback only\n");
     for (int i = 0; i < nnetif; i++)
