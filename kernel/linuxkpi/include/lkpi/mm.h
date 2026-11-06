@@ -236,12 +236,52 @@ struct vm_operations_struct {
     int (*access)(struct vm_area_struct *vma, unsigned long addr, void *buf, int len, int write);
     int (*mremap)(struct vm_area_struct *vma);
 };
+enum { MM_FILEPAGES, MM_ANONPAGES, MM_SWAPENTS, MM_SHMEMPAGES, NR_MM_COUNTERS };
 struct mm_struct {
     struct rw_semaphore mmap_lock;
     atomic_t mm_users, mm_count;
     unsigned long start_brk, brk;
+    atomic_long_t rss_stat[NR_MM_COUNTERS];
     void *lkpi_proc;    /* our kernel's process */
 };
+void add_mm_counter(struct mm_struct *mm, int member, long value);
+#define inc_mm_counter(mm, m) add_mm_counter(mm, m, 1)
+#define dec_mm_counter(mm, m) add_mm_counter(mm, m, -1)
+typedef unsigned long vm_flags_t;
+
+/* memory nodes and zones: one node, as our kernel has (no NUMA) */
+#define MAX_NUMNODES 1
+#define MAX_NR_ZONES 4
+enum node_states { N_POSSIBLE, N_ONLINE, N_NORMAL_MEMORY, N_HIGH_MEMORY, N_MEMORY, N_CPU, NR_NODE_STATES };
+static inline int node_state(int node, enum node_states s) { (void)s; return node == 0; }
+struct zone { unsigned long zone_start_pfn, spanned_pages, present_pages; const char *name; };
+struct pglist_data { struct zone node_zones[MAX_NR_ZONES]; int nr_zones; unsigned long node_start_pfn, node_present_pages, node_spanned_pages; int node_id; };
+typedef struct pglist_data pg_data_t;
+struct pglist_data *lkpi_node_data(int nid);
+#define NODE_DATA(n) lkpi_node_data(n)
+static inline unsigned long zone_end_pfn(const struct zone *z) { return z->zone_start_pfn + z->spanned_pages; }
+static inline bool managed_zone(const struct zone *z) { return z->present_pages > 0; }
+#define populated_zone(z) managed_zone(z)
+struct memory_notify { unsigned long start_pfn, nr_pages; int status_change_nid; };
+#define MEM_GOING_OFFLINE 1
+#define MEM_OFFLINE 2
+#define MEM_ONLINE 3
+#define MEM_CANCEL_OFFLINE 4
+int register_memory_notifier_lkpi(void);
+#define hotplug_memory_notifier(fn, pri) 0
+void mod_node_page_state(struct pglist_data *pgdat, int item, long delta);
+#define NR_KERNEL_MISC_RECLAIMABLE 0
+
+/* caching modes (x86's PAT) */
+enum page_cache_mode { _PAGE_CACHE_MODE_WB = 0, _PAGE_CACHE_MODE_WC = 1, _PAGE_CACHE_MODE_UC_MINUS = 2,
+                       _PAGE_CACHE_MODE_UC = 3, _PAGE_CACHE_MODE_WT = 4, _PAGE_CACHE_MODE_WP = 5 };
+unsigned long cachemode2protval(enum page_cache_mode m);
+/* memory encryption (AMD SEV, Intel TDX guests): not here; nothing to undo */
+static inline int set_memory_encrypted(unsigned long addr, int n) { (void)addr; (void)n; return 0; }
+static inline int set_memory_decrypted(unsigned long addr, int n) { (void)addr; (void)n; return 0; }
+#define cc_platform_has(x) false
+extern unsigned long lkpi_page_offset;
+#define PAGE_OFFSET lkpi_page_offset
 struct file;
 struct vm_area_struct {
     unsigned long vm_start, vm_end, vm_pgoff;

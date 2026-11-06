@@ -15,6 +15,7 @@
 #define CONFIG_NR_CPUS 256
 #define CONFIG_PAGE_OFFSET 0
 #define CONFIG_HZ 1000
+#define CONFIG_PROC_FS 1
 
 /* IS_ENABLED(CONFIG_FOO): 1 if the option is set to 1 (as Linux's, by token pasting) */
 #define __ARG_PLACEHOLDER_1 0,

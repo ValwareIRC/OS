@@ -6,3 +6,6 @@
 #include <lkpi/mm.h>
 #include <lkpi/errno.h>
 #include <lkpi/device.h>
+#include <lkpi/fs.h>
+#include <lkpi/acpi.h>
+#include <lkpi/extra.h>

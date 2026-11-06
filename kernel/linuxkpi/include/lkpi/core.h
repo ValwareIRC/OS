@@ -264,6 +264,8 @@ static inline s64 atomic64_inc_return(atomic64_t *v) { return atomic64_add_retur
 static inline s64 atomic64_dec_return(atomic64_t *v) { return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST); }
 static inline s64 atomic64_cmpxchg(atomic64_t *v, s64 old, s64 new_)
 { __atomic_compare_exchange_n(&v->counter, &old, new_, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return old; }
+static inline bool atomic64_dec_and_test(atomic64_t *v) { return atomic64_dec_return(v) == 0; }
+static inline s64 atomic64_xchg(atomic64_t *v, s64 i) { return __atomic_exchange_n(&v->counter, i, __ATOMIC_SEQ_CST); }
 #define atomic_long_read atomic64_read
 #define atomic_long_set atomic64_set
 #define atomic_long_inc atomic64_inc
@@ -434,6 +436,56 @@ void down_write(struct rw_semaphore *s);
 int down_write_trylock(struct rw_semaphore *s);
 void up_write(struct rw_semaphore *s);
 void downgrade_write(struct rw_semaphore *s);
+static inline int rwsem_is_locked(struct rw_semaphore *s) { return READ_ONCE(s->count) != 0; }
+
+/* red-black trees (the driver keeps its allocations in them) */
+struct rb_node { unsigned long __rb_parent_color; struct rb_node *rb_right, *rb_left; } __attribute__((aligned(sizeof(long))));
+struct rb_root { struct rb_node *rb_node; };
+struct rb_root_cached { struct rb_root rb_root; struct rb_node *rb_leftmost; };
+#define RB_ROOT (struct rb_root){ NULL }
+#define RB_ROOT_CACHED (struct rb_root_cached){ { NULL }, NULL }
+#define rb_parent(r) ((struct rb_node *)((r)->__rb_parent_color & ~3UL))
+#define rb_entry(p, t, m) container_of(p, t, m)
+#define rb_entry_safe(p, t, m) ({ typeof(p) ____p = (p); ____p ? rb_entry(____p, t, m) : NULL; })
+#define RB_EMPTY_ROOT(r) (READ_ONCE((r)->rb_node) == NULL)
+#define RB_EMPTY_NODE(n) ((n)->__rb_parent_color == (unsigned long)(n))
+#define RB_CLEAR_NODE(n) ((n)->__rb_parent_color = (unsigned long)(n))
+static inline void rb_link_node(struct rb_node *n, struct rb_node *parent, struct rb_node **link)
+{ n->__rb_parent_color = (unsigned long)parent; n->rb_left = n->rb_right = NULL; *link = n; }
+void rb_insert_color(struct rb_node *n, struct rb_root *root);
+void rb_erase(struct rb_node *n, struct rb_root *root);
+struct rb_node *rb_first(const struct rb_root *root);
+struct rb_node *rb_last(const struct rb_root *root);
+struct rb_node *rb_next(const struct rb_node *n);
+struct rb_node *rb_prev(const struct rb_node *n);
+void rb_replace_node(struct rb_node *victim, struct rb_node *new_, struct rb_root *root);
+#define rbtree_postorder_for_each_entry_safe(pos, n, root, field) \
+    for (pos = rb_entry_safe(rb_first_postorder(root), typeof(*pos), field); \
+         pos && ({ n = rb_entry_safe(rb_next_postorder(&pos->field), typeof(*pos), field); 1; }); pos = n)
+struct rb_node *rb_first_postorder(const struct rb_root *root);
+struct rb_node *rb_next_postorder(const struct rb_node *n);
+
+/* bitmaps */
+#define DECLARE_BITMAP(name, bits) unsigned long name[BITS_TO_LONGS(bits)]
+static inline void bitmap_zero(unsigned long *d, unsigned int n) { memset(d, 0, BITS_TO_LONGS(n) * sizeof(long)); }
+static inline void bitmap_fill(unsigned long *d, unsigned int n) { memset(d, 0xff, BITS_TO_LONGS(n) * sizeof(long)); }
+unsigned long find_first_bit(const unsigned long *a, unsigned long size);
+unsigned long find_first_zero_bit(const unsigned long *a, unsigned long size);
+unsigned long find_next_bit(const unsigned long *a, unsigned long size, unsigned long off);
+unsigned long find_next_zero_bit(const unsigned long *a, unsigned long size, unsigned long off);
+#define for_each_set_bit(bit, addr, size) \
+    for ((bit) = find_first_bit((addr), (size)); (bit) < (size); (bit) = find_next_bit((addr), (size), (bit) + 1))
+int bitmap_weight(const unsigned long *a, unsigned int n);
+void bitmap_set(unsigned long *a, unsigned int start, unsigned int n);
+void bitmap_clear(unsigned long *a, unsigned int start, unsigned int n);
+bool bitmap_empty(const unsigned long *a, unsigned int n);
+bool bitmap_full(const unsigned long *a, unsigned int n);
+void bitmap_copy(unsigned long *d, const unsigned long *s, unsigned int n);
+void bitmap_or(unsigned long *d, const unsigned long *a, const unsigned long *b, unsigned int n);
+int bitmap_and(unsigned long *d, const unsigned long *a, const unsigned long *b, unsigned int n);
+unsigned long bitmap_find_next_zero_area(unsigned long *map, unsigned long size, unsigned long start, unsigned int nr, unsigned long align_mask);
+unsigned long *bitmap_zalloc(unsigned int n, gfp_t gfp);
+void bitmap_free(const unsigned long *b);
 #define down_read_nested(s, n) down_read(s)
 #define down_write_nested(s, n) down_write(s)
 #define lockdep_assert_held_write(l) do { } while (0)

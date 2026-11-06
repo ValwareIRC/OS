@@ -250,6 +250,7 @@ struct pci_dev {
         is_busmaster : 1, broken_intx_masking : 1;
     struct pci_dev *physfn;
     int cfg_size;
+    pci_channel_state_t error_state;
     void *lkpi_dev; /* our kernel's own (struct pci_dev in kernel/include/kernel/pci.h) */
 };
 #define to_pci_dev(d) container_of(d, struct pci_dev, dev)
@@ -331,7 +332,8 @@ void pci_ignore_hotplug(struct pci_dev *d);
 int pci_enable_atomic_ops_to_root(struct pci_dev *d, u32 cap_mask);
 void __iomem *pci_iomap(struct pci_dev *d, int bar, unsigned long max);
 void pci_iounmap(struct pci_dev *d, void __iomem *p);
-int pci_resize_resource(struct pci_dev *d, int bar, int size);
+int pci_resize_resource(struct pci_dev *d, int bar, int size, int exclude_bars);
+void pci_release_resource(struct pci_dev *d, int bar);
 int pci_rebar_get_possible_sizes(struct pci_dev *d, int bar);
 #define pci_rebar_bytes_to_size(b) (ilog2(b) - 20)
 int pci_vfs_assigned(struct pci_dev *d);
@@ -428,6 +430,9 @@ u64 dma_get_required_mask(struct device *d);
 #define dma_sync_single_for_device(d, a, s, dir) do { } while (0)
 #define dma_sync_sg_for_cpu(d, s, n, dir) do { } while (0)
 #define dma_sync_sg_for_device(d, s, n, dir) do { } while (0)
+struct dma_map_ops { void *(*alloc)(struct device *d, size_t s, dma_addr_t *h, gfp_t g, unsigned long a); int lkpi_unused; };
+struct pci_host_bridge { struct device dev; struct pci_bus *bus; int domain_nr; };
+struct pci_host_bridge *pci_find_host_bridge(struct pci_bus *b);
 const struct dma_map_ops *get_dma_ops(struct device *d);
 bool use_dma_iommu(struct device *d);
 #define dma_is_direct(o) ((o) == NULL)

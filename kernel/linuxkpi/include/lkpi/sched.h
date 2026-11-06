@@ -33,8 +33,13 @@ struct task_struct {
     struct mm_struct *mm, *active_mm;
     const struct cred *cred;
     struct task_struct *group_leader;
+    void *stack;      /* (its kernel stack: only compared, never read through) */
+    void *fs;
+    spinlock_t alloc_lock;
     void *lkpi_thread; /* our kernel's thread */
 };
+static inline void task_lock(struct task_struct *t) { spin_lock(&t->alloc_lock); }
+static inline void task_unlock(struct task_struct *t) { spin_unlock(&t->alloc_lock); }
 struct task_struct *get_current(void);
 #define current get_current()
 static inline pid_t task_pid_nr(struct task_struct *t) { return t->pid; }
@@ -133,6 +138,12 @@ static inline ktime_t ktime_set(s64 s, unsigned long ns) { return s * NSEC_PER_S
 static inline struct timespec64 ns_to_timespec64(s64 n) { struct timespec64 t = {n / NSEC_PER_SEC, n % NSEC_PER_SEC}; return t; }
 static inline s64 timespec64_to_ns(const struct timespec64 *t) { return t->tv_sec * NSEC_PER_SEC + t->tv_nsec; }
 #define ktime_compare(a, b) ((a) < (b) ? -1 : (a) > (b) ? 1 : 0)
+static inline bool ktime_after(ktime_t a, ktime_t b) { return a > b; }
+static inline bool ktime_before(ktime_t a, ktime_t b) { return a < b; }
+static inline ktime_t ktime_add_ms(ktime_t t, u64 ms) { return t + (ktime_t)(ms * NSEC_PER_MSEC); }
+static inline ktime_t ktime_add_us(ktime_t t, u64 us) { return t + (ktime_t)(us * NSEC_PER_USEC); }
+static inline s64 ktime_us_delta(ktime_t a, ktime_t b) { return (a - b) / 1000; }
+static inline s64 ktime_ms_delta(ktime_t a, ktime_t b) { return (a - b) / 1000000; }
 void udelay(unsigned long us);
 void ndelay(unsigned long ns);
 void mdelay(unsigned long ms);
