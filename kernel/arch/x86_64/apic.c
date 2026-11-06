@@ -20,6 +20,7 @@
 #define LAPIC_ICR_LO   0x300
 #define LAPIC_ICR_HI   0x310
 #define LAPIC_LVT_TMR  0x320
+#define LAPIC_LVT_LINT0 0x350
 #define LAPIC_TMR_INIT 0x380
 #define LAPIC_TMR_CUR  0x390
 #define LAPIC_TMR_DIV  0x3e0
@@ -323,6 +324,10 @@ void apic_init(void) {
     cpuid(1, 0, &a, &b, &c, &d);
     x2apic = c & (1u << 21);
     enable_lapic_mode();
+    /* The 8259's way in (LINT0, which the firmware leaves open as ExtINT) closed first: reprogramming the 8259
+     * unmasks it for a moment with vector base 0, and later a stray one (the spurious IRQ 7 no mask stops) would
+     * come in on a vector nothing handles. Interrupts come through the I/O APIC and MSI here, never LINT0. */
+    lapic_write(LAPIC_LVT_LINT0, LVT_MASKED);
     pic_disable();
     parse_madt();
     lapic_write(LAPIC_SVR, 0x100 | VEC_SPURIOUS);
@@ -393,6 +398,7 @@ void arch_idle_quiet(void) {
 
 void lapic_init_cpu(void) {
     enable_lapic_mode();
+    lapic_write(LAPIC_LVT_LINT0, LVT_MASKED); /* (as apic_init: never the 8259's) */
     lapic_write(LAPIC_SVR, 0x100 | VEC_SPURIOUS);
     lapic_write(LAPIC_TMR_DIV, 0x3);
     lapic_write(LAPIC_LVT_TMR, VEC_TIMER); /* one-shot */

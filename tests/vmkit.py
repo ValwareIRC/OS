@@ -85,6 +85,8 @@ class Vm:
                       ",format=raw,if=none" + ("" if os.environ.get("DISK_RW") else ",snapshot=on"),
                       "-device", "ide-hd,drive=disk0,bus=ide.0"]
         qargs += self.extra
+        if os.environ.get("QEMU_EXTRA"):  # more QEMU arguments for one run (a -trace, a device), split on spaces
+            qargs += os.environ["QEMU_EXTRA"].split()
         self.qemu = subprocess.Popen(qargs, stdout=subprocess.DEVNULL,
                                      stderr=open(os.path.join(self.out, "qemu.err"), "w"))
         for _ in range(100):
