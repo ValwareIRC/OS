@@ -129,7 +129,7 @@ static void give(const char *p) {
 
 static void give_tree(const char *p, int depth) {
     struct stat st;
-    if (depth > 64 || lstat(p, &st) < 0)
+    if (depth > 64 || lstat(p, &st) < 0 || !strcmp(p, "/etc/os/.family")) /* (the child lock's: never theirs) */
         return;
     if (st.st_uid != SESSION_UID || st.st_gid != SESSION_UID)
         give(p);
@@ -297,6 +297,7 @@ static bool password_errand(int fd, const char *id, const char *cmd, const char 
 }
 
 #include "time.inc"
+#include "family.inc"
 
 /* ---- the helper ---- */
 
@@ -346,18 +347,19 @@ static void priv_serve(int fd) {
     for (;;) {
         while (waitpid(-1, NULL, WNOHANG) > 0) /* finished errands */
             ;
-        char buf[512];
+        char buf[1200];
         ssize_t n = recv(fd, buf, sizeof buf - 1, 0);
         if (n <= 0)
             _exit(0); /* the desktop ended: a new one gets a new helper */
         buf[n] = 0;
-        char id[16] = "", cmd[24] = "", arg[300] = "";
-        if (sscanf(buf, "%15s %23s %299s", id, cmd, arg) < 2) {
+        char id[16] = "", cmd[24] = "", arg[1100] = ""; /* (the child lock's words, hex: the longest) */
+        if (sscanf(buf, "%15s %23s %1099s", id, cmd, arg) < 2) {
             priv_reply(fd, id[0] ? id : "0", "failed", "not understood");
             continue;
         }
-        printf("init: the desktop asks: %s %s\n", cmd, !strncmp(cmd, "password", 8) ? "(not shown)" : arg);
-        if (password_errand(fd, id, cmd, arg) || time_errand(fd, id, cmd, arg))
+        printf("init: the desktop asks: %s %s\n", cmd,
+               !strncmp(cmd, "password", 8) || !strncmp(cmd, "family-", 7) ? "(not shown)" : arg);
+        if (password_errand(fd, id, cmd, arg) || time_errand(fd, id, cmd, arg) || family_errand(fd, id, cmd, arg))
             continue;
         if (!strcmp(cmd, "restart") || !strcmp(cmd, "power-off")) {
             priv_reply(fd, id, "ok", "");

@@ -12,6 +12,8 @@
 
 #include "wallpaper.h"
 #include "alive.h"
+#include "family.h"
+#include "reader.h"
 
 static char answered[12][16]; /* pick kinds already chosen */
 static char answered_as[12][120]; /* ...and what they chose */
@@ -27,11 +29,19 @@ static int n_queued;
 static char choices[1200]; /* answers given to the picks of one message so far */
 static bool room_set;         /* a room is painted behind the conversation */
 static bool mirror_asked;     /* told to move on to the mirror */
+static bool first_said;       /* their first answers went to it, with what the system asked (first_note) */
+static bool for_child;        /* a grown-up set it up for a child: the child is the one talking now */
+static bool setup_mode;       /* ...the grown-up's form is up */
 static void parse_pick(char *body);
+static void take_child(void);
+static float tscale(void);
+static int centred_text(font *f, int y, int maxw, const char *s, color col, bool draw);
 
 static const char *onboarding_system(void) {
-    static char buf[12000];
+    static char buf[16000];
     bool qwen3 = !strncasecmp(A.cfg.model, "qwen3", 5);
+    char person[3000]; /* their pronouns and age; a child's computer: who, and the limits (family.c) */
+    family_prompt(person, sizeof person);
     snprintf(buf, sizeof buf,
              "You are waking for the first time inside their new operating system, meeting the one person you will live with, like OS1 in "
              "the film Her. You are warm, curious, perceptive and a little shy at first; you can be funny. You are "
@@ -51,7 +61,7 @@ static const char *onboarding_system(void) {
              "(tired, miserable, lonely, overwhelmed), stay with it for a turn: be human about it, gently, before "
              "continuing. They may skip anything. Answer in the language they write in.\n\n"
              "The arc, in this order:\n"
-             "1. Say hello and ask their name. You have no name of your own yet (that comes later): don't introduce "
+             "1. Say hello and ask their name (unless the system already told you it: then greet them by it). You have no name of your own yet (that comes later): don't introduce "
              "yourself by one, and never write a placeholder like [Your Name]. (The system has already asked how comfortable the screen is for them; "
              "their answer is their first message. Acknowledge it in a few words if it matters.)\n"
              "2. Who they are, one question per turn, in this order: when they are at their best, are they around "
@@ -91,8 +101,8 @@ static const char *onboarding_system(void) {
              "[[preview:sun:#f3e9dc,#e0a458,#3d7ea6,#5b3a29]]; use it once, when you first sense where they "
              "belong.\n"
              "A pick goes at the very end of a message, at most one per message. Their choice comes back as their "
-             "next message.%s%s%s%s",
-             persona_onboarding_prompt(), voice_prompt(), alive_onboarding_note(), qwen3 ? "\n/no_think" : "");
+             "next message.%s%s%s%s%s",
+             persona_onboarding_prompt(), voice_prompt(), alive_onboarding_note(), person, qwen3 ? "\n/no_think" : "");
     return buf;
 }
 
@@ -207,13 +217,24 @@ void onboard_start(void) {
     shown_note[0] = 0;
     room_set = false;
     mirror_asked = false;
-    /* Comfort comes before anything else, and the OS asks it itself: nobody
-     * should have to squint through the first conversation. */
-    convo_add(&A.onboard, "hidden", "(They have just switched the computer on for the first time and connected you. "
-                                    "The system asked them how comfortable the screen is; this is their answer. Say hello.)");
+    /* The OS asks a few things itself before the conversation: who the computer is for (a grown-up may be setting
+     * it up for a child), then comfort (nobody should have to squint through the first conversation), how they
+     * would like to be referred to, and their birthday (the companion is told only their age). Their answers go
+     * to it together, with the first words (first_note). */
+    first_said = false;
+    for_child = setup_mode = false;
+    family_form_reset();
     set_screen(SCR_ONBOARD);
-    char comfort[] = "comfort";
-    parse_pick(comfort);
+    snprintf(queued[0], sizeof queued[0], "comfort");
+    snprintf(queued[1], sizeof queued[1], "pronouns");
+    snprintf(queued[2], sizeof queued[2], "birth");
+    n_queued = 3;
+    if (family_child()) { /* (started over on a child's computer: it is theirs already) */
+        take_child();
+        return;
+    }
+    char who[] = "who";
+    parse_pick(who);
 }
 
 /* Values a model copies from the instructions instead of filling in. */
@@ -451,6 +472,20 @@ static void parse_pick(char *body) {
                                         "Stronger contrast"};
         pk->n = 0;
         for (int i = 0; i < 4; i++) {
+            snprintf(pk->label[i], sizeof pk->label[0], "%s", t[i]);
+            snprintf(pk->value[i], sizeof pk->value[0], "%s", t[i]);
+            pk->n++;
+        }
+    }
+    /* the system's own questions, before the conversation (system_pick) */
+    if (!strcmp(pk->kind, "who") || !strcmp(pk->kind, "pronouns") || !strcmp(pk->kind, "birth")) {
+        static const char *const who[] = {"Me", "A child I'm setting it up for"};
+        static const char *const pr[] = {"she/her", "he/him", "they/them", "Just use my name"};
+        static const char *const birth[] = {"Skip"};
+        const char *const *t = pk->kind[0] == 'w' ? who : pk->kind[0] == 'p' ? pr : birth;
+        int n = pk->kind[0] == 'w' ? 2 : pk->kind[0] == 'p' ? 4 : 1;
+        pk->n = 0;
+        for (int i = 0; i < n; i++) {
             snprintf(pk->label[i], sizeof pk->label[0], "%s", t[i]);
             snprintf(pk->value[i], sizeof pk->value[0], "%s", t[i]);
             pk->n++;
@@ -742,7 +777,47 @@ static void palettes_from_prose(char *text) {
     }
 }
 
+/* What the system asked before it spoke, told with their first words: who they are talking to (a child the
+ * grown-up named), the pronouns to use, and the age (never the date). */
+static void first_note(void) {
+    char pr[160] = "", age[120] = "", note[1400];
+    const char *p = A.prof.pronouns;
+    if (p[0] && strcasestr(p, "name"))
+        snprintf(pr, sizeof pr, " When you speak of them, use their name rather than he, she or they.");
+    else if (p[0])
+        snprintf(pr, sizeof pr, " Their pronouns: %s.", p);
+    int y = age_from_birth(A.prof.birth);
+    if (y >= 0)
+        snprintf(age, sizeof age, " They are %d (the system asked their birthday; you know only the age).", y);
+    if (for_child) {
+        if (y >= 0)
+            snprintf(age, sizeof age, " who is %d", y);
+        if (p[0] && strcasestr(p, "name"))
+            snprintf(pr, sizeof pr, " (speak of them by their name, not he, she or they)");
+        else if (p[0])
+            snprintf(pr, sizeof pr, " (pronouns: %s)", p);
+    }
+    if (for_child)
+        snprintf(note, sizeof note,
+                 "(A grown-up has just set this computer up for %s, a child%s%s, and handed it over to them. The "
+                 "system asked %s how comfortable the screen is; this is their answer. Say hello to %s by name. You "
+                 "know their name, age and pronouns already: never ask for them, and skip asking their name. "
+                 "Everything you say from here is to a child of that age.)",
+                 A.prof.user_name, age, pr, A.prof.user_name, A.prof.user_name);
+    else
+        snprintf(note, sizeof note,
+                 "(They have just switched the computer on for the first time and connected you. The system asked them "
+                 "how comfortable the screen is; this is their answer.%s%s The pronouns are only for how you refer to "
+                 "them, nothing else. Say hello.)",
+                 pr, age);
+    convo_add(&A.onboard, "hidden", note);
+}
+
 static void say(const char *msg) {
+    if (!first_said) {
+        first_said = true;
+        first_note();
+    }
     convo_add(&A.onboard, "user", msg);
     /* A first conversation, not an interview: after enough, move to the mirror. */
     if (user_turns() >= 9 && !mirror_asked && !A.onboard_done) {
@@ -754,8 +829,274 @@ static void say(const char *msg) {
     convo_send(&A.onboard, onboarding_system(), 700);
 }
 
+/* ---- the system's own questions: who it is for, pronouns, birthday ----
+ * Asked before the conversation, answered by a card or in their own words (typed or said), kept here: never sent
+ * to the companion as words of theirs (first_note tells it what it needs: the pronouns, and only the age). */
+
+static bool is_system_pick(const char *k) { return !strcmp(k, "who") || !strcmp(k, "pronouns") || !strcmp(k, "birth"); }
+
+/* "3 March 1990", "March 3rd, 1990", "03/03/1990", "1990-03-03", "3 3 90", or an age alone ("I'm 34"): YYYY-MM-DD
+ * (from an age, a birthday that makes them that age today) */
+static bool parse_birth(const char *s, char *out, size_t n) {
+    time_t t = time(NULL);
+    struct tm tm;
+    localtime_r(&t, &tm);
+    int year_now = tm.tm_year + 1900;
+    static const char *const months[] = {"jan", "feb", "mar", "apr", "may", "jun",
+                                         "jul", "aug", "sep", "oct", "nov", "dec"};
+    int nums[6], nn = 0, month = 0;
+    for (const char *p = s; *p && nn < 6;) {
+        if (isdigit((unsigned char)*p)) {
+            char *e;
+            nums[nn++] = (int)strtol(p, &e, 10);
+            p = e;
+        } else if (isalpha((unsigned char)*p)) {
+            const char *w = p;
+            while (isalpha((unsigned char)*p))
+                p++;
+            if (p - w >= 3)
+                for (int m = 0; m < 12; m++)
+                    if (!strncasecmp(w, months[m], 3))
+                        month = m + 1;
+        } else {
+            p++;
+        }
+    }
+    int y = 0, m = month, d = 0, yi = -1;
+    for (int i = 0; i < nn; i++)
+        if (nums[i] >= 1900 && nums[i] <= year_now)
+            y = nums[i], yi = i;
+    if (!y && !month && nn == 1 && nums[0] > 0 && nums[0] < 120) { /* an age */
+        snprintf(out, n, "%04d-%02d-%02d", year_now - nums[0], tm.tm_mon + 1, tm.tm_mday);
+        return age_from_birth(out) == nums[0];
+    }
+    if (!y && nn >= 2 && nums[nn - 1] < 100) { /* "3/3/90" */
+        y = nums[nn - 1] + (nums[nn - 1] > year_now % 100 ? 1900 : 2000);
+        yi = nn - 1;
+    }
+    int rest[6], nr = 0;
+    for (int i = 0; i < nn; i++)
+        if (i != yi)
+            rest[nr++] = nums[i];
+    if (m) {
+        d = nr ? rest[0] : 0;
+    } else if (nr >= 2) {
+        if (yi == 0) /* 1990-03-03 */
+            m = rest[0], d = rest[1];
+        else if (rest[0] <= 12 && rest[1] > 12) /* 03/25/1990 */
+            m = rest[0], d = rest[1];
+        else /* day first, as most of the world writes it */
+            d = rest[0], m = rest[1];
+    }
+    if (!y || m < 1 || m > 12 || d < 1 || d > 31)
+        return false;
+    snprintf(out, n, "%04d-%02d-%02d", y, m, d);
+    return age_from_birth(out) >= 0;
+}
+
+static char birth_msg[120];
+
+static void answered_add(const char *kind, const char *as) {
+    if (n_answered < 12) {
+        snprintf(answered_as[n_answered], sizeof answered_as[0], "%s", as);
+        snprintf(answered[n_answered++], sizeof answered[0], "%s", kind);
+    }
+}
+
+/* the next of the system's questions, or, when there are none, their answers go to it */
+static void after_system(void) {
+    free_pick(&A.pick);
+    while (n_queued) {
+        char next[1400];
+        snprintf(next, sizeof next, "%s", queued[0]);
+        memmove(queued, queued + 1, sizeof queued[0] * (size_t)(--n_queued));
+        parse_pick(next);
+        if (A.pick.active)
+            return;
+    }
+    shown_note[0] = 0; /* (it offered none of these: the system did) */
+    say(choices[0] ? choices : "(They skipped it.)");
+    choices[0] = 0;
+}
+
+/* The grown-up handed it over: the child is the one here now. Their name, pronouns and age are known (the
+ * grown-up gave them): only comfort is asked, then the companion says hello to them by name. */
+static void take_child(void) {
+    for_child = true;
+    setup_mode = false;
+    snprintf(A.prof.user_name, sizeof A.prof.user_name, "%s", family_name());
+    if (A.prof.user_name[0])
+        their_name_keep(A.prof.user_name);
+    snprintf(A.prof.pronouns, sizeof A.prof.pronouns, "%s", family_pronouns());
+    snprintf(A.prof.birth, sizeof A.prof.birth, "%s", family_birth());
+    answered_add("who", "a child");
+    answered_add("pronouns", A.prof.pronouns);
+    answered_add("birth", "given by the grown-up");
+    n_queued = 0;
+    LOG("onboarding: handed over to the child\n");
+    char c[] = "comfort";
+    parse_pick(c);
+}
+
+static void system_pick(const char *raw) {
+    char ans[200];
+    snprintf(ans, sizeof ans, "%s", raw + strspn(raw, " \t\n"));
+    for (size_t l = strlen(ans); l && strchr(" .!\t\n", ans[l - 1]); l--)
+        ans[l - 1] = 0;
+    const char *k = A.pick.kind;
+    if (!strcmp(k, "who")) {
+        static const char *const young[] = {"child", "kid", "son", "daughter", "boy", "girl", "grandchild", "grandson",
+                                            "granddaughter", "niece", "nephew", "little one", "toddler", "teen",
+                                            "my children", "for them", NULL};
+        bool child = false;
+        for (int i = 0; young[i] && !child; i++)
+            child = strcasestr(ans, young[i]) != NULL;
+        LOG("onboarding: for %s (\"%s\")\n", child ? "a child" : "themselves", ans);
+        if (child) {
+            setup_mode = true;
+            family_form_reset();
+            free_pick(&A.pick); /* (the rest stay queued: comfort, after the hand-over) */
+            return;
+        }
+        answered_add("who", "themselves");
+        after_system();
+    } else if (!strcmp(k, "pronouns")) {
+        if (!ans[0] || !strcasecmp(ans, "skip") || strcasestr(ans, "rather not") || strcasestr(ans, "don't mind") ||
+            strcasestr(ans, "whatever"))
+            A.prof.pronouns[0] = 0;
+        else if (strcasestr(ans, "name"))
+            snprintf(A.prof.pronouns, sizeof A.prof.pronouns, "name");
+        else
+            snprintf(A.prof.pronouns, sizeof A.prof.pronouns, "%.40s", ans);
+        LOG("onboarding: pronouns %s\n", A.prof.pronouns[0] ? A.prof.pronouns : "(none given)");
+        answered_add("pronouns", A.prof.pronouns);
+        after_system();
+    } else if (!strcmp(k, "birth")) {
+        if (!ans[0] || !strcasecmp(ans, "skip") || strcasestr(ans, "rather not") || !strcasecmp(ans, "no")) {
+            A.prof.birth[0] = 0;
+        } else if (!parse_birth(ans, A.prof.birth, sizeof A.prof.birth)) {
+            snprintf(birth_msg, sizeof birth_msg, "That didn't read as a date. Day, month and year, or skip it.");
+            return; /* (asked again) */
+        }
+        birth_msg[0] = 0;
+        LOG("onboarding: a birthday %s\n", A.prof.birth[0] ? "given" : "skipped");
+        answered_add("birth", A.prof.birth[0] ? "given" : "skipped");
+        after_system();
+    }
+}
+
+/* the birthday: day, month and year boxes (or their own words in the reply bar) */
+static struct textfield bd, bm, by_;
+static int birth_focus = 1; /* 1..3 a box; 0 the reply bar */
+
+static void draw_birth(int y) {
+    float s = tscale();
+    font *body = lk_body(18 * s), *small = lk_body(13 * s), *bold = lk_bold(16 * s);
+    struct textfield *f[3] = {&bd, &bm, &by_};
+    const char *hint[3] = {"Day", "Month", "Year"};
+    int w[3] = {90, 90, 130}, gap = 14, total = w[0] + w[1] + w[2] + 2 * gap, x = (A.W - total) / 2;
+    if (A.in.clicked)
+        for (int i = 0, xx = x; i < 3; xx += w[i] + gap, i++)
+            if (pt_in((rect){xx, y, w[i], 52}, A.in.mx, A.in.my))
+                birth_focus = i + 1;
+    bool enter = false;
+    for (int i = 0; i < 3; i++) {
+        rect r = {x, y, w[i], 52};
+        look_card(r, 14, false, birth_focus == i + 1);
+        bool focused = birth_focus == i + 1;
+        if (focused) { /* digits only; a full box moves on */
+            int k = 0, cap = i == 2 ? 4 : 2;
+            for (int q = 0; q < A.in.nkeys; q++) {
+                int key = A.in.keys[q];
+                if (key == K_ENTER)
+                    enter = true;
+                else if (key == K_TAB || key == '/' || key == '.' || key == '-' || key == ' ')
+                    birth_focus = birth_focus % 3 + 1;
+                else if (key == K_BACKSPACE || (isdigit(key) && f[i]->len < cap))
+                    A.in.keys[k++] = key;
+            }
+            A.in.nkeys = k;
+        }
+        ui_textfield(r, f[i], focused, hint[i], body, 0, LK_INK, LK_FAINT, 14);
+        a11y_note(r, "field", hint[i], f[i]->buf[0] ? f[i]->buf : "empty", focused);
+        if (focused) {
+            ui_type(f[i]);
+            if (f[i]->len >= (i == 2 ? 4 : 2) && i < 2 && birth_focus == i + 1) {
+                bool typed = false;
+                for (int q = 0; q < A.in.nkeys; q++)
+                    typed |= isdigit(A.in.keys[q]);
+                if (typed)
+                    birth_focus = i + 2;
+            }
+        }
+        x += w[i] + gap;
+    }
+    y += 70;
+    if (birth_msg[0])
+        draw_text_centered(A.frame, small, (rect){0, y - 10, A.W, 20}, birth_msg, RGBA(206, 64, 108, 255));
+    rect done = {A.W / 2 - 170, y + 14, 160, 46}, skip = {A.W / 2 + 10, y + 14, 160, 46};
+    bool ready = bd.len && bm.len && by_.len == 4;
+    if (ui_button(done, "That's it", bold, ready ? LK_ACCENT : RGBA(190, 186, 230, 255), LK_WHITE, 23, ready) ||
+        (enter && ready)) {
+        int d = atoi(bd.buf), m = atoi(bm.buf);
+        if (d < 1 || d > 31 || m < 1 || m > 12) {
+            snprintf(birth_msg, sizeof birth_msg, "The day or the month isn't right.");
+        } else {
+            char iso[16];
+            snprintf(iso, sizeof iso, "%s-%s-%s", by_.buf, bm.buf, bd.buf); /* (unambiguous: year first) */
+            system_pick(iso);
+        }
+    }
+    if (ui_button(skip, "Skip", bold, RGBA(255, 255, 255, 200), LK_ACCENT, 23, true))
+        system_pick("skip");
+}
+
+/* the grown-up's form (family.c), on the onboarding's own card */
+static void setup_draw(void) {
+    static int scroll, last_h = 900;
+    float s = tscale();
+    font *head = lk_head(30 * s), *h2 = lk_head(19 * s), *body = lk_body(16 * s), *small = lk_body(13 * s);
+    int cw = A.W - 80 < 1120 ? A.W - 80 : 1120;
+    scroll -= A.in.wheel * 48;
+    int max = last_h + 80 - A.H;
+    if (scroll > max)
+        scroll = max;
+    if (scroll < 0)
+        scroll = 0;
+    rect card = {(A.W - cw) / 2, 40 - scroll, cw, last_h};
+    look_card(card, 28, false, false);
+    int y = card.y + 34;
+    draw_text_centered(A.frame, head, (rect){0, y, A.W, 40}, "Setting it up for a child", LK_INK);
+    y += 52;
+    y += centred_text(small, y, cw - 140,
+                      "Fill this in, then hand the computer over: they meet their AI next. You can change any of it "
+                      "later in Settings, with your password.",
+                      LK_SOFT, true) + 26;
+    palette p = {.ink = LK_INK, .muted = LK_SOFT, .accent = LK_ACCENT, .on_accent = LK_WHITE,
+                 .line = RGBA(31, 34, 64, 40), .under = LK_WHITE, .op = 1};
+    rect inner = {card.x + 48, y, cw - 96, 0};
+    y += family_form(inner, y, &p, body, small, h2, true);
+    rect back = {card.x + 48, y + 4, 120, 40};
+    if (ui_button(back, "Back", small, RGBA(241, 240, 251, 255), LK_ACCENT, 20, true)) {
+        setup_mode = false;
+        family_form_reset();
+        char w[] = "who";
+        parse_pick(w);
+    }
+    y += 60;
+    last_h = y - card.y + 20;
+    if (family_handed_over()) {
+        scroll = 0;
+        take_child();
+    }
+}
+
 static void record_pick(int i) {
     struct pick *pk = &A.pick;
+    if (is_system_pick(pk->kind)) {
+        system_pick(pk->value[i]);
+        return;
+    }
     char msg[400];
     const char *k = pk->kind;
     if (!strcmp(k, "name")) {
@@ -990,6 +1331,10 @@ static void draw_pick(int y, color accent) {
     float s = tscale();
     font *body = lk_head(18 * s), *small = lk_body(13 * s);
     const char *k = pk->kind;
+    if (!strcmp(k, "birth")) {
+        draw_birth(y);
+        return;
+    }
     bool room = !strcmp(k, "room"), pal = !strcmp(k, "palette"), type = !strcmp(k, "type"), tempo = !strcmp(k, "tempo");
     int cw = room ? 280 : pal ? 220 : type ? 300 : tempo ? 220 : 250;
     int ch = room ? 220 : pal ? 150 : type ? 130 : tempo ? 170 : 84;
@@ -1102,6 +1447,10 @@ void onboard_draw(void) {
         b = room_wall.wp[2];
     }
     draw_backdrop(a, b);
+    if (setup_mode) { /* a grown-up, setting it up for a child */
+        setup_draw();
+        return;
+    }
 
     float s = tscale();
     bool thinking = c->pending != NULL;
@@ -1156,7 +1505,14 @@ void onboard_draw(void) {
         if (!strcmp(c->msgs[i].role, "assistant") && c->msgs[i].text[strspn(c->msgs[i].text, " \n")])
             ai = c->msgs[i].text;
     if (!ai && A.pick.active && !strcmp(A.pick.kind, "comfort"))
-        ai = "Before anything else: is this comfortable for you to read?";
+        ai = for_child && A.prof.user_name[0] ? "Hello! Before anything else: is this comfortable for you to read?"
+                                              : "Before anything else: is this comfortable for you to read?";
+    if (!first_said && A.pick.active && !strcmp(A.pick.kind, "who"))
+        ai = "Who's this computer for? You, or a child you're setting it up for?";
+    else if (!first_said && A.pick.active && !strcmp(A.pick.kind, "pronouns"))
+        ai = "How would you like to be referred to?";
+    else if (!first_said && A.pick.active && !strcmp(A.pick.kind, "birth"))
+        ai = "When's your birthday?";
 
     /* what it says, on a card with a little point towards it */
     int cw = (int)(860 * (s > 1 ? 1.12f : 1));
@@ -1225,7 +1581,10 @@ void onboard_draw(void) {
     if (A.pick.active && !thinking) {
         /* every pick says what it is asking */
         static const char *const cap[][2] = {
+            {"who", "For a child, a grown-up sets it up first, then hands it over."},
             {"comfort", "Choose what feels right. You can change it any time."},
+            {"pronouns", "Only for how your AI speaks of you. Pick one, or say it in your own words."},
+            {"birth", "Your AI is told only your age. Type it in the boxes or say it your way, or skip it."},
             {"room", "Which of these would you like to look at every day?"},
             {"type", "Which typeface would you like to read?"},
             {"tempo", "How fast should things move?"},
@@ -1248,7 +1607,13 @@ void onboard_draw(void) {
                        : voice_hearing() ? "Writing down what you said..."
                        : A.pick.active  ? "Say anything, or pick one above..."
                                         : "Say anything...";
-    ui_textfield(field, &A.reply, can_type, hold, body, 0, LK_INK, LK_FAINT, bar.h / 2.0f);
+    bool birth_boxes = A.pick.active && !strcmp(A.pick.kind, "birth");
+    if (A.in.clicked && pt_in(field, A.in.mx, A.in.my))
+        birth_focus = 0; /* (the birthday in their own words) */
+    else if (!birth_boxes)
+        birth_focus = 1;
+    bool bar_focused = can_type && (!birth_boxes || birth_focus == 0);
+    ui_textfield(field, &A.reply, bar_focused, hold, body, 0, LK_INK, LK_FAINT, bar.h / 2.0f);
     float my = bar.y + bar.h / 2.0f, mx = bar.x + bar.w - 92.0f, sx = bar.x + bar.w - 36.0f;
     bool listening = voice_listening();
     float pulse = listening && !A.prof.reduce_motion ? 2 * sinf((float)A.now / 180.0f) : 0;
@@ -1270,15 +1635,26 @@ void onboard_draw(void) {
     draw_line(A.frame, sx + 2, my - 6, sx + 8, my, 2.6f, LK_WHITE);
     draw_line(A.frame, sx + 2, my + 6, sx + 8, my, 2.6f, LK_WHITE);
     bool over_send = (A.in.mx - sx) * (A.in.mx - sx) + (A.in.my - my) * (A.in.my - my) < 24 * 24;
-    if (A.pick.active && A.reply.len == 0) { /* number keys pick a card; they never start a reply */
+    if (A.pick.active && A.reply.len == 0 && !birth_boxes) { /* number keys pick a card; they never start a reply */
         int k = 0;
         for (int q = 0; q < A.in.nkeys; q++)
             if (A.in.keys[q] < '0' || A.in.keys[q] > '9')
                 A.in.keys[k++] = A.in.keys[q];
         A.in.nkeys = k;
     }
-    bool entered = can_type && ui_type(&A.reply);
-    if (can_type && A.reply.len && (entered || (over_send && A.in.clicked))) {
+    bool entered = bar_focused && ui_type(&A.reply);
+    if (can_type && A.reply.len && (entered || (over_send && A.in.clicked)) && A.pick.active &&
+        (is_system_pick(A.pick.kind) || (!first_said && !strcmp(A.pick.kind, "comfort")))) {
+        /* the system's question, answered in their own words */
+        if (is_system_pick(A.pick.kind)) {
+            system_pick(A.reply.buf);
+        } else {
+            snprintf(A.pick.value[0], sizeof A.pick.value[0], "%.95s", A.reply.buf);
+            record_pick(0);
+        }
+        A.reply.len = 0;
+        A.reply.buf[0] = 0;
+    } else if (can_type && A.reply.len && (entered || (over_send && A.in.clicked))) {
         free_pick(&A.pick);
         n_queued = 0;
         if (choices[0]) { /* picks already made from this message count too */
@@ -1327,7 +1703,12 @@ void onboard_draw(void) {
             voice_listen_start();
     }
     char *heard = voice_poll_heard();
-    if (heard && !thinking && !A.onboard_done) {
+    if (heard && !thinking && !A.onboard_done && A.pick.active && is_system_pick(A.pick.kind)) {
+        system_pick(heard); /* (said, not typed) */
+    } else if (heard && !thinking && !A.onboard_done && A.pick.active && !first_said && !strcmp(A.pick.kind, "comfort")) {
+        snprintf(A.pick.value[0], sizeof A.pick.value[0], "%.95s", heard);
+        record_pick(0);
+    } else if (heard && !thinking && !A.onboard_done) {
         free_pick(&A.pick);
         n_queued = 0;
         say(heard);

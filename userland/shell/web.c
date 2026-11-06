@@ -111,11 +111,17 @@ static void get(const char *url, struct http_response *r) {
     }
 }
 
+/* A child's computer (family.c): DuckDuckGo's strict safe search. (Weak: the tools built without the desktop.) */
+bool family_child(void) __attribute__((weak));
+static bool strict(void) { return family_child && family_child(); }
+
 static int search_ddg(const char *q, sbuf *out) {
     sbuf url;
     sb_init(&url);
     sb_add(&url, "https://html.duckduckgo.com/html/?q=");
     urlencode(&url, q);
+    if (strict())
+        sb_add(&url, "&kp=1");
     struct http_response r;
     get(url.p, &r);
     sb_free(&url);
@@ -266,6 +272,8 @@ static int images_ddg(const char *q, char urls[][512], char thumbs[][512], char 
     sb_init(&url);
     sb_add(&url, "https://duckduckgo.com/?iax=images&ia=images&q=");
     urlencode(&url, q);
+    if (strict())
+        sb_add(&url, "&kp=1");
     struct http_response r;
     http_request("GET", url.p, NULL, NULL, 0, 20, &r); /* its own plain headers: what this page answers best */
     char vqd[128] = "";
@@ -285,6 +293,8 @@ static int images_ddg(const char *q, char urls[][512], char thumbs[][512], char 
     sb_add(&url, "https://duckduckgo.com/i.js?l=us-en&o=json&f=,,,,,&p=1&q=");
     urlencode(&url, q);
     sb_printf(&url, "&vqd=%s", vqd);
+    if (strict())
+        sb_add(&url, "&kp=1");
     const char *headers[] = {"User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
                              "Referer: https://duckduckgo.com/", "Accept: application/json, text/javascript, */*; q=0.01", NULL};
     http_request("GET", url.p, headers, NULL, 0, 20, &r);

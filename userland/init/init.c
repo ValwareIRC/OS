@@ -6,6 +6,7 @@
  * otherwise:       the desktop, as the person (session.inc), and the services it needs; a root shell on
  *                  the console only when the host asks for one (OS_CONSOLE=shell, for development). */
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>

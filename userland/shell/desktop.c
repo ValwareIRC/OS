@@ -35,6 +35,8 @@
 #include "body.h"
 #include "browsers.h"
 #include "capture.h"
+#include "family.h"
+#include "changes.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -447,6 +449,13 @@ static const char *companion_system(void) {
     { /* its body: what it feels of itself, and how it moves it (agent.c) */
         size_t l = strlen(buf);
         snprintf(buf + l, sizeof buf - l, "%s", body_prompt());
+    }
+    { /* their pronouns and age; a child's computer: who, and the limits (family.c); what changed (changes.c) */
+        static char person[3000], changed[3000];
+        family_prompt(person, sizeof person);
+        changes_prompt(changed, sizeof changed);
+        size_t l = strlen(buf);
+        snprintf(buf + l, sizeof buf - l, "%s%s", person, changed);
     }
     if (ai_sees_images(&A.cfg)) { /* a model that sees is shown its changes */
         static const char blind[] = "You can't see the screen: after your tags the system checks the result and tells you "
@@ -861,7 +870,21 @@ static bool apply_design_file(const char *path, const char *name);
 
 /* [[theme:NAME]] or [[design:apply NAME]]: a saved design of theirs, else one of the starter designs, applied
  * now (the names in it become theirs: their companion's, their own). What was there is kept as a backup. */
+static bool apply_starter_now(const char *raw);
+static void starter_after_password(const char *raw) {
+    if (!apply_starter_now(raw))
+        toast("There is no design called %s.", raw);
+}
+
 static bool apply_starter(const char *raw) {
+    if (family_locks('s')) { /* a child's computer: a grown-up's password first (family.c) */
+        family_ask("Changing how the computer looks", starter_after_password, raw);
+        return true;
+    }
+    return apply_starter_now(raw);
+}
+
+static bool apply_starter_now(const char *raw) {
     char name[64], path[200];
     design_slug(raw, name, sizeof name);
     snprintf(path, sizeof path, DESIGNS "/%s.xml", name);
@@ -914,6 +937,9 @@ static bool apply_design_file(const char *path, const char *name) {
     LOG("companion: applied design %s (for %s)\n", name, D.user_name[0] ? D.user_name : "no name yet");
     return true;
 }
+
+/* A change to the design put back (changes.c): how it looked before, as it was kept. Never locked. */
+bool desktop_put_back_design(const char *path) { return access(path, R_OK) == 0 && apply_design_file(path, "as it was"); }
 
 void companion_note(const char *note, bool act) { companion_note_pictures(note, act, NULL, NULL, NULL); }
 
@@ -1141,6 +1167,22 @@ static void companion_update(void) {
         }
         persona_take(m->text); /* [[trait:]]: what it read in them, private */
         presence_tags(m->text, from_person); /* its body: [[act:]] [[mood:]] [[figure:]] */
+        while ((o = strstr(m->text, "[[putback"))) { /* a change put back, on their yes (changes.c): never locked */
+            char *e = strstr(o, "]]");
+            int k = e && o[9] == ':' ? atoi(o + 10) : 1;
+            char *after = e ? e + 2 : o + strlen(o);
+            memmove(o, after, strlen(after) + 1);
+            if (!from_person || !e)
+                continue;
+            char said[200], note[320];
+            if (changes_put_back(k < 1 ? 1 : k, said, sizeof said)) {
+                snprintf(note, sizeof note, "(Put back: %s. It is done.)", said);
+                toast("Put back: %s.", said);
+            } else {
+                snprintf(note, sizeof note, "(The [[putback]] FAILED: there is no change %d to put back.)", k);
+            }
+            convo_add(c, "hidden", note);
+        }
         while ((o = strstr(m->text, "[[theme:"))) { /* one of the starter designs, as it comes */
             char *e = strstr(o, "]]");
             char nm[64];
@@ -2299,10 +2341,17 @@ void desktop_close_app_windows(const char *app_id) {
 void desktop_save_ui(void);
 
 /* A picture behind the desktop (the design's background, kept with it). */
+bool desktop_set_wallpaper(const char *path);
+static void wallpaper_after_password(const char *path) { desktop_set_wallpaper(path); }
+
 bool desktop_set_wallpaper(const char *path) {
     struct stat st;
     if (!A.ui || stat(path, &st) != 0)
         return false;
+    if (family_locks('s')) { /* a child's computer: a grown-up's password first (family.c) */
+        family_ask("Changing the wallpaper", wallpaper_after_password, path);
+        return true;
+    }
     char cmd[800];
     snprintf(cmd, sizeof cmd, "style desktop { background: url(%s) center / cover; }", path);
     fm_command(A.ui, cmd, NULL);
@@ -2398,7 +2447,12 @@ void fm_host_draw_view(const char *app, rect r) {
     case APP_NOTES: notes_draw(r); break;
     case APP_SETTINGS: settings_body(r); break;
     case APP_ABOUT: about_body(r); break;
-    case APP_TERMINAL: term_draw(r, keys, D.surface, D.surface_text, D.body_px - 2 < 13 ? 13 : D.body_px - 2); break;
+    case APP_TERMINAL: {
+        palette tp = pal_on(D.surface, 1); /* a child's computer: the Terminal is a grown-up's (family.c) */
+        if (family_gate(r, 's', "The Terminal", &tp, fm_host_font(D.font_body, 15), fm_host_font(D.font_body, 13)))
+            term_draw(r, keys, D.surface, D.surface_text, D.body_px - 2 < 13 ? 13 : D.body_px - 2);
+        break;
+    }
     default:
         if (app && !strcasecmp(app, "senses")) /* <view app="senses"/>: what it can sense */
             alive_panel(r);
@@ -2857,6 +2911,9 @@ static void context_menu(fm_node *n) {
     ctx_menu_item(label, act, CM_QUIET | CM_SEP, NULL);
 }
 
+void desktop_ctx_chosen(const char *act);
+static void uninstall_after_password(const char *act) { desktop_ctx_chosen(act); }
+
 void desktop_ctx_chosen(const char *act) {
     if (!strncmp(act, "open:", 5)) {
         fm_host_action(A.ui, NULL, act);
@@ -2905,6 +2962,13 @@ void desktop_ctx_chosen(const char *act) {
         const char *id = act + 10;
         if (!flatpak_id_ok(id) || uninstalling.req)
             return;
+        if (family_locks('i')) { /* a child's computer: a grown-up's password first (family.c) */
+            char doing[160];
+            int k = fm_app_index(id);
+            snprintf(doing, sizeof doing, "Uninstalling %s", k >= 0 ? fm_host_app_label(k) : id);
+            family_ask(doing, uninstall_after_password, act);
+            return;
+        }
         int k = fm_app_index(id);
         snprintf(uninstalling.id, sizeof uninstalling.id, "%s", id);
         snprintf(uninstalling.name, sizeof uninstalling.name, "%s", k >= 0 ? fm_host_app_label(k) : id);
@@ -3073,6 +3137,17 @@ void desktop_save_ui(void);
 static void save_ui(void) { desktop_save_ui(); }
 void desktop_save_ui(void) {
     char *s = fm_serialize(A.ui);
+    if (s && A.have_design && A.screen == SCR_DESKTOP) { /* how it looked before, kept when this is different */
+        FILE *o = fopen(STATE_DIR "/facet.xml", "r");
+        if (o) {
+            static char was[262144];
+            size_t n = fread(was, 1, sizeof was - 1, o);
+            was[n] = 0;
+            fclose(o);
+            if (n && n < sizeof was - 1 && strcmp(was, s))
+                changes_note_design(was);
+        }
+    }
     FILE *f = fopen(STATE_DIR "/facet.xml", "w");
     if (f && s) {
         fputs(s, f);

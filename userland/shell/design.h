@@ -103,6 +103,8 @@ typedef struct design {
 typedef struct profile {
     char user_name[32];
     char ai_name[32];
+    char pronouns[48];     /* how the companion refers to them (only that: never how it talks) */
+    char birth[12];        /* YYYY-MM-DD, or "": the companion is told only the age */
     char palette_name[48];
     color palette[4];
     bool has_palette;

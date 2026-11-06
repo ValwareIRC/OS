@@ -19,6 +19,7 @@
 #include "agent.h"
 #include "app.h"
 #include "priv.h"
+#include "family.h"
 #include "files.h"
 #include "iconart.h"
 #include "fm/fm.h"
@@ -1007,7 +1008,22 @@ static void flathub_poll(void) {
     }
 }
 
+static void flathub_install(const char *id, const char *name);
+static void install_after_password(const char *arg) { /* "ID\tNAME" */
+    char id[160];
+    const char *tab = strchr(arg, '\t');
+    snprintf(id, sizeof id, "%.*s", tab ? (int)(tab - arg) : (int)strlen(arg), arg);
+    flathub_install(id, tab ? tab + 1 : id);
+}
+
 static void flathub_install(const char *id, const char *name) {
+    if (family_locks('i') && flatpak_id_ok(id)) { /* a child's computer: a grown-up's password first (family.c) */
+        char doing[160], arg[300];
+        snprintf(doing, sizeof doing, "Installing %s", name);
+        snprintf(arg, sizeof arg, "%s\t%s", id, name);
+        family_ask(doing, install_after_password, arg);
+        return;
+    }
     if (!flatpak_id_ok(id)) { /* the catalogue comes from the internet: never put into a command unchecked */
         LOG("launcher: \"%.80s\" isn't an app ID; not installed\n", id);
         toast("That app couldn't be installed.");

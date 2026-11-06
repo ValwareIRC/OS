@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "settings.h"
 #include "chats.h"
+#include "changes.h"
+#include "family.h"
 #include "lock.h"
 #include "clock.h"
 #include "voice.h"
@@ -137,6 +139,7 @@ void settings_set(const char *key, const char *value) {
     } else if (!strcmp(kv[i].val, value)) {
         return;
     }
+    changes_note_setting(key, kv[i].val, value); /* (kept, to be put back: changes.c) */
     snprintf(kv[i].val, sizeof kv[i].val, "%s", value);
     kv_write();
 }
@@ -2419,6 +2422,7 @@ static int page_list(struct page *out) {
                                          {"Date & time", SYM_CALENDAR, page_time, NULL},
                                          {"AI", SYM_MIND, page_mind, NULL}};
     static const struct page after[] = {{"Users", SYM_SHIELD, page_users, NULL},
+                                        {"Child lock", SYM_SHIELD, family_settings_page, NULL},
                                         {"Notifications", SYM_BELL, page_notify, NULL},
                                         {"Apps", SYM_GEAR, page_apps, NULL},
                                         {"Power", SYM_MOON, page_power, NULL},
@@ -2451,8 +2455,14 @@ void settings_draw(rect r) {
     log_now = A.now - logged_at > 1000;
     if (log_now)
         logged_at = A.now;
+    /* a child's computer: Settings is a grown-up's (family.c) */
+    if (family_locks('s')) {
+        P = pal_on(pal_sample(r), 1);
+        family_gate(r, 's', "Settings", &P, BODY(), SMALL());
+        return;
+    }
     int ox0 = A.frame->cx0, oy0 = A.frame->cy0, ox1 = A.frame->cx1, oy1 = A.frame->cy1;
-    struct page pages[16 + MAX_EXTRA];
+    struct page pages[17 + MAX_EXTRA];
     /* Settings shown again after a while unseen (opened by them, an app, a design or the companion, or brought back):
      * never straight onto Security. It is drawn every frame while it shows, so a gap means it was away. */
     static uint64_t last_drawn;

@@ -2,6 +2,7 @@
 #include "preview.h"
 #include "app.h"
 #include "emblem.h"
+#include "family.h"
 #include "fm/fm.h"
 #include "fm/lint.h"
 #include "stylist.h"
@@ -448,9 +449,19 @@ void preview_closed(void) {
     PV.action = PV_ACT_DISCARD;
 }
 
+static void apply_after_password(const char *arg) {
+    (void)arg;
+    if (PV.state != PV_NONE)
+        preview_apply();
+}
+
 void preview_apply(void) {
     if (PV.state == PV_NONE)
         return;
+    if (!onboarding() && family_locks('s')) { /* a child's computer: a grown-up's password first (family.c) */
+        family_ask("Changing how the computer looks", apply_after_password, NULL);
+        return;
+    }
     PV.action = PV_ACT_APPLY;
     if (!onboarding())
         theme_crossfade(); /* this frame, the old look, fades out over the new */

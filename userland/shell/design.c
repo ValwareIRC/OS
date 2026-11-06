@@ -680,6 +680,10 @@ bool portrait_save(const profile *p, const char *path) {
     fprintf(f, "#comfort\t%.2f %d %d %.2f\n", (double)p->text_scale, p->high_contrast, p->reduce_motion, (double)p->tempo);
     if (p->type_font[0])
         fprintf(f, "#type\t%s\n", p->type_font);
+    if (p->pronouns[0])
+        fprintf(f, "#pronouns\t%s\n", p->pronouns);
+    if (p->birth[0])
+        fprintf(f, "#birth\t%s\n", p->birth);
     for (int i = 0; i < p->nfacts; i++)
         fprintf(f, "%s\t%s\n", p->facts[i].key, p->facts[i].val);
     fclose(f);
@@ -705,6 +709,10 @@ bool portrait_load(profile *p, const char *path) {
             p->text_scale = (float)ts, p->high_contrast = hc, p->reduce_motion = rm, p->tempo = (float)tp;
         } else if (!strcmp(line, "#type")) {
             snprintf(p->type_font, sizeof p->type_font, "%s", tab + 1);
+        } else if (!strcmp(line, "#pronouns")) {
+            snprintf(p->pronouns, sizeof p->pronouns, "%s", tab + 1);
+        } else if (!strcmp(line, "#birth")) {
+            snprintf(p->birth, sizeof p->birth, "%.10s", tab + 1);
         } else {
             portrait_learn(p, line, tab + 1);
         }

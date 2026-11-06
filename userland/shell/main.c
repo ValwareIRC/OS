@@ -5,6 +5,7 @@
 #include "app.h"
 #include "reader.h"
 #include "lock.h"
+#include "family.h"
 #include "clock.h"
 #include "priv.h"
 #include "nerve.h"
@@ -452,13 +453,15 @@ void main_frame(void) {
     if (quick)
         A.drawing = false;
     input_state real = A.in;
-    if (modal) /* a question is up: the screen goes on underneath, its input is the question's */
+    if (modal || family_asking()) /* a question is up: the screen goes on underneath, its input is the question's */
         input_clear(&A.in);
     PROF("clock", clock_frame()); /* the automatic time zone, the network's time (clock.c) */
     PROF("onboarding", onboard_keep()); /* onboarding's place, kept as it changes (onboard_talk.inc) */
     if (A.drawing)
         a11y_frame_begin(); /* (what the controls say they are: noted again as they are drawn) */
     if (lock_frame()) /* locked: the lock screen is everything (lock.c) */
+        goto drawn;
+    if (family_frame()) /* a child's computer, time's up (or outside the hours set): that is everything */
         goto drawn;
     switch (A.screen) {
     case SCR_SPLASH: splash_draw(); break;
@@ -472,6 +475,10 @@ void main_frame(void) {
     if (modal) {
         A.in = real;
         modal();
+    }
+    if (family_asking()) { /* a grown-up's password, asked (family.c) */
+        A.in = real;
+        family_ask_draw();
     }
     if (quick) {
         if (desktop_app_frame_put(&quick_r))
@@ -734,6 +741,7 @@ int main(void) {
     facet_reference_write();
     set_screen(SCR_SPLASH);
     lock_boot(); /* with a password: signed in first */
+    family_boot(); /* a child's computer: what is locked (family.c) */
 
     input_fds(frame_fds);
     for (;;)

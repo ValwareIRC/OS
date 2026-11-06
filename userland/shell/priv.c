@@ -38,7 +38,7 @@ int priv_send(const char *errand) {
     int c = channel();
     if (c < 0)
         return -1;
-    char m[400];
+    char m[1200]; /* (the child lock's words, hex, are the longest: init takes up to 1100) */
     int id = ++next_id;
     int n = snprintf(m, sizeof m, "%d %s", id, errand);
     if (n >= (int)sizeof m || send(c, m, (size_t)n, MSG_NOSIGNAL) < 0)

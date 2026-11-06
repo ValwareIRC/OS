@@ -21,6 +21,7 @@
  * written to /etc/os/actions.log and, where it can be, undone. */
 #include "alive.h"
 #include "settings.h"
+#include "family.h"
 #include "web.h"
 #include "emblem.h"
 #include "voice.h"
@@ -880,7 +881,9 @@ bool actions_take(struct conversation *c, bool *from_person) {
     }
     while ((t = find_tag(m->text, "set", arg, sizeof arg))) {
         cut_tag(t);
-        if (*from_person)
+        if (*from_person && family_locks('s') && strncasecmp(arg, "volume", 6) && strncasecmp(arg, "bright", 6))
+            SAY("(That's a setting, and on this computer settings need a grown-up's password.) "), acted = true;
+        else if (*from_person)
             SAY("%s ", do_set(arg)), acted = true;
     }
     while ((t = find_tag(m->text, "notify", arg, sizeof arg))) {
@@ -910,7 +913,15 @@ bool actions_take(struct conversation *c, bool *from_person) {
         if (close && *body == '\n')
             body++; /* the line break after the tag is not the file's */
         size_t len = close ? (size_t)(close - body) : 0;
-        if (*from_person && close) {
+        char where[700];
+        snprintf(where, sizeof where, "%s%s", name[0] == '~' ? home_dir() : "", name[0] == '~' ? name + 1 : name);
+        if (*from_person && close && family_locks('a') && access(where, F_OK) == 0) { /* a child's: nothing overwritten */
+            SAY("(%.80s is there already: on a child's computer nothing is written over) ", name), acted = true;
+            size_t wl = strlen(write_report);
+            snprintf(write_report + wl, sizeof write_report - wl,
+                     "- [[write:%.80s]] -> not done: the file exists, and on a child's computer files are never "
+                     "written over (write a new one)\n", name);
+        } else if (*from_person && close) {
             const char *r = write_file(name, body, len);
             SAY("(%s) ", r), acted = true;
             size_t wl = strlen(write_report);
@@ -928,7 +939,9 @@ bool actions_take(struct conversation *c, bool *from_person) {
     }
     while ((t = find_tag(m->text, "run", arg, sizeof arg))) {
         cut_tag(t);
-        if (*from_person && !asking[0] && !run_job && arg[0]) {
+        if (*from_person && family_locks('a') && arg[0]) { /* a child's computer: no commands (family.c) */
+            SAY("(Running commands is something only a grown-up can do on this computer.) "), acted = true;
+        } else if (*from_person && !asking[0] && !run_job && arg[0]) {
             snprintf(asking, sizeof asking, "%s", arg); /* the question appears on screen */
             LOG("run asked: %s\n", asking);
             acted = true;

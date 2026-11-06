@@ -4,6 +4,7 @@
 #include "app.h"
 #include "menu_actions.h"
 #include "priv.h"
+#include "family.h"
 #include "launcher.h"
 #include "alive.h"
 #include "web.h"
@@ -1182,6 +1183,26 @@ static bool agent_take_now(struct conversation *c, bool from_person) {
         n_tools++;
         if (!strcmp(name, "run"))
             snprintf(name, sizeof name, "sh");
+        { /* a child's computer: the grown-up's limits on it (family.c) */
+            static const char *const strict[] = {"sh", "mv", "cp", "rm", "kill", "fetch", "install", "uninstall", NULL};
+            const char *why = NULL;
+            for (int k = 0; strict[k] && family_locks('a') && !why; k++)
+                if (!strcmp(name, strict[k]))
+                    why = "this is a child's computer, and a grown-up's limits keep you from running commands, "
+                          "changing, moving or deleting files and installing or removing apps. Tell them kindly "
+                          "that a grown-up can do it";
+            if (!why && family_locks('i') && (!strcmp(name, "install") || !strcmp(name, "uninstall")))
+                why = "installing and removing apps needs a grown-up's password: a grown-up can do it from the "
+                      "launcher (the system asks for the password)";
+            if (!why && family_locks('s') && !strcmp(name, "wallpaper"))
+                why = "changing how it looks needs a grown-up's password";
+            if (why) {
+                sb_printf(&now_out, "[[%s: %.80s]] -> not done: %s\n\n", name, a, why);
+                LOG("agent: %s refused (the child lock)\n", name);
+                free(arg);
+                continue;
+            }
+        }
         /* installing is root's work, asked of init (the desktop runs as the person): it comes back on its own */
         if ((!strcmp(name, "install") || !strcmp(name, "uninstall")) && priv_available()) {
             if (!flatpak_id_ok(a)) {
