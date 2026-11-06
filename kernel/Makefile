@@ -72,4 +72,4 @@ $(BUILD)/%.S.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
--include $(OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(filter $(BUILD)/nvidia/%,$(OBJS_EXTRA:.o=.d))
