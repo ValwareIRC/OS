@@ -78,6 +78,8 @@ struct arch_cache {
     uint32_t level, type, line, ways, parts, sets, sharing;
 };
 bool arch_cache_info(int index, struct arch_cache *ci);
+/* Running in a virtual machine (the CPU says so): on a real computer, disks are someone's until shown otherwise. */
+bool arch_virtual_machine(void);
 
 void arch_mmu_init(void);
 void arch_page_fault_init(void);

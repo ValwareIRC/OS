@@ -178,7 +178,7 @@ int main(int argc, char **argv) {
                     a->flags |= MF_OFF, snprintf(a->why_off, sizeof a->why_off, "Nothing is copied");
             }
         }
-        mf_add(&s, "ask-about-it", "Ask Mita about this", MF_QUIET);
+        mf_add(&s, "ask-about-it", "Ask Sam about this", MF_QUIET);
         static const char *const glob[][2] = {{"take-screenshot", "Take a screenshot"}, {"open-terminal", "Open Terminal"},
                                               {"settings", "Settings"}};
         for (size_t g = 0; g < 3; g++)

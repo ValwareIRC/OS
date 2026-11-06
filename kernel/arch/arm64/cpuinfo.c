@@ -57,6 +57,9 @@ uint32_t arch_base_mhz(void) { return 0; }
 
 /* CLIDR_EL1 lists the cache type per level; a level with separate data and
  * instruction caches counts as two indices, data first, as Linux does. */
+/* (arm64 runs on the "virt" machine alone: always a virtual one) */
+bool arch_virtual_machine(void) { return true; }
+
 bool arch_cache_info(int index, struct arch_cache *ci) {
     uint64_t clidr = read_sysreg(clidr_el1);
     for (uint32_t level = 1; level <= 7; level++) {

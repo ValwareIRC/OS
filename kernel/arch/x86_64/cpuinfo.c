@@ -153,6 +153,12 @@ uint32_t arch_base_mhz(void) {
 }
 
 /* CPUID leaf 4 on Intel, 0x8000001D on AMD; same layout. */
+bool arch_virtual_machine(void) {
+    uint32_t a, b, c, d;
+    cpuid(1, 0, &a, &b, &c, &d);
+    return c & (1u << 31); /* the "hypervisor present" bit, set by every hypervisor and never by a real CPU */
+}
+
 bool arch_cache_info(int index, struct arch_cache *ci) {
     uint32_t r[4], max, extmax, bx, c, d;
     bool found = false;

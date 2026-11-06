@@ -1,3 +1,4 @@
+#include <kernel/arch.h>
 #include <kernel/blkdev.h>
 #include <kernel/lib.h>
 #include <kernel/mm.h>
@@ -217,8 +218,9 @@ int blkdev_register(struct blkdev *d) {
  * what doesn't fit there (apps from Flathub, their data). */
 #define DATA_START (320ull << 20)
 
-/* Blank in its first 64 KiB, or starting with the save slots' header
- * (userland/shell/store.c). */
+/* Starting with the save slots' header (userland/shell/store.c), or, in a virtual machine only, blank in its first
+ * 64 KiB (a new virtual disk). On a real computer a blank disk is never taken: it may be one someone just wiped,
+ * or one they mean for something else; this system writes only to a disk already marked as its own. */
 static bool disk_is_ours(struct blkdev *d) {
     static uint8_t buf[4096];
     for (uint64_t off = 0; off < 65536; off += sizeof buf) {
@@ -226,6 +228,8 @@ static bool disk_is_ours(struct blkdev *d) {
             return false;
         if (off == 0 && !memcmp(buf, "LUMENSTORE1", 11))
             return true;
+        if (!arch_virtual_machine())
+            return false;
         for (size_t i = 0; i < sizeof buf; i++)
             if (buf[i])
                 return false;
@@ -247,9 +251,8 @@ void storage_init(void) {
         kprintf("storage: no disks\n");
         return;
     }
-    /* On a real computer the first drive may be someone's Windows disk:
-     * only one that is blank at its start (a new virtual disk) or already
-     * carries this system's save header is ever written. */
+    /* On a real computer the first drive may be someone's Windows disk: only one that already carries this
+     * system's save header is ever written (in a virtual machine, a blank one too: a new virtual disk). */
     for (struct blkdev *d = disks; d; d = d->next)
         if (!d->part_of && !disk_is_ours(d)) {
             d->readonly = true;
