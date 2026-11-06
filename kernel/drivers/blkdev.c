@@ -255,6 +255,7 @@ int blkdev_count(void) {
 void storage_init(void) {
     ahci_init();
     virtio_blk_init();
+    nvme_init();
     if (!ndisks) {
         kprintf("storage: no disks\n");
         return;

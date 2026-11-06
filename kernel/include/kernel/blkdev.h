@@ -53,3 +53,4 @@ int blkdev_count(void); /* whole disks found (partitions not counted) */
 void blkdev_claim_if_ours(struct blkdev *d);
 void ahci_init(void);
 void virtio_blk_init(void);
+void nvme_init(void);
