@@ -4,7 +4,8 @@
  * the desktop's (which runs as the person: the child). The password is kept as the account password is (SHA-512
  * crypt, a random salt), wrong guesses waiting longer after the third. Both are kept where the person can neither
  * read nor change nor move them: on the disk (/var/lib/os-data/family, root's, in a folder of root's) when there
- * is one, else beside their state (/etc/os/.family, taken back from them at every start).
+ * is one, else beside their state (/etc/os/.family, taken back from them at every start; /etc/os is sticky, so
+ * its name is not theirs to move either: session.inc).
  *   family-state                        "none", or the lock: child=1;n=NAMEHEX;b=BIRTH;p=PRONOUNSHEX;m=MIN;f=HHMM;
  *                                       u=HHMM;lt=1;lw=1;ls=1;li=1;la=1;used=MIN;day=YYYY-MM-DD;pw=set
  *   family-check PWHEX                  the grown-up's password: ok or failed (with how long to wait)

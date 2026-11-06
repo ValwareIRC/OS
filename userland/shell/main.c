@@ -616,7 +616,8 @@ int main(void) {
     fonts_init("/usr/share/fonts");
     LOG("shell: running as %s\n", getuid() == 0 ? "root (an older init)" : "the person");
     mkdir(STATE_DIR, 0700);
-    /* the system's state (keys, the companion's memory, app grants): root's alone; the home: the person's */
+    /* (their state: init makes the folder root's and sticky, writable by their group; this only matters for an
+     * older init that left it theirs) */
     chmod(STATE_DIR, 0700);
     servers_left_behind(NULL); /* (by a desktop before this one, that crashed: they'd hold their ports and memory) */
     { /* this boot's key for the local model servers (ai_local_key) */

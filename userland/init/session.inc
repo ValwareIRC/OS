@@ -161,7 +161,12 @@ static void prepare_session(void) {
     /* their state and their home */
     mkdir("/etc/os", 0700);
     give_tree("/etc/os", 0);
-    chmod("/etc/os", 0700);
+    /* The folder itself root's, theirs to write in through their group, and sticky: what is in it is theirs, but
+     * a name in it is only its owner's to move or take away. So the root's files kept among their state (the
+     * password, the child lock's .family when there is no disk) can't be renamed away from under the system,
+     * as the owner of a folder otherwise could. */
+    if (lchown("/etc/os", 0, SESSION_UID) == 0)
+        chmod("/etc/os", 01770);
     if (lchown(PASSWORD_FILE, 0, 0) == 0) /* (theirs to have, never to read or change) */
         chmod(PASSWORD_FILE, 0600);
     give_tree(home_dir(), 0);
