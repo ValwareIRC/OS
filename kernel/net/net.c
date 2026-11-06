@@ -408,6 +408,33 @@ static void write_resolv_conf(struct netif *nif) {
     file_put(f);
 }
 
+/* The kernel's log, sent to the network the computer is on as it is written (UDP broadcast to port 6666): only
+ * when asked for at the start ("netlog" on the kernel command line: limine.conf), for seeing what happens on a
+ * real computer with no serial port. Never otherwise: the log says what the system did, and broadcasting it on
+ * someone's network unasked would tell anyone listening. */
+bool netlog_wanted;
+#define NETLOG_PORT 6666
+
+const char *klog_text(unsigned long *len);
+int udp_send_raw(uint32_t src_ip, uint16_t sport, uint32_t dst, uint16_t dport, const void *data, size_t len);
+
+static void netlog_flush(struct netif *nif) {
+    static unsigned long sent;
+    unsigned long len;
+    const char *t = klog_text(&len);
+    if (len < sent) /* (the log dropped its oldest half: sent again from what is left) */
+        sent = 0;
+    for (int packets = 0; sent < len && packets < 16; packets++) {
+        unsigned long n = len - sent > 1200 ? 1200 : len - sent;
+        if (n == 1200) /* whole lines where it can */
+            while (n > 200 && t[sent + n - 1] != '\n')
+                n--;
+        if (udp_send_raw(nif->ip, NETLOG_PORT, 0xffffffffu, NETLOG_PORT, t + sent, n) < 0)
+            break;
+        sent += n;
+    }
+}
+
 static struct thread *net_thr;
 static volatile bool net_kicked;
 
@@ -434,6 +461,8 @@ static void net_thread(void *arg) {
                 last_traffic_ms = now_ms();
             polled_only |= !nif->interrupts;
             dhcp_tick(nif, now_ms());
+            if (netlog_wanted && nif->configured && !net_is_loopback(nif))
+                netlog_flush(nif);
             net_unlock(f);
             if (nif->configured && !announced) {
                 announced = true;

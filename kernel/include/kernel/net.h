@@ -106,6 +106,7 @@ void dhcp_start(struct netif *nif);
 
 /* Drivers */
 void e1000_init(void);
+extern bool netlog_wanted; /* the log sent to the network ("netlog" at the start) */
 bool r8169_init(void); /* Realtek RTL8111/8168, RTL8125 (drivers/r8169.c) */
 
 /* Socket syscalls live in net/socket.c. */

@@ -657,6 +657,7 @@ static void init_main(void *arg) {
     procfs_init(); /* after the initramfs: /proc and /sys are mounted over its directories */
     sysfs_init();
     hda_init(); /* drivers/hda.c: /dev/dsp, /dev/mixer */
+    netlog_wanted = cmdline_word("netlog");
     net_init();
     kprintf("OS BOOT OK\n");
     proc_start_init("/sbin/init");
