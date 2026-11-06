@@ -243,11 +243,10 @@ size_t strnlen(const char *s, size_t n) {
     return i;
 }
 
-static int lower(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 
 int strncasecmp(const char *a, const char *b, size_t n) {
     for (size_t i = 0; i < n; i++) {
-        int x = lower((unsigned char)a[i]), y = lower((unsigned char)b[i]);
+        int x = tolower((unsigned char)a[i]), y = tolower((unsigned char)b[i]);
         if (x != y || !x)
             return x - y;
     }
@@ -299,6 +298,15 @@ ssize_t strscpy(char *d, const char *s, size_t n) { return sized_strscpy(d, s, n
 
 char *strcat(char *d, const char *s) {
     strcpy(d + strlen(d), s);
+    return d;
+}
+
+char *strncat(char *d, const char *s, size_t n) {
+    char *e = d + strlen(d);
+    size_t i = 0;
+    for (; i < n && s[i]; i++)
+        e[i] = s[i];
+    e[i] = 0;
     return d;
 }
 

@@ -58,6 +58,7 @@ typedef struct { u64 pgprot; } pgprot_t; /* (a page's attributes in a mapping: s
 #define kzalloc lkpi_kzalloc
 #define copy_from_user lkpi_copy_from_user
 #define copy_to_user lkpi_copy_to_user
+#define strncpy_from_user lkpi_strncpy_from_user
 void *kmalloc(size_t size, gfp_t gfp);
 void *kzalloc(size_t size, gfp_t gfp);
 void *kcalloc(size_t n, size_t size, gfp_t gfp);

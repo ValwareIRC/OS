@@ -8,6 +8,8 @@ extern volatile struct limine_memmap_request boot_memmap_request;
 extern volatile struct limine_hhdm_request boot_hhdm_request;
 extern volatile struct limine_executable_address_request boot_kaddr_request;
 extern volatile struct limine_rsdp_request boot_rsdp_request;
+extern volatile struct limine_firmware_type_request boot_firmware_request; /* (UEFI or BIOS) */
+extern volatile struct limine_smbios_request boot_smbios_request;         /* (the machine's maker and model) */
 extern volatile struct limine_mp_request boot_mp_request;
 
 extern uint64_t hhdm_offset;

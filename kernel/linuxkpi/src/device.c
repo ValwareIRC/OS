@@ -7,7 +7,6 @@
 
 /* ---- the device model ---- */
 
-struct class { char name[32]; };
 const struct bus_type pci_bus_type = {.name = "pci"};
 
 const char *dev_name(const struct device *d) {

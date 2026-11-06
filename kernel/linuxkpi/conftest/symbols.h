@@ -32,7 +32,7 @@
 #define NV_IS_EXPORT_SYMBOL_GPL_set_memory_encrypted 1
 #define NV_IS_EXPORT_SYMBOL_GPL_set_memory_decrypted 1
 #define NV_IS_EXPORT_SYMBOL_GPL___platform_driver_register 1
-#define NV_IS_EXPORT_SYMBOL_PRESENT___platform_driver_register 1
+#define NV_IS_EXPORT_SYMBOL_PRESENT___platform_driver_register 0 /* (no platform devices here: Tegra code off) */
 #define NV_IS_EXPORT_SYMBOL_GPL_mutex_destroy 0
 #define NV_IS_EXPORT_SYMBOL_PRESENT_hrtimer_setup 1
 #define NV_IS_EXPORT_SYMBOL_PRESENT_timer_delete_sync 1

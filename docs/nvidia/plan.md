@@ -66,6 +66,36 @@ What the person's computer downloads at runtime, never shipped with the OS: the 
 3. **UVM and CUDA.** The memory-manager parts; a CUDA sample runs; then the OS's own AI services use the card.
 4. (Later, if wanted.) Display through the card (modeset/drm) instead of the firmware's framebuffer.
 
+## Where it is (2026-11-06)
+
+Phase 1 is written and checked as far as it can be without a build:
+- every one of the module's 61 files compiles against the layer (`tests/nvidia/glue_compile.sh`). On x86 the Tegra
+  and NVSwitch files are NVIDIA's own "none here" versions, with the conftest answer for platform devices switched
+  off;
+- the glue, the layer, its host side and `nv-kernel.o` resolve every symbol against each other and our kernel
+  (`tests/nvidia/link_check.sh`: what is left are functions this work added to our kernel, missing only from
+  kernel objects built before it).
+
+What our kernel gained for it:
+- mappings a driver fills in itself, and fills at fault time (`VMA_DEV`), with program pages held for a device;
+- a run-on-every-CPU call;
+- PCIe extended config space (ECAM);
+- per-thread and per-address-space slots for the layer;
+- the firmware type and SMBIOS from Limine.
+
+`make kernel LKPI=1` builds it in (`NV_SRC` is NVIDIA's tree). The driver starts on a thread of its own after
+boot; `nonvidia` on the command line leaves it out.
+
+Not done yet, in the layer:
+- ACPI methods answer "not found" (no AML interpreter yet);
+- only MSI interrupts (no INTx routing);
+- no resizable BAR;
+- a forked program doesn't inherit the driver's mappings;
+- `/proc/driver/nvidia` isn't shown;
+- video memory isn't saved over suspend.
+
+The GSP firmware has to be at `/lib/firmware/nvidia/620.70.06/` (`request_firmware` reads it from there).
+
 ## Risks
 
 - UVM's use of the memory manager (pinning a program's pages, faults the driver handles, mappings it tears down)

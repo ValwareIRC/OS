@@ -10,11 +10,9 @@ NV=${NV_SRC:-$HOME/osbuild/nvidia-open}/kernel-open
 OUT=$ROOT/build/nvidia-glue
 mkdir -p "$OUT"
 KPI=$ROOT/kernel/linuxkpi
-FILES=${*:-nvidia/nv.c nvidia/nv-pci.c nvidia/nv-dma.c nvidia/nv-mmap.c nvidia/nv-vm.c nvidia/nv-vtophys.c
-  nvidia/os-interface.c nvidia/os-mlock.c nvidia/os-pci.c nvidia/os-registry.c nvidia/os-usermap.c nvidia/nv-usermap.c
-  nvidia/nv-acpi.c nvidia/nv-msi.c nvidia/nv-kthread-q.c nvidia/nv-memdbg.c nvidia/nv-report-err.c nvidia/nv-caps.c
-  nvidia/nv-pci-table.c nvidia/nv-nano-timer.c nvidia/nv_uvm_interface.c nvidia/nv-rsync.c nvidia/nv-procfs.c
-  nvidia/nv-i2c.c nvidia/nv-modeset-interface.c}
+# (default: every file of the module, as its Kbuild lists them: on x86 the Tegra and NVSwitch ones are NVIDIA's own
+# "not supported" versions, which is what we want of them)
+FILES=${*:-$(grep -o 'nvidia/[a-z_0-9-]*\.c' "$NV/nvidia/nvidia-sources.Kbuild" | tr '\n' ' ')}
 CFLAGS=(-std=gnu11 -O2 -ffreestanding -fno-stack-protector -fno-pic -fno-pie -m64 -mno-80387 -mno-mmx -mno-sse
   -mno-sse2 -mno-red-zone -mcmodel=kernel -nostdinc -isystem "$(gcc -print-file-name=include)"
   -I"$KPI/include" -I"$KPI" -I"$NV/common/inc" -I"$NV/nvidia" -I"$NV"

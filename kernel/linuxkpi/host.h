@@ -5,7 +5,9 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#ifndef LKPI_TYPES /* (the layer has Linux's own uint64_t and friends: the same sizes) */
 #include <stdint.h>
+#endif
 
 /* the log */
 void kpi_host_log(const char *s, size_t n);
@@ -127,6 +129,13 @@ void kpi_host_pci_enable(int i);
 /* an interrupt for the device (MSI when it has it): the handler runs in interrupt context */
 int kpi_host_pci_irq(int i, void (*handler)(void *arg), void *arg);
 void kpi_host_pci_irq_free(int i);
+
+/* the firmware: booted by UEFI, its ACPI tables, the boot framebuffer, and SMBIOS (who made the machine) */
+bool kpi_host_efi(void);
+const void *kpi_host_acpi_table(const char *sig, int index);
+bool kpi_host_framebuffer(uint64_t *phys, uint32_t *width, uint32_t *height, uint32_t *pitch, uint16_t *bpp);
+const char *kpi_host_smbios_string(int type, int offset); /* the string a structure's byte at offset names; NULL */
+int kpi_host_smbios_byte(int type, int offset);           /* -1 when there is no such structure */
 
 /* random numbers */
 void kpi_host_random(void *buf, size_t n);

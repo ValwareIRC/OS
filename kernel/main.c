@@ -35,6 +35,12 @@ __attribute__((used, section(".limine_requests")))
 volatile struct limine_rsdp_request boot_rsdp_request = {.id = LIMINE_RSDP_REQUEST_ID, .revision = 0};
 
 __attribute__((used, section(".limine_requests")))
+volatile struct limine_firmware_type_request boot_firmware_request = {.id = LIMINE_FIRMWARE_TYPE_REQUEST_ID, .revision = 0};
+
+__attribute__((used, section(".limine_requests")))
+volatile struct limine_smbios_request boot_smbios_request = {.id = LIMINE_SMBIOS_REQUEST_ID, .revision = 0};
+
+__attribute__((used, section(".limine_requests")))
 volatile struct limine_mp_request boot_mp_request = {
     .id = LIMINE_MP_REQUEST_ID, .revision = 0, .flags = LIMINE_MP_REQUEST_X86_64_X2APIC};
 
@@ -580,6 +586,14 @@ static void mind_from_cmdline(void) {
     }
 }
 
+#ifdef LKPI
+int lkpi_start(void);
+static void nvidia_main(void *arg) {
+    (void)arg;
+    lkpi_start();
+}
+#endif
+
 static void init_main(void *arg) {
     (void)arg;
     bootscreen_start_animation();
@@ -657,6 +671,12 @@ static void init_main(void *arg) {
     procfs_init(); /* after the initramfs: /proc and /sys are mounted over its directories */
     sysfs_init();
     hda_init(); /* drivers/hda.c: /dev/dsp, /dev/mixer */
+#ifdef LKPI
+    /* NVIDIA's driver (linuxkpi): on a thread of its own, since probing a GPU takes a while and boot need not wait;
+     * "nonvidia" on the command line leaves it out */
+    if (!cmdline_word("nonvidia"))
+        KASSERT(thread_create("nvidia", nvidia_main, NULL));
+#endif
     netlog_wanted = cmdline_word("netlog");
     net_init();
     kprintf("OS BOOT OK\n");

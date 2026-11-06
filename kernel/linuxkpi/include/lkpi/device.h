@@ -5,6 +5,9 @@
 #include <lkpi/core.h>
 #include <lkpi/mm.h>
 
+/* (our kernel has a pci_enable_msi of its own, of another shape: the layer's is renamed, as kmalloc is) */
+#define pci_enable_msi lkpi_pci_enable_msi
+
 /* ---- the device model ---- */
 struct device;
 struct device_driver;
@@ -32,11 +35,13 @@ struct dev_pm_ops {
     int (*runtime_idle)(struct device *d);
 };
 enum probe_type { PROBE_DEFAULT_STRATEGY, PROBE_PREFER_ASYNCHRONOUS, PROBE_FORCE_SYNCHRONOUS };
-struct device_driver { const char *name; const struct dev_pm_ops *pm; void *owner; enum probe_type probe_type; };
+struct of_device_id { char name[32]; char type[32]; char compatible[128]; const void *data; };
+struct device_driver { const char *name; const struct dev_pm_ops *pm; void *owner; enum probe_type probe_type;
+                       const struct of_device_id *of_match_table; };
 struct dev_pm_info { bool runtime_auto; atomic_t usage_count; spinlock_t lock; bool is_suspended; int runtime_status; };
 struct dev_pm_domain { struct dev_pm_ops ops; };
 struct bus_type { const char *name; void (*shutdown)(struct device *d); };
-struct class;
+struct class { char name[32]; char *(*devnode)(const struct device *d, umode_t *mode); };
 struct device {
     struct device *parent;
     struct kobject kobj;
@@ -88,6 +93,29 @@ bool device_property_present(struct device *d, const char *prop);
 #define of_fwnode_handle(n) ((n) ? (n)->fwnode : NULL)
 int of_parse_phandle_with_args_map(const struct device_node *np, const char *list, const char *stem, int index,
                                    struct of_phandle_args *out);
+struct property { char *name; int length; void *value; struct property *next; };
+#define of_get_child_by_name(n, name) ((struct device_node *)NULL)
+#define of_parse_phandle(n, name, i) ((struct device_node *)NULL)
+#define of_device_is_available(n) false
+#define of_find_node_by_path(p) ((struct device_node *)NULL)
+#define of_find_matching_node(from, m) ((struct device_node *)NULL)
+#define of_property_count_elems_of_size(n, p, sz) (-EINVAL)
+#define of_property_read_u32_array(n, p, v, c) (-EINVAL)
+#define of_property_read_variable_u8_array(n, p, v, mn, mx) (-EINVAL)
+#define of_property_read_variable_u32_array(n, p, v, mn, mx) (-EINVAL)
+struct reserved_mem { const char *name; phys_addr_t base; phys_addr_t size; void *priv; };
+#define of_reserved_mem_lookup(n) ((struct reserved_mem *)NULL)
+/* platform devices (Tegra's, on a system-on-chip): none on a PC */
+struct platform_device { const char *name; int id; struct device dev; };
+#define to_platform_device(d) container_of(d, struct platform_device, dev)
+#define platform_get_drvdata(p) dev_get_drvdata(&(p)->dev)
+#define platform_set_drvdata(p, v) dev_set_drvdata(&(p)->dev, v)
+struct platform_driver {
+    int (*probe)(struct platform_device *p);
+    void (*remove)(struct platform_device *p);
+    void (*shutdown)(struct platform_device *p);
+    struct device_driver driver;
+};
 #define of_property_read_u32(n, p, v) (-EINVAL)
 #define of_property_read_bool(n, p) false
 #define of_find_property(n, p, l) NULL

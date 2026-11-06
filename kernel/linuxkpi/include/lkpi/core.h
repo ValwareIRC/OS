@@ -6,7 +6,20 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
+/* Linux's own integer types (u64 is unsigned long long, and uint64_t is u64), not the C library's (which makes
+ * uint64_t unsigned long): NVIDIA's code mixes the two names and expects them to be one type. */
+#define LKPI_TYPES 1
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
+typedef signed char int8_t;
+typedef short int16_t;
+typedef int int32_t;
+typedef long long int64_t;
+typedef unsigned long uintptr_t;
+typedef long intptr_t;
+#define SIZE_MAX (~(size_t)0)
 
 /* ---- types ---- */
 typedef uint8_t u8;
@@ -181,6 +194,7 @@ int vprintk(const char *fmt, va_list ap);
 #define pr_debug(fmt, ...) do { } while (0)
 #define pr_cont(fmt, ...) printk(KERN_CONT fmt, ##__VA_ARGS__)
 #define printk_ratelimited printk
+static inline int printk_ratelimit(void) { return 1; }
 void lkpi_bug(const char *file, int line) __attribute__((noreturn));
 void lkpi_warn(const char *file, int line, const char *what);
 #define BUG() lkpi_bug(__FILE__, __LINE__)
@@ -221,6 +235,34 @@ size_t strlcpy(char *d, const char *s, size_t n);
 ssize_t strscpy(char *d, const char *s, size_t n);
 ssize_t sized_strscpy(char *d, const char *s, size_t n);
 char *strcat(char *d, const char *s);
+char *strncat(char *d, const char *s, size_t n);
+/* characters (ASCII) */
+static inline int isdigit(int c) { return c >= '0' && c <= '9'; }
+static inline int isxdigit(int c) { return isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
+static inline int isalpha(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+static inline int isalnum(int c) { return isalpha(c) || isdigit(c); }
+static inline int isspace(int c) { return c == 0x20 || (c >= 0x09 && c <= 0x0d); }
+static inline int isupper(int c) { return c >= 'A' && c <= 'Z'; }
+static inline int islower(int c) { return c >= 'a' && c <= 'z'; }
+static inline int isprint(int c) { return c >= 0x20 && c < 0x7f; }
+static inline int tolower(int c) { return isupper(c) ? c + 32 : c; }
+static inline int toupper(int c) { return islower(c) ? c - 32 : c; }
+/* byte order (x86 is little-endian) */
+#define swab16(x) ((u16)__builtin_bswap16(x))
+#define swab32(x) ((u32)__builtin_bswap32(x))
+#define swab64(x) ((u64)__builtin_bswap64(x))
+#define cpu_to_be16(x) swab16(x)
+#define cpu_to_be32(x) swab32(x)
+#define cpu_to_be64(x) swab64(x)
+#define be16_to_cpu(x) swab16(x)
+#define be32_to_cpu(x) swab32(x)
+#define be64_to_cpu(x) swab64(x)
+#define cpu_to_le16(x) ((u16)(x))
+#define cpu_to_le32(x) ((u32)(x))
+#define cpu_to_le64(x) ((u64)(x))
+#define le16_to_cpu(x) ((u16)(x))
+#define le32_to_cpu(x) ((u32)(x))
+#define le64_to_cpu(x) ((u64)(x))
 char *strchr(const char *s, int c);
 char *strrchr(const char *s, int c);
 char *strstr(const char *h, const char *n);
