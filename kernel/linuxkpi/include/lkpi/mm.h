@@ -5,6 +5,7 @@
  * looked up (kernel/linuxkpi/mm.c); its fields are only the ones the driver uses. */
 #include <lkpi/core.h>
 
+typedef struct { u64 pgprot; } pgprot_t; /* (a page's attributes in a mapping: see below) */
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (1UL << PAGE_SHIFT)
 #define PAGE_MASK (~(PAGE_SIZE - 1))
@@ -159,7 +160,7 @@ void *kmap_atomic(struct page *p);
 void kunmap_atomic(void *v);
 #define kmap_local_page kmap_atomic
 #define kunmap_local kunmap_atomic
-void *vmap(struct page **pages, unsigned int count, unsigned long flags, unsigned long prot);
+void *vmap(struct page **pages, unsigned int count, unsigned long flags, pgprot_t prot);
 void vunmap(const void *v);
 void *vmap_pfn(unsigned long *pfns, unsigned int count, unsigned long prot);
 #define VM_MAP 0x4
@@ -173,7 +174,6 @@ extern void *high_memory;
 extern unsigned long num_physpages;
 
 /* page attributes (caching of the direct map and of mappings) */
-typedef struct { u64 pgprot; } pgprot_t;
 #define __pgprot(x) ((pgprot_t){ (x) })
 #define pgprot_val(p) ((p).pgprot)
 #define _PAGE_PRESENT 0x001ULL
@@ -185,7 +185,9 @@ typedef struct { u64 pgprot; } pgprot_t;
 #define _PAGE_NX (1ULL << 63)
 #define _PAGE_CACHE_MASK (_PAGE_PWT | _PAGE_PCD | _PAGE_PAT)
 #define PAGE_KERNEL __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_NX)
-#define PAGE_KERNEL_NOCACHE __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_NX | _PAGE_PCD)
+#define __PAGE_KERNEL_NOCACHE (_PAGE_PRESENT | _PAGE_RW | _PAGE_NX | _PAGE_PCD)
+#define __PAGE_KERNEL (_PAGE_PRESENT | _PAGE_RW | _PAGE_NX)
+#define PAGE_KERNEL_NOCACHE __pgprot(__PAGE_KERNEL_NOCACHE)
 #define PAGE_SHARED __pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_USER | _PAGE_NX)
 pgprot_t pgprot_noncached(pgprot_t p);
 pgprot_t pgprot_writecombine(pgprot_t p);
@@ -241,7 +243,7 @@ struct mm_struct {
     struct rw_semaphore mmap_lock;
     atomic_t mm_users, mm_count;
     unsigned long start_brk, brk;
-    atomic_long_t rss_stat[NR_MM_COUNTERS];
+    struct { s64 count; void *counters; } rss_stat[NR_MM_COUNTERS]; /* (a percpu_counter in Linux: one counter here) */
     void *lkpi_proc;    /* our kernel's process */
 };
 void add_mm_counter(struct mm_struct *mm, int member, long value);

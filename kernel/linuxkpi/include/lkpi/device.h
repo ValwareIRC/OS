@@ -31,9 +31,11 @@ struct dev_pm_ops {
     int (*runtime_resume)(struct device *d);
     int (*runtime_idle)(struct device *d);
 };
-struct device_driver { const char *name; const struct dev_pm_ops *pm; void *owner; };
-struct dev_pm_info { bool runtime_auto; int usage_count; };
-struct bus_type { const char *name; };
+enum probe_type { PROBE_DEFAULT_STRATEGY, PROBE_PREFER_ASYNCHRONOUS, PROBE_FORCE_SYNCHRONOUS };
+struct device_driver { const char *name; const struct dev_pm_ops *pm; void *owner; enum probe_type probe_type; };
+struct dev_pm_info { bool runtime_auto; atomic_t usage_count; spinlock_t lock; bool is_suspended; int runtime_status; };
+struct dev_pm_domain { struct dev_pm_ops ops; };
+struct bus_type { const char *name; void (*shutdown)(struct device *d); };
 struct class;
 struct device {
     struct device *parent;
@@ -54,6 +56,7 @@ struct device {
     void (*release)(struct device *d);
     bool dma_skip_sync;
     void *iommu_group;
+    struct dev_pm_domain *pm_domain;
 };
 static inline void *dev_get_drvdata(const struct device *d) { return d->driver_data; }
 static inline void dev_set_drvdata(struct device *d, void *p) { d->driver_data = p; }
@@ -229,7 +232,7 @@ typedef unsigned int pci_channel_state_t;
 #define pci_channel_io_normal 1
 #define pci_channel_io_frozen 2
 #define pci_channel_io_perm_failure 3
-struct pci_bus { unsigned char number; struct pci_bus *parent; struct pci_dev *self; int domain_nr; struct list_head devices; };
+struct pci_bus { unsigned char number; struct pci_bus *parent; struct pci_dev *self; int domain_nr; struct list_head devices; struct device *bridge; };
 struct pci_driver;
 struct pci_dev {
     struct list_head bus_list;
@@ -430,8 +433,8 @@ u64 dma_get_required_mask(struct device *d);
 #define dma_sync_single_for_device(d, a, s, dir) do { } while (0)
 #define dma_sync_sg_for_cpu(d, s, n, dir) do { } while (0)
 #define dma_sync_sg_for_device(d, s, n, dir) do { } while (0)
-struct dma_map_ops { void *(*alloc)(struct device *d, size_t s, dma_addr_t *h, gfp_t g, unsigned long a); int lkpi_unused; };
-struct pci_host_bridge { struct device dev; struct pci_bus *bus; int domain_nr; };
+struct dma_map_ops { void *(*alloc)(struct device *d, size_t s, dma_addr_t *h, gfp_t g, unsigned long a); dma_addr_t (*map_phys)(struct device *d, phys_addr_t p, size_t s, int dir, unsigned long a); };
+struct pci_host_bridge { struct device dev; struct pci_bus *bus; int domain_nr; unsigned int preserve_config : 1; };
 struct pci_host_bridge *pci_find_host_bridge(struct pci_bus *b);
 const struct dma_map_ops *get_dma_ops(struct device *d);
 bool use_dma_iommu(struct device *d);

@@ -62,7 +62,8 @@ typedef unsigned int __poll_t;
 #define EPOLLRDNORM POLLRDNORM
 
 struct super_block;
-struct address_space { struct inode *host; void *private_data; struct rw_semaphore i_mmap_rwsem; };
+struct address_space_operations;
+struct address_space { struct inode *host; void *private_data; struct rw_semaphore i_mmap_rwsem; const struct address_space_operations *a_ops; };
 struct inode {
     umode_t i_mode;
     dev_t i_rdev;
@@ -130,7 +131,7 @@ struct file *shmem_kernel_file_setup(const char *name, loff_t size, unsigned lon
 void address_space_init_once(struct address_space *m);
 
 /* character devices */
-struct cdev { struct kobject kobj; const struct file_operations *ops; dev_t dev; unsigned int count; struct list_head list; };
+struct cdev { struct kobject kobj; void *owner; const struct file_operations *ops; dev_t dev; unsigned int count; struct list_head list; };
 void cdev_init(struct cdev *c, const struct file_operations *fops);
 struct cdev *cdev_alloc(void);
 int cdev_add(struct cdev *c, dev_t dev, unsigned int count);
@@ -165,7 +166,7 @@ void __unregister_chrdev(unsigned int major, unsigned int first, unsigned int co
 #define _IOC_DIR(n) (((n) >> _IOC_DIRSHIFT) & 3)
 
 /* /proc and seq_file (the driver's /proc/driver/nvidia: kept small, read by nvidia-smi only for details) */
-struct seq_file { char *buf; size_t size, count; void *private; const void *op; };
+struct seq_file { char *buf; size_t size, count; void *private; const void *op; struct file *file; };
 struct proc_dir_entry;
 struct proc_ops {
     int (*proc_open)(struct inode *i, struct file *f);

@@ -23,7 +23,9 @@
 
 struct mm_struct;
 struct pid;
-struct cred { uid_t uid, euid; gid_t gid, egid; };
+typedef struct { uid_t val; } kuid_t;
+typedef struct { gid_t val; } kgid_t;
+struct cred { kuid_t uid, euid; kgid_t gid, egid; };
 struct signal_struct;
 struct task_struct {
     volatile long state;
@@ -35,6 +37,7 @@ struct task_struct {
     struct task_struct *group_leader;
     void *stack;      /* (its kernel stack: only compared, never read through) */
     void *fs;
+    void *files;
     spinlock_t alloc_lock;
     void *lkpi_thread; /* our kernel's thread */
 };
