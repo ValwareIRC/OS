@@ -83,6 +83,8 @@ static void thread_free(struct thread *t) {
         fpu_free(t->user->fpu);
         kfree(t->user);
     }
+    if (t->kpi && kpi_thread_gone)
+        kpi_thread_gone(t->kpi);
     kfree(t->kstack);
     kfree(t);
 }
@@ -197,6 +199,8 @@ void sched_each_kthread(void (*fn)(struct thread *t, void *arg), void *arg) {
         fn(t, arg);
     spin_unlock_irqrestore(&rq_lock, f);
 }
+
+void (*kpi_thread_gone)(void *kpi);
 
 struct thread *thread_create_ex(const char *name, void (*entry)(void *), void *arg, uint64_t reserve,
                                 struct user_thread *user) {

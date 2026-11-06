@@ -22,7 +22,9 @@ struct thread {
     char name[32];
     uint64_t ticks;           /* timer ticks it was running at (kernel threads: perfwatch tells them apart) */
     struct thread *next_kthread;
+    void *kpi; /* the Linux-shaped layer's view of it (linuxkpi: its task_struct), freed by kpi_thread_gone */
 };
+extern void (*kpi_thread_gone)(void *kpi);
 
 /* The kernel's own threads (no user part), for perfwatch: `fn` for each. */
 void sched_each_kthread(void (*fn)(struct thread *t, void *arg), void *arg);

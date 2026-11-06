@@ -1,7 +1,7 @@
 #pragma once
 /* kernel/linuxkpi: the core of the Linux-shaped layer NVIDIA's open driver compiles against (docs/nvidia/plan.md).
  * Written here from what the driver uses, with Linux's names and meanings; the functions are implemented on our
- * kernel's own (kernel/linuxkpi/*.c). Linux's many small headers (linux/types.h, linux/list.h, linux/mutex.h...)
+ * kernel's own (the files of kernel/linuxkpi/src). Linux's many small headers (linux/types.h, linux/list.h, linux/mutex.h...)
  * each include this, so a file gets the same view whichever it names. */
 #include <stdarg.h>
 #include <stdbool.h>

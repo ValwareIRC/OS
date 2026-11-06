@@ -119,6 +119,7 @@ struct file *fget(unsigned int fd);
 void fput(struct file *f);
 int get_unused_fd_flags(unsigned int flags);
 void put_unused_fd(unsigned int fd);
+#define fd_install lkpi_fd_install
 void fd_install(unsigned int fd, struct file *f);
 int close_fd(unsigned int fd);
 struct file *anon_inode_getfile(const char *name, const struct file_operations *fops, void *priv, int flags);

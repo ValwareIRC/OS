@@ -7,6 +7,7 @@
 #define VEC_TIMER    0x20
 #define VEC_RESCHED  0x21
 #define VEC_TLB      0x22
+#define VEC_CALL     0x23
 #define VEC_SPURIOUS 0xff
 
 /* Device IRQ numbers generic drivers use, which on x86 are vectors too. */
@@ -25,6 +26,8 @@ void lapic_init_cpu(void);  /* every CPU: enable local APIC + periodic timer */
 void lapic_eoi(void);
 uint32_t lapic_id(void);
 void lapic_send_ipi(uint32_t apic_id, uint8_t vector);
+/* runs fn(arg) on every online CPU (this one too, with interrupts off) and returns when all have */
+void smp_call_all(void (*fn)(void *), void *arg);
 void ioapic_route(uint32_t gsi, uint8_t vector, uint32_t dest_apic, bool level, bool active_low);
 uint32_t irq_to_gsi(uint8_t isa_irq, bool *level, bool *active_low);
 

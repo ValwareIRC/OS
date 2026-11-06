@@ -102,7 +102,8 @@ bool kthread_should_stop(void);
 void kthread_bind(struct task_struct *t, unsigned int cpu);
 
 /* time */
-extern volatile unsigned long jiffies;
+unsigned long lkpi_jiffies(void); /* (read from the clock: nothing has to tick it) */
+#define jiffies lkpi_jiffies()
 u64 get_jiffies_64(void);
 static inline unsigned long msecs_to_jiffies(unsigned int m) { return m; }
 static inline unsigned long usecs_to_jiffies(unsigned int u) { return (u + 999) / 1000; }

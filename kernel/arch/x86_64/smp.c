@@ -135,6 +135,55 @@ void tlb_shootdown(struct mm *mm) {
     irq_restore(f);
 }
 
+/* ---- running a function on every CPU ----
+ * One call at a time (call_lock); each target runs it from its IPI and clears its flag. A CPU waiting for the lock
+ * or for the others answers calls aimed at it meanwhile, so two callers never wait on each other. */
+
+static volatile int call_lock;
+static void (*volatile call_fn)(void *);
+static void *volatile call_arg;
+static volatile int call_pending[MAX_CPUS];
+
+static void call_service(void) {
+    uint32_t me = this_cpu()->id;
+    if (__atomic_load_n(&call_pending[me], __ATOMIC_ACQUIRE)) {
+        call_fn(call_arg);
+        __atomic_store_n(&call_pending[me], 0, __ATOMIC_RELEASE);
+    }
+}
+
+static void call_irq(struct regs *r) {
+    (void)r;
+    lapic_eoi();
+    call_service();
+}
+
+void smp_call_all(void (*fn)(void *), void *arg) {
+    uint64_t f = irq_save();
+    while (__atomic_exchange_n(&call_lock, 1, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile("pause");
+        call_service();
+        tlb_service();
+    }
+    struct cpu *self = this_cpu();
+    call_fn = fn, call_arg = arg;
+    for (uint32_t i = 0; i < cpu_count; i++) {
+        struct cpu *c = cpus[i];
+        if (!c || c == self || !c->online)
+            continue;
+        __atomic_store_n(&call_pending[i], 1, __ATOMIC_SEQ_CST);
+        lapic_send_ipi(c->arch.lapic_id, VEC_CALL);
+    }
+    fn(arg);
+    for (uint32_t i = 0; i < cpu_count; i++)
+        while (__atomic_load_n(&call_pending[i], __ATOMIC_ACQUIRE)) {
+            __asm__ volatile("pause");
+            tlb_service();
+        }
+    __atomic_store_n(&call_lock, 0, __ATOMIC_RELEASE);
+    irq_restore(f);
+}
+
 /* Each application processor arrives here on a small bootloader stack, which
  * becomes its idle thread's stack. */
 static void ap_entry(struct limine_mp_info *info) {
@@ -160,6 +209,7 @@ void smp_init(void) {
     idt_set_handler(VEC_TIMER, timer_irq);
     idt_set_handler(VEC_RESCHED, resched_irq);
     idt_set_handler(VEC_TLB, tlb_irq);
+    idt_set_handler(VEC_CALL, call_irq);
     lapic_init_cpu(); /* BSP tick */
     this_cpu()->online = true; /* local APIC ready: may send and receive IPIs */
 

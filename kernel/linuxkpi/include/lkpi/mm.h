@@ -52,6 +52,12 @@ typedef struct { u64 pgprot; } pgprot_t; /* (a page's attributes in a mapping: s
 #define GFP_KERNEL_ACCOUNT (GFP_KERNEL | __GFP_ACCOUNT)
 #define gfpflags_allow_blocking(g) (((g) & __GFP_DIRECT_RECLAIM) != 0)
 
+/* (our kernel has its own kmalloc, kzalloc and copy_to/from_user with other shapes: the layer's are renamed, so
+ * the two never meet; NVIDIA's code calls these through the macros) */
+#define kmalloc lkpi_kmalloc
+#define kzalloc lkpi_kzalloc
+#define copy_from_user lkpi_copy_from_user
+#define copy_to_user lkpi_copy_to_user
 void *kmalloc(size_t size, gfp_t gfp);
 void *kzalloc(size_t size, gfp_t gfp);
 void *kcalloc(size_t n, size_t size, gfp_t gfp);
