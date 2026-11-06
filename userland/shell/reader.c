@@ -111,7 +111,8 @@ static uint64_t said_at;
 static void say(const char *text) {
     if (!text || !*text)
         return;
-    snprintf(last_said, sizeof last_said, "%s", text);
+    if (text != last_said) /* ("say it again" says it from here) */
+        snprintf(last_said, sizeof last_said, "%s", text);
     said_at = A.now;
     voice_read(text);
     LOG("reader: \"%.200s\"\n", text);
