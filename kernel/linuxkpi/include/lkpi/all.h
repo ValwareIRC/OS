@@ -4,3 +4,5 @@
 #include <lkpi/core.h>
 #include <lkpi/sched.h>
 #include <lkpi/mm.h>
+#include <lkpi/errno.h>
+#include <lkpi/device.h>
