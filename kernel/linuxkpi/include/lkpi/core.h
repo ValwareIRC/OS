@@ -511,6 +511,8 @@ void wake_up_interruptible_all(wait_queue_head_t *q);
 bool waitqueue_active(wait_queue_head_t *q);
 /* (the conditions are looked at again each time it is woken, and at least every few milliseconds) */
 long lkpi_wait_event(wait_queue_head_t *q, bool (*cond)(void *), void *arg, bool interruptible, long timeout);
+void lkpi_waitqueue_add(wait_queue_head_t *q, struct wait_queue_entry *e);    /* (the layer's own: poll) */
+void lkpi_waitqueue_remove(wait_queue_head_t *q, struct wait_queue_entry *e);
 #define __lkpi_wait(q, condition, intr, timeout) ({                                                  \
         long __left = (timeout);                                                                    \
         while (!(condition)) {                                                                      \

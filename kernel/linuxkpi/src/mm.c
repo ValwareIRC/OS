@@ -795,11 +795,26 @@ void follow_pfnmap_end(struct follow_pfnmap_args *a) {}
 
 /* ---- copying to and from programs ---- */
 
+/* A kernel buffer is taken for a program's only during a read or write of a device through our kernel (fs.c marks
+ * those): never otherwise, so a pointer a program put in an ioctl never reaches the kernel's memory. */
+#define PF_LKPI_KBUF 0x80000000u
+#define KERNEL_HALF 0xffff800000000000ULL
+
+static bool kernel_buffer(u64 p) { return p >= KERNEL_HALF && (current->flags & PF_LKPI_KBUF); }
+
 unsigned long lkpi_copy_from_user(void *to, const void __user *from, unsigned long n) {
+    if (kernel_buffer((u64)from)) {
+        memcpy(to, (const void *)from, n);
+        return 0;
+    }
     return kpi_host_copy_from_user(to, (u64)from, n) ? 0 : n;
 }
 
 unsigned long lkpi_copy_to_user(void __user *to, const void *from, unsigned long n) {
+    if (kernel_buffer((u64)to)) {
+        memcpy((void *)to, from, n);
+        return 0;
+    }
     return kpi_host_copy_to_user((u64)to, from, n) ? 0 : n;
 }
 

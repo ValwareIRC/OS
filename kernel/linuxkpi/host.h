@@ -90,6 +90,33 @@ void kpi_host_dev_zap(kpi_host_mm *mm, uint64_t va, uint64_t len);
 int kpi_host_dev_lookup(kpi_host_mm *mm, uint64_t va, uint64_t *phys, bool *writable);
 int kpi_host_pin(kpi_host_mm *mm, uint64_t va, bool write, uint64_t *phys); /* held until kpi_host_page_unref */
 
+/* the layer's character devices, as nodes in /dev, and files */
+typedef struct kpi_host_file kpi_host_file;
+struct kpi_host_chr_ops {
+    int (*open)(unsigned major, unsigned minor, unsigned flags, kpi_host_file *hf, void **rec); /* rec: the layer's */
+    void (*close)(void *rec);                                   /* the file's last reference went */
+    long (*ioctl)(void *rec, unsigned int cmd, unsigned long arg); /* (arg: as the program gave it) */
+    long (*read)(void *rec, void *kbuf, size_t n, uint64_t off);   /* (a kernel buffer) */
+    long (*write)(void *rec, const void *kbuf, size_t n, uint64_t off);
+    int (*poll)(void *rec);                                     /* POLL* bits now (kpi_host_poll_wake: again) */
+    int (*mmap)(void *rec, uint64_t addr, uint64_t len, int prot, uint64_t off); /* (a VMA_DEV range, reserved) */
+};
+void kpi_host_chr_init(const struct kpi_host_chr_ops *ops);
+int kpi_host_chr_node(const char *path, unsigned major, unsigned minor); /* (its directories made too) */
+void kpi_host_poll_wake(kpi_host_file *hf);
+void kpi_host_file_get(kpi_host_file *hf);
+void kpi_host_file_put(kpi_host_file *hf);
+void *kpi_host_file_rec(kpi_host_file *hf); /* the layer's record, when the file is one of its devices' */
+kpi_host_file *kpi_host_fget(int fd);       /* referenced; NULL when not open */
+int kpi_host_fd_reserve(bool cloexec);      /* a descriptor kept (by a placeholder) for kpi_host_fd_set */
+void kpi_host_fd_set(int fd, kpi_host_file *hf); /* (it takes its own reference) */
+int kpi_host_fd_close(int fd);
+bool kpi_host_fd_next(int *fd, kpi_host_file **hf); /* the next of the layer's files open in the program, from *fd */
+kpi_host_file *kpi_host_kopen(const char *path, unsigned flags, unsigned mode, int *err);
+long kpi_host_kread(kpi_host_file *hf, void *buf, size_t n, uint64_t off);
+long kpi_host_kwrite(kpi_host_file *hf, const void *buf, size_t n, uint64_t off);
+uint64_t kpi_host_file_size(kpi_host_file *hf);
+
 /* PCI */
 int kpi_host_pci_count(void);
 bool kpi_host_pci_info(int i, uint16_t *vendor, uint16_t *device, uint32_t *class_rev, uint8_t *bus, uint8_t *dev, uint8_t *fn,
