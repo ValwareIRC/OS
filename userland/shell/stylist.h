@@ -44,6 +44,7 @@ char *stylist_expand_base(const char *reply);
 extern bool stylist_quiet;
 /* The starter themes, for the design prompt. */
 void stylist_theme_menu(sbuf *b);
+void stylist_theme_names(char *out, size_t len); /* every starter design, by name */
 
 /* In the design job: lint, look, critique, repair. Returns the best whole
  * document (malloc'd), or NULL to keep the reply as it is. */

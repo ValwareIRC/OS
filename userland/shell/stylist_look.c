@@ -342,14 +342,38 @@ char *stylist_expand_base(const char *reply) {
 
 static int by_name(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 
+/* The starter designs' names, sorted, separated by spaces (the companion's instructions name them all). */
+void stylist_theme_names(char *out, size_t len) {
+    out[0] = 0;
+    DIR *dir = opendir(themes_dir());
+    if (!dir)
+        return;
+    char *names[128];
+    int n = 0;
+    struct dirent *de;
+    while ((de = readdir(dir)) && n < 128) {
+        size_t l = strlen(de->d_name);
+        if (l > 4 && !strcmp(de->d_name + l - 4, ".xml"))
+            names[n++] = strndup(de->d_name, l - 4);
+    }
+    closedir(dir);
+    qsort(names, (size_t)n, sizeof names[0], by_name);
+    size_t o = 0;
+    for (int i = 0; i < n; i++) {
+        if (o < len)
+            o += (size_t)snprintf(out + o, len - o, "%s%s", i ? " " : "", names[i]);
+        free(names[i]);
+    }
+}
+
 void stylist_theme_menu(sbuf *b) {
     DIR *dir = opendir(themes_dir());
     if (!dir)
         return;
-    char *names[24];
+    char *names[128]; /* (every theme there is: a fixed 24 left ten of the 34 unseen) */
     int n = 0;
     struct dirent *de;
-    while ((de = readdir(dir)) && n < 24) {
+    while ((de = readdir(dir)) && n < 128) {
         size_t l = strlen(de->d_name);
         if (l > 4 && !strcmp(de->d_name + l - 4, ".xml"))
             names[n++] = strndup(de->d_name, l - 4);

@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <kernel/spinlock.h>
 
-/* Virtual file system. Every file system (ramfs now; osfs, FAT32 and
- * ext4 later) exposes vnodes with these operations. Errors are returned as
+/* Virtual file system. Every file system (ramfs, ext2 with its journal on the disk, procfs, sysfs, pipes, memfd)
+ * exposes vnodes with these operations. Errors are returned as
  * negative Linux errno values so system calls can pass them straight up. */
 
 /* VN_ANON: eventfd, epoll, timerfd and signalfd objects, which live in no

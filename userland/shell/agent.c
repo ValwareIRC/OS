@@ -117,7 +117,10 @@ const char *body_prompt(void) {
            "you changed; " STATE_DIR "/mind.json  your mind's provider\n"
            "  /var/lib/os-data/  the disk: models/, flatpak/ (installed apps), Videos/\n"
            "  /tmp/os-shell.log  your own log (what the shell is doing, errors); /tmp/os-mind.log, /tmp/os-reflex.log\n"
-           "  ~ is /root, their home: Documents, Downloads, Pictures, Music, Videos, Apps\n"
+    );
+    /* (their home is /home/<their name> now: it said /root, from before, and it looked for their files there) */
+    sb_printf(&b, "  ~ is %s, their home: Documents, Downloads, Pictures, Music, Videos, Apps\n", HOME);
+    sb_add(&b,
            "\nHOW YOU MOVE. Put tags in your reply; they run, what they return comes back to you, and you go on, "
            "step after step, until the job is done (up to 40 steps for one request): never stop halfway to ask "
            "whether to continue, never tell them to do something you can do. Several tags in one reply run in "
@@ -1107,7 +1110,8 @@ const char *agent_doing(void) { return doing; }
 
 static const char *const body_tags[] = {"sh", "ls", "cat", "find", "grep", "mv", "cp", "rm", "mkdir", "fetch", "see",
                                         "windows", "window", "ps", "sys", "kill", "clip", "install", "uninstall",
-                                        "in", "at", "every", "agenda", "forget", "wallpaper", "run", NULL};
+                                        "in", "at", "every", "agenda", "forget", "wallpaper", NULL};
+/* ([[run:]] isn't one: it waits for their yes on screen, as actions.c says. Taken here as [[sh:]], it ran at once.) */
 
 static bool is_body_tag(const char *name) {
     for (int i = 0; body_tags[i]; i++)
@@ -1181,8 +1185,6 @@ static bool agent_take_now(struct conversation *c, bool from_person) {
             continue;
         }
         n_tools++;
-        if (!strcmp(name, "run"))
-            snprintf(name, sizeof name, "sh");
         { /* a child's computer: the grown-up's limits on it (family.c) */
             static const char *const strict[] = {"sh", "mv", "cp", "rm", "kill", "fetch", "install", "uninstall", NULL};
             const char *why = NULL;

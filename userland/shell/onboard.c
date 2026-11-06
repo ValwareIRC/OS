@@ -23,7 +23,7 @@
 #include <unistd.h>
 
 /* First boot. These screens exist before any AI is connected, so they are
- * the only ones the OS draws in its own plain style: dark, warm, quiet. From
+ * the only ones the OS draws in its own plain style: light, soft, quiet. From
  * the conversation onward, everything the person sees is shaped by the AI. */
 
 #define PRE_BG RGBA(247, 246, 255, 255)

@@ -59,9 +59,10 @@ static bool secret_name(const char *key) {
  * Kept choices
  * ==================================================================== */
 
+#define KV_MAX 256 /* (48 before: past that a new choice was dropped without a word) */
 static struct {
     char key[32], val[96];
-} kv[48];
+} kv[KV_MAX];
 static int nkv;
 static bool kv_loaded;
 
@@ -74,7 +75,7 @@ static void kv_load(void) {
     for (int pass = 0; pass < 2; pass++) {
         FILE *f = fopen(pass ? SECRETS : CONF, "r");
         char line[160];
-        while (f && fgets(line, sizeof line, f) && nkv < 48) {
+        while (f && fgets(line, sizeof line, f) && nkv < KV_MAX) {
             line[strcspn(line, "\r\n")] = 0;
             char *eq = strchr(line, '=');
             if (!eq || line[0] == '#')
@@ -132,8 +133,10 @@ void settings_set(const char *key, const char *value) {
     while (i < nkv && strcmp(kv[i].key, key))
         i++;
     if (i == nkv) {
-        if (nkv == 48)
+        if (nkv == KV_MAX) { /* (never quietly: a choice that isn't kept says so) */
+            LOG("settings: no room to keep %s (%d kept)\n", key, KV_MAX);
             return;
+        }
         nkv++;
         snprintf(kv[i].key, sizeof kv[i].key, "%s", key);
     } else if (!strcmp(kv[i].val, value)) {

@@ -121,8 +121,10 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
       network or cloud one; or Claude through this PC's Claude Code sign-in (the launcher)
 - [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face, voice
       and memory, with the person's consent and without ever seeing their keys
-- [ ] Next: the graphics card driven by the OS itself (`docs/gpu.md`), NVMe, USB, more network cards and Wi-Fi,
-      installing to the disk and updates; what still feels unfinished is listed in `docs/toy-audit.md`
+- [x] Real-computer hardware, first part: USB (the xHCI controller, hubs, keyboards, mice, tablets, sticks), NVMe
+      SSDs, Realtek RTL8111/8168 and RTL8125 network chips, and the kernel's log sent to another computer (`netlog`)
+- [ ] Next: NVIDIA's graphics cards for the AI (`docs/nvidia/plan.md`), laptop touchpads, Intel network chips and
+      Wi-Fi, installing to the disk beside Windows, and updates; what still feels unfinished is in `docs/toy-audit.md`
 
 ## The experience (userland/shell)
 
@@ -164,15 +166,20 @@ takes 5 GB).
   its CD, an empty disk on SATA/AHCI or virtio so it remembers you (32 GB, sparse), and an Intel PRO/1000 (e1000)
   network adapter. `make run` starts it in QEMU.
 - **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD mode, balenaEtcher, `dd`), or copy its
-  files onto a FAT32 stick for UEFI. Turn off Secure Boot. It only ever writes to a disk that is blank or already
-  its own; any other drive is left untouched. Hardware support is still narrow (e1000, AHCI and virtio disks, Intel
-  HD Audio, PS/2 keyboard and mouse): no NVMe, USB, other network cards or Wi-Fi yet, and the graphics card isn't
-  used.
+  files onto a FAT32 stick for UEFI. Turn off Secure Boot (if Windows uses BitLocker, have its recovery key to
+  hand first: changing Secure Boot can make Windows ask for it). On a real computer it only ever writes to a disk
+  already marked as its own (a blank one too, but only in a virtual machine); every other drive, including the
+  Windows disk and the stick it started from, is read-only to it. Hardware: USB keyboards, mice and sticks, PS/2,
+  NVMe, SATA (AHCI) and virtio disks, Intel e1000/82574 and Realtek RTL8111/8168/8125 network chips, Intel HD
+  Audio. Not yet: Wi-Fi, laptop touchpads (most are I2C), Intel's newer network chips, and the graphics card is
+  only used for its firmware's picture. To see what it does as it starts, add `cmdline: verbose netlog` under
+  "/Operating System" in `boot/limine/limine.conf` on the stick: `verbose` shows its log on its screen, and
+  `netlog` sends it to `scripts/netlog.ps1` on another computer on the same network.
 
 The first screen asks for a mind: the model that comes with the system (works offline), a bigger one downloaded
 onto this computer, a model on your network (Ollama, LM Studio), or a cloud provider with your key. To start
-already connected on a real PC, add `cmdline: os.provider=... os.key=...` to `boot/limine/limine.conf` (an example
-is in that file).
+already connected on a real PC, add `cmdline: os.provider=... os.key=...` to `boot/limine/limine.conf` on the
+stick (an example is in that file; in this repository it is `boot/limine.conf`).
 
 `tests/` holds how it is checked: `tests/selftest_win.py` (the kernel and userland self-tests), and the
 `*_vm_win.py` tests, which boot it in Windows QEMU and use it as a person would (keys and clicks through QEMU's

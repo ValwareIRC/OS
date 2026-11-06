@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-// Follows build/os-vm-serial.log (written by QEMU when the OS.cmd runs) and
+// Follows build/os-vm-serial.log (written by QEMU when "Operating System.cmd" runs) and
 // sorts every line into a kind, so a boot can be watched without grep.
 
 const MAX_LINES = 3000
@@ -18,7 +18,7 @@ const KINDS = [
   ['error', /\bpanic\b|page fault|\bexception\b|ai-error|sent no text|empty reply|ui problem|design markup|\bfailed\b|\berror\b/i],
   ['timeout', /timed? ?out|timeout/i],
   ['ai', /^shell: (ai |mind |design|ui command|ui action)|^ai: /],
-  ['screen', /^shell: screen |OS BOOT OK|the OS kernel starting|net: eth0|boot parameters|preloaded/],
+  ['screen', /^shell: screen |OS BOOT OK|(Operating System|Lumen) kernel starting|net: eth0|boot parameters|preloaded/],
 ]
 
 function kindOf(text) {
@@ -43,7 +43,7 @@ function newBoot() {
 function addLine(raw) {
   const text = raw.replace(/\r$/, '')
   if (!text.trim()) return
-  if (/^the OS kernel starting/.test(text) && current().lines.length > 5) newBoot()
+  if (/^(Operating System|Lumen) kernel starting/.test(text) && current().lines.length > 5) newBoot()
   const line = { t: Date.now(), kind: kindOf(text), text }
   const b = current()
   b.lines.push(line)

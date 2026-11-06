@@ -366,6 +366,9 @@ static const char *companion_system(void) {
     fm_doc *seen = preview_doc() ? preview_doc() : A.ui;
     char *tree = seen ? fm_describe(seen) : NULL;
     char portrait[6000], whys[3000];
+    static char themes[2000]; /* (read from the themes folder: a list written here went out of date) */
+    if (!themes[0])
+        stylist_theme_names(themes, sizeof themes);
     portrait_text(&A.prof, portrait, sizeof portrait);
     collect_whys(whys, sizeof whys);
     snprintf(buf, sizeof buf,
@@ -414,9 +417,7 @@ static const char *companion_system(void) {
              "you something else, take it warmly and end with [[name:The New Name]]; it changes everywhere. Their own name "
              "is theirs too: when they tell you what to call them, or the name on their desktop is wrong, end with "
              "[[user:Their Name]]. "
-             "Starter designs come with the system: aqua aquarium arcade bento beos blueprint brutalist calm codec "
-             "commander corkboard crt cube frost fsn gears hud luna matrix metro neon notebook orrery paper platinum "
-             "progman radar shelf sky starlit subway swiss tiling workbench (starlit: a cosy, soft night made only of light and colour; codec: a Metal Gear codec call, their companion's "
+             "Starter designs come with the system: %s (starlit: a cosy, soft night made only of light and colour; codec: a Metal Gear codec call, their companion's "
              "face on the right, the conversation along the bottom). When they ask for one by name, end with "
              "[[theme:name]]: it is applied at once, with their names kept.\n"
              "Your own past replies show your words without their tags; what each tag did is written in a note "
@@ -440,7 +441,7 @@ static const char *companion_system(void) {
              "from Flathub through the launcher, and apps like Prism run here.%s%s%s%s%s%s",
              D.ai_name, D.user_name[0] ? D.user_name : "the person", A.prof.autonomy[0] ? A.prof.autonomy : "ask first",
              A.prof.redesign[0] ? A.prof.redesign : "only when asked", persona_companion_prompt(), portrait[0] ? portrait : "(nothing yet)\n",
-             whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", preview_prompt(), alive_prompt(),
+             whys[0] ? whys : "(not recorded)\n", tree ? tree : "(not shown)", themes, preview_prompt(), alive_prompt(),
              presence_prompt(), facet_prompt(), voice_prompt(),
              !strncasecmp(A.cfg.model, "qwen3", 5) ? "\n/no_think" : "");
     if (strlen(buf) >= sizeof buf - 1) /* (the tags are explained at the end: cut short, it can't use them) */

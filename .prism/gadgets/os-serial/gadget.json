@@ -1,11 +1,11 @@
 {
   "id": "os-serial",
-  "name": "the OS VM serial log",
-  "description": "Follows the the OS VM's serial log live, sorted into AI calls, errors, timeouts and screens, with one section per boot.",
+  "name": "OS VM serial log",
+  "description": "Follows the OS VM's serial log live, sorted into AI calls, errors, timeouts and screens, with one section per boot.",
   "backend": "backend.mjs",
-  "agent": "Use when diagnosing a the OS boot: serial_summary for what happened this boot, serial_tail for filtered lines, serial_wait to wait for a line (e.g. an AI reply) instead of sleeping.",
+  "agent": "Use when diagnosing an OS boot: serial_summary for what happened this boot, serial_tail for filtered lines, serial_wait to wait for a line (e.g. an AI reply) instead of sleeping.",
   "widget": {
-    "title": "the OS boot",
+    "title": "OS boot",
     "ratio": 0.9,
     "actions": [
       { "label": "Restart the OS", "call": "restart" },

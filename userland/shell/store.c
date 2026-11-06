@@ -27,7 +27,8 @@
  * bytes. Disks written before owners were kept ("LMN1": no owner, no group)
  * still come back: the person's files theirs, the system's state root's. */
 
-#define HDR_MAGIC "LUMENSTORE1"
+#define HDR_MAGIC "LUMENSTORE1" /* (the system's first working name, kept: every disk it has written says it, and the
+                                  * kernel knows its own disk by it, kernel/drivers/blkdev.c) */
 #define SLOT0 (1u << 20)       /* 1 MiB */
 #define SLOT_SIZE (128u << 20) /* 128 MiB each */
 #define MAX_FILE (32u << 20)   /* bigger files aren't kept (yet) */

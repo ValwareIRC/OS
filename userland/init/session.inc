@@ -2,7 +2,7 @@
  * root are done here, at its request, through a private channel no app can reach.
  *
  * Before the desktop starts, what is theirs becomes theirs: the screen, keyboard, pointer, sound and clipboard
- * devices (the seat), their home (/root), the system state the desktop keeps for them (/etc/os, 0700: their AI
+ * devices (the seat), their home (/home/<their account name>), the system state the desktop keeps for them (/etc/os, 0700: their AI
  * keys, the companion's memory, app grants), and their models and recordings on the disk. What was kept on the
  * disk is put back first, as root (the raw disk is never theirs: it would bypass every permission on it).
  *

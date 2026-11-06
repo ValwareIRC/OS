@@ -228,7 +228,7 @@ static bool disk_is_ours(struct blkdev *d) {
     for (uint64_t off = 0; ours && off < 65536; off += OURS_BUF) {
         if (blkdev_read(d, buf, OURS_BUF, off) != (int64_t)OURS_BUF) {
             ours = false;
-        } else if (off == 0 && !memcmp(buf, "LUMENSTORE1", 11)) {
+        } else if (off == 0 && !memcmp(buf, "LUMENSTORE1", 11)) { /* (store.c's header: the first working name, kept) */
             break;
         } else if (!arch_virtual_machine()) {
             ours = false;
