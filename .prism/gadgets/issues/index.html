@@ -39,6 +39,36 @@
   .status.resolved { background: color-mix(in srgb, var(--mint, #7c9) 30%, transparent) }
   .empty { padding: 30px 16px; text-align: center; opacity: .6 }
   select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid color-mix(in srgb, var(--text) 15%, transparent); border-radius: 6px; padding: 4px; max-width: 100% }
+  /* the second opinion */
+  .rev-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent) }
+  .rev-bar select { flex: 1 1 160px; min-width: 0 }
+  .badge { font-size: 10px; padding: 1px 7px; border-radius: 8px; white-space: nowrap; flex: none }
+  .badge.run { background: color-mix(in srgb, var(--accent) 30%, transparent); animation: breathe 1.6s ease-in-out infinite }
+  .badge.ok { background: color-mix(in srgb, var(--mint, #7c9) 30%, transparent) }
+  .badge.warn { background: color-mix(in srgb, var(--amber, #d9a) 35%, transparent) }
+  .rcard { position: relative; overflow: hidden; border-radius: 10px; padding: 10px 12px; margin: 10px 0;
+           background: color-mix(in srgb, var(--accent) 9%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent) }
+  .rcard.ok { background: color-mix(in srgb, var(--mint, #7c9) 10%, transparent); border-color: color-mix(in srgb, var(--mint, #7c9) 35%, transparent) }
+  .rcard.warn { background: color-mix(in srgb, var(--amber, #d9a) 10%, transparent); border-color: color-mix(in srgb, var(--amber, #d9a) 40%, transparent) }
+  .rcard.fail { background: color-mix(in srgb, var(--rose, #d77) 10%, transparent); border-color: color-mix(in srgb, var(--rose, #d77) 35%, transparent) }
+  .rcard .rtop { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; min-width: 0 }
+  .rcard .rwho { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .rcard .rwhere { font-size: 11px; opacity: .65 }
+  .rcard .rgrow { flex: 1 }
+  .rcard .rtime { font-size: 11px; opacity: .65; font-variant-numeric: tabular-nums }
+  .rsteps { display: flex; gap: 4px; margin: 10px 0 6px; flex-wrap: wrap }
+  .rstep { flex: 1 1 90px; font-size: 11px; padding: 4px 6px; border-radius: 6px; opacity: .45; background: color-mix(in srgb, var(--text) 5%, transparent); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .rstep.done { opacity: .75 }
+  .rstep.now { opacity: 1; background: color-mix(in srgb, var(--accent) 22%, transparent) }
+  .rdoing { font-size: 12px; opacity: .85; min-height: 1.3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .rstream { font-size: 12px; opacity: .7; max-height: 5.6em; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px;
+             -webkit-mask-image: linear-gradient(to bottom, transparent, #000 35%) }
+  .rcard .rline { position: absolute; left: 0; bottom: 0; height: 2px; width: 35%; background: var(--accent); opacity: .7; animation: sweep 1.8s ease-in-out infinite }
+  .rlist { margin: 6px 0 0; padding-left: 16px; font-size: 12px }
+  .rlist li { margin: 2px 0; overflow-wrap: anywhere }
+  @keyframes sweep { 0% { transform: translateX(-100%) } 100% { transform: translateX(290%) } }
+  @keyframes breathe { 0%, 100% { opacity: .55 } 50% { opacity: 1 } }
+  @media (prefers-reduced-motion: reduce) { .rcard .rline, .badge.run { animation: none } .rcard .rline { display: none } }
 </style>
 </head>
 <body>
@@ -64,6 +94,87 @@ function hookRefs(el) {
 }
 const when = (iso) => iso ? ago(Date.parse(iso)) : ''
 
+// ---- the second opinion ----
+let reviewing = {}, modelInfo = { available: false, models: [] }, reviewerKey = '', cardEl = null, cardFor = 0
+async function loadReviewState() {
+  try {
+    modelInfo = await prism.call('models')
+    reviewerKey = (await prism.call('reviewer')).key
+    for (const r of await prism.call('reviews')) reviewing[r.id] = r
+  } catch (e) { modelInfo = { available: false, models: [] } }
+}
+function reviewerLabel() {
+  const m = modelInfo.models.find((x) => x.key === reviewerKey)
+  return m ? m.label : reviewerKey ? reviewerKey.split('::').pop() : ''
+}
+function reviewBar() {
+  if (!modelInfo.available)
+    return h('div', { class: 'rev-bar dim' }, 'Second opinion: needs Prism 0.24.42 or later (restart Prism to update).')
+  const local = modelInfo.models.filter((m) => m.local), remote = modelInfo.models.filter((m) => !m.local)
+  const opt = (m) => h('option', { value: m.key, ...(m.key === reviewerKey ? { selected: 'selected' } : {}) }, `${m.label} (${m.provider})`)
+  const sel = h('select', { title: 'Which of your models reviews each fix' },
+    h('option', { value: '' }, 'Off'),
+    local.length ? h('optgroup', { label: 'On this PC' }, ...local.map(opt)) : '',
+    remote.length ? h('optgroup', { label: 'Online' }, ...remote.map(opt)) : '')
+  sel.onchange = async () => { reviewerKey = (await prism.call('setReviewer', { key: sel.value })).key; window.kit.toast(reviewerKey ? `Fixes will be reviewed by ${reviewerLabel()}` : 'No second opinion') }
+  return h('div', { class: 'rev-bar' }, h('span', {}, 'Second opinion'), sel)
+}
+const STEPS = [['handed', 'Handed the fix'], ['reading', 'Reading the change'], ['writing', 'Writing its review']]
+// a review's text in its parts: the verdict, what it looked at, its points
+function sections(t) {
+  const part = (name) => { const m = new RegExp(name + ':\\s*\\n([\\s\\S]*?)(?=\\n[A-Z ]+:\\s*\\n|$)', 'i').exec(t || ''); return m ? m[1].split('\n').map((l) => l.replace(/^\s*[-*]\s*/, '').trim()).filter(Boolean) : [] }
+  const v = /VERDICT:\s*(looks right|concerns)/i.exec(t || '')
+  return { verdict: v ? v[1].toLowerCase() : '', looked: part('LOOKED AT'), points: part('POINTS') }
+}
+function listOf(items) {
+  const ul = h('ul', { class: 'rlist' })
+  for (const it of items) { const li = h('li', {}); li.innerHTML = md(it).replace(/^<p>|<\/p>$/g, ''); hookRefs(li); ul.appendChild(li) }
+  return ul
+}
+function renderCard(r) {
+  if (!cardEl) return
+  if (!r) { cardEl.replaceChildren(); return }
+  const secs = Math.max(0, Math.round((Date.now() - r.started) / 1000))
+  const time = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`
+  const where = r.local ? 'on this PC' : 'online'
+  if (!r.done) {
+    const now = STEPS.findIndex(([k]) => k === r.stage)
+    const steps = STEPS.map(([k, l], n) => h('div', { class: 'rstep' + (n < now ? ' done' : n === now ? ' now' : ''), title: l }, l))
+    const stop = h('button', {}, 'Stop')
+    stop.onclick = () => prism.call('cancelReview', { id: r.id })
+    const kids = [h('div', { class: 'rtop' }, h('span', { class: 'rwho' }, `Reviewing: ${r.label}`), h('span', { class: 'rwhere' }, where), h('span', { class: 'rgrow' }), h('span', { class: 'rtime' }, time), stop),
+      h('div', { class: 'rsteps' }, ...steps), h('div', { class: 'rdoing', title: r.doing }, r.doing || '')]
+    if (r.text) kids.push(h('div', { class: 'rstream' }, r.text.slice(-600)))
+    kids.push(h('div', { class: 'rline' }))
+    cardEl.replaceChildren(h('div', { class: 'rcard' }, ...kids))
+    return
+  }
+  if (r.stage === 'failed') {
+    cardEl.replaceChildren(h('div', { class: 'rcard fail' }, h('div', { class: 'rtop' }, h('span', { class: 'rwho' }, `${r.label} couldn't review it`), h('span', { class: 'rgrow' }), h('span', { class: 'rtime' }, time)),
+      h('div', { class: 'rdoing' }, r.error || '')))
+    return
+  }
+  cardEl.replaceChildren(reviewCard(r.label, where, r.text, time))
+}
+function reviewCard(label, where, text, time) {
+  const s = sections(text), concerns = s.verdict === 'concerns'
+  const kids = [h('div', { class: 'rtop' }, h('span', { class: 'rwho' }, `Reviewed by ${label}`), where ? h('span', { class: 'rwhere' }, where) : '', h('span', { class: 'rgrow' }),
+    h('span', { class: 'badge ' + (concerns ? 'warn' : 'ok') }, concerns ? 'concerns' : 'looks right'), time ? h('span', { class: 'rtime' }, time) : '')]
+  if (s.looked.length) kids.push(h('div', { class: 'section', style: 'margin-top:8px' }, 'What it looked at'), listOf(s.looked))
+  if (s.points.length) kids.push(h('div', { class: 'section', style: 'margin-top:8px' }, 'Its points'), listOf(s.points))
+  if (!s.looked.length && !s.points.length) { const t = h('div', { class: 'text', style: 'font-size:12px' }); t.innerHTML = md(text); hookRefs(t); kids.push(t) }
+  return h('div', { class: 'rcard ' + (concerns ? 'warn' : 'ok') }, ...kids)
+}
+prism.on('review', (r) => {
+  reviewing[r.id] = r
+  if (open === r.id) renderCard(r)
+  else if (!open) { /* the list: its "reviewing" badge put on or taken off */
+    const shown = !!document.querySelector(`[data-issue="${r.id}"] .badge.run`)
+    if (shown !== !r.done) showList()
+  }
+})
+setInterval(() => { const r = open && reviewing[open]; if (r && !r.done) renderCard(r) }, 1000) /* (its clock) */
+
 async function load() {
   all = await prism.call('list', { status: tab, label, q })
   labelList = await prism.call('labels')
@@ -80,12 +191,14 @@ function showList() {
   add.onclick = showNew
   const chips = labelList.map((l) => { const b = h('button', { class: 'chip' + (label === l ? ' on' : '') }, l); b.onclick = () => { label = label === l ? '' : l; load() }; return b })
   const items = all.length ? all.map((i) => {
-    const it = h('div', { class: 'item' }, h('span', { class: 'num' }, '#' + i.id), h('span', { class: 'ttl', title: i.title }, i.title),
+    const r = reviewing[i.id]
+    const it = h('div', { class: 'item', 'data-issue': String(i.id) }, h('span', { class: 'num' }, '#' + i.id), h('span', { class: 'ttl', title: i.title }, i.title),
+      r && !r.done ? h('span', { class: 'badge run' }, 'reviewing') : '',
       ...i.labels.slice(0, 3).map((l) => h('span', { class: 'lab' }, l)), h('span', { class: 'meta' }, i.status === 'resolved' ? 'resolved ' + when(i.resolved) : when(i.created)))
     it.onclick = () => showIssue(i.id)
     return it
   }) : [h('div', { class: 'empty' }, q || label ? 'Nothing matches.' : tab === 'open' ? 'No open issues.' : 'None yet.')]
-  mount(v, h('div', { class: 'bar' }, ...tabs, search, add), h('div', { class: 'chips' }, ...chips), ...items)
+  mount(v, h('div', { class: 'bar' }, ...tabs, search, add), reviewBar(), h('div', { class: 'chips' }, ...chips), ...items)
 }
 
 function showNew() {
@@ -110,7 +223,14 @@ async function showIssue(id) {
   const back = h('button', {}, '← All issues')
   back.onclick = () => { open = null; load() }
   const body = h('div', { class: 'text' }); body.innerHTML = md(i.text) || '<p class="dim">No description.</p>'; hookRefs(body)
-  const notes = i.notes.map((n) => { const t = h('div', { class: 'text' }); t.innerHTML = md(n.text); hookRefs(t); return h('div', { class: 'note' }, h('div', { class: 'who' }, `${n.by} · ${when(n.when)}`), t) })
+  const notes = i.notes.map((n) => {
+    if (/^Review by /.test(n.by)) /* a second opinion: shown as its card */
+      return h('div', {}, reviewCard(n.by.replace(/^Review by /, ''), '', n.text, when(n.when)))
+    const t = h('div', { class: 'text' }); t.innerHTML = md(n.text); hookRefs(t); return h('div', { class: 'note' }, h('div', { class: 'who' }, `${n.by} · ${when(n.when)}`), t)
+  })
+  cardEl = h('div', {})
+  cardFor = id
+  const live = reviewing[id]
   const noteBox = h('textarea', { placeholder: 'Add a note' })
   const addNote = h('button', {}, 'Add note')
   addNote.onclick = async () => { if (!noteBox.value.trim()) return; await prism.call('note', { id, text: noteBox.value, by: 'Valerie' }); showIssue(id) }
@@ -127,7 +247,12 @@ async function showIssue(id) {
   } else {
     const re = h('button', {}, 'Reopen')
     re.onclick = async () => { await prism.call('reopen', { id, text: noteBox.value, by: 'Valerie' }); showIssue(id) }
-    act = h('div', { class: 'row' }, re)
+    const ask = h('button', {}, reviewerKey ? `Review this fix (${reviewerLabel()})` : 'Review this fix')
+    ask.onclick = async () => {
+      if (!reviewerKey) { window.kit.toast('Choose a model under "Second opinion" first (in the list of issues).'); return }
+      try { await prism.call('review', { id }) } catch (e) { window.kit.toast(String(e.message || e)) }
+    }
+    act = h('div', { class: 'row' }, re, modelInfo.available && (i.fixed_by || i.commits.length) && !(live && !live.done) ? ask : '')
   }
   const commits = i.commits.map((c) => h('div', { class: 'commit' }, h('span', { class: 'h' }, c.hash), h('span', { class: 'w', title: c.what }, (c.fixed ? 'fixed it: ' : '') + c.what)))
   const hist = i.history.map((c) => h('div', { class: 'commit' }, h('span', { class: 'h' }, when(c.when)), h('span', { class: 'w', title: c.what }, `${c.what} (${c.by})`)))
@@ -136,15 +261,19 @@ async function showIssue(id) {
     h('div', {}, h('span', { class: 'num' }, '#' + i.id + ' '), h('span', { class: 'status ' + i.status }, i.status === 'open' ? 'open' : 'resolved'), ...i.labels.map((l) => h('span', { class: 'lab' }, l))),
     h('h2', {}, i.title),
     h('div', { class: 'dim', style: 'font-size:11px' }, `filed by ${i.by || 'someone'} ${when(i.created)}`),
+    cardEl,
     body,
     i.notes.length ? h('div', { class: 'section' }, 'Notes') : '', ...notes,
     h('div', { class: 'section' }, 'Add to it'), noteBox, h('div', { class: 'row' }, addNote), act,
     h('div', { class: 'section' }, 'Labels'), h('div', { class: 'row' }, labs, saveLabs),
     commits.length ? h('div', { class: 'section' }, 'Commits') : '', ...commits,
     h('div', { class: 'section' }, 'History'), ...hist))
+  /* a review going on now (or just ended, before its note is read back) shows at the top */
+  if (live && (!live.done || live.stage === 'failed')) renderCard(live)
 }
 
-prism.ready(load)
+prism.ready(async () => { await loadReviewState(); load() })
+prism.on('models', async () => { await loadReviewState(); if (!open) showList() })
 prism.on('changed', () => load())
 </script>
 </body>

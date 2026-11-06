@@ -178,6 +178,8 @@ async function resolve({ id, commit: hash, text, by }) {
   if (text && text.trim()) i.notes.push({ when: now(), by: by || 'Valerie', text })
   await save(i, `Issue ${id} resolved${i.fixed_by ? ' by ' + i.fixed_by : ''}`, by || 'Valerie')
   changed(i.id)
+  if (i.fixed_by && (await reviewer())) /* a second opinion on the fix, if one was chosen */
+    review({ id: i.id }).catch((e) => apiRef && apiRef.log('review not started: ' + (e.message || e)))
   return i
 }
 
@@ -196,7 +198,8 @@ async function details({ id }) {
   const i = await find(id)
   const h = await git(['log', '--format=%h\t%an\t%aI\t%s', '--', i.file])
   const history = h.out.trim() ? h.out.trim().split('\n').map((l) => { const [hash, by, when, what] = l.split('\t'); return { hash, by, when, what } }) : []
-  const c = await git(['log', '-i', '-E', `--grep=issue #?${i.id}\b`, '--format=%h\t%aI\t%s', '-20'], ROOT)
+  /* (the number, then anything but a digit: "\b" in a template string is a backspace, and nothing matched: issue 12) */
+  const c = await git(['log', '-i', '-E', `--grep=issue #?${i.id}([^0-9]|$)`, '--format=%h\t%aI\t%s', '-20'], ROOT)
   const commits = c.out.trim() ? c.out.trim().split('\n').map((l) => { const [hash, when, what] = l.split('\t'); return { hash, when, what } }) : []
   if (i.fixed_by) {
     const f = await git(['log', '-1', '--format=%h\t%aI\t%s', i.fixed_by], ROOT)
@@ -221,6 +224,119 @@ async function labels() {
   return [...s].sort()
 }
 
+// ---- a second opinion: one of the person's own models reviews a fix ----
+// Chosen in the panel (Second opinion: off, or a model); it runs when an issue is resolved with a commit, or when
+// asked (the panel's "Review this fix", the agent's issue_review). The model is given the issue, its notes and the
+// commit's changes, and (if it can use tools) the project to read; how it goes is shown live (api.emit 'review'),
+// and its review becomes a note on the issue, with a label when it has concerns.
+
+let apiRef = null
+const reviews = new Map() // issue id -> { id, model, label, local, stage, doing, text, started, done, verdict, error, runId }
+
+async function models() {
+  if (!apiRef || !apiRef.models) return { available: false, models: [] }
+  try {
+    return { available: true, models: await apiRef.models.list() }
+  } catch (e) {
+    return { available: false, models: [], error: String(e.message || e) }
+  }
+}
+
+async function reviewer() {
+  return apiRef ? apiRef.state.get('reviewer', '') : ''
+}
+
+async function setReviewer({ key }) {
+  await apiRef.state.set('reviewer', key || '')
+  apiRef.emit('reviewer', { key: key || '' })
+  return { key: key || '' }
+}
+
+function publish(r) {
+  apiRef.emit('review', { ...r })
+}
+
+function verdictOf(t) {
+  const m = /VERDICT:\s*(looks right|concerns)/i.exec(t || '')
+  return m ? m[1].toLowerCase() : /concern/i.test(t || '') ? 'concerns' : 'looks right'
+}
+
+async function review({ id, model: wanted }) {
+  if (!apiRef.models) throw new Error('This needs Prism 0.24.42 or later (restart Prism to update).')
+  const key = wanted || (await reviewer())
+  if (!key) throw new Error('No reviewer chosen: pick one under "Second opinion".')
+  const busy = reviews.get(Number(id))
+  if (busy && !busy.done) return { started: false, reason: 'A review of it is already going.' }
+  const i = await details({ id })
+  const fix = i.fixed_by || (i.commits[0] && i.commits[0].hash)
+  if (!fix) throw new Error(`Issue ${id} has no fix to review yet (no commit).`)
+  const list = (await apiRef.models.list()).find((m) => m.key === key)
+  const label = list ? list.label : key.split('::').pop()
+  const diff = await git(['show', '--stat', '--patch', '--format=commit %H%nAuthor: %an%nDate: %aI%n%n%B', fix], ROOT)
+  let changes = diff.out
+  if (changes.length > 60000) changes = changes.slice(0, 60000) + '\n...(the rest of the change is cut off here; read the files themselves)'
+  const notes = i.notes.map((n) => `- ${n.by}: ${n.text}`).join('\n')
+  const instructions = `You are a careful second reviewer of a bug fix in a project (an operating system: its kernel in C, its
+desktop and tools). Someone else wrote the fix. Your job is to check it, honestly and specifically.
+
+THE ISSUE (#${i.id}): ${i.title}
+${i.text}
+${notes ? '\nNOTES ON IT:\n' + notes + '\n' : ''}
+THE FIX (commit ${fix}):
+${changes}
+
+Check: does this really fix the problem described? Could it break anything else (other callers, other cases, error
+paths, threads, memory)? Was anything missed (another place with the same bug, a test, a comment now wrong)?
+${list && list.tools ? 'You may read and search the project to check (read only). Look at the code around the change.' : 'You only have what is above.'}
+
+Answer in plain words, in exactly this shape:
+VERDICT: looks right   (or)   VERDICT: concerns
+LOOKED AT:
+- path/to/file.c:123 - what you checked there
+POINTS:
+- each finding: what, where (file:line), and why it matters. If it looks right, say what convinced you.
+Be brief and concrete. Do not repeat the change back.`
+  const r = { id: Number(id), model: key, label, local: !!(list && list.local), stage: 'handed', doing: 'Given the issue, its notes and the change', text: '', started: Date.now(), done: false, verdict: '', error: '', commit: fix }
+  reviews.set(r.id, r)
+  publish(r)
+  const p = apiRef.models.run({ model: key, instructions, workspace: list && list.tools ? 'read' : 'none' }, (ev) => {
+    if (ev.type === 'started') { r.stage = 'reading'; r.doing = 'Reading the change' }
+    else if (ev.type === 'doing') { r.stage = 'reading'; r.doing = ev.text }
+    else if (ev.type === 'text') { r.stage = 'writing'; r.doing = 'Writing its review'; r.text += ev.text }
+    else if (ev.type === 'done') { r.text = ev.text || r.text }
+    else if (ev.type === 'failed') { r.error = ev.error }
+    publish(r)
+  })
+  r.runId = p.runId
+  p.then(async (res) => {
+    r.done = true
+    if (!res.ok && !r.text) {
+      r.error = res.error || r.error || 'It gave no answer.'
+      r.stage = 'failed'
+      publish(r)
+      return
+    }
+    r.text = res.text || r.text
+    r.verdict = verdictOf(r.text)
+    r.stage = 'done'
+    publish(r)
+    const issue = await find(id)
+    issue.notes.push({ when: now(), by: `Review by ${label}`, text: r.text.trim() })
+    const tag = 'review: concerns'
+    issue.labels = issue.labels.filter((l) => l !== tag)
+    if (r.verdict === 'concerns') issue.labels.push(tag)
+    await save(issue, `Issue ${id}: reviewed by ${label} (${r.verdict})`, `Review by ${label}`)
+    changed(issue.id)
+  }).catch((e) => { r.done = true; r.stage = 'failed'; r.error = String(e.message || e); publish(r) })
+  return { started: true, model: key, label }
+}
+
+async function cancelReview({ id }) {
+  const r = reviews.get(Number(id))
+  if (r && !r.done && r.runId && apiRef.models) await apiRef.models.cancel(r.runId)
+  return { ok: true }
+}
+
 const text = (o) => JSON.stringify(o, null, 2)
 
 export default {
@@ -228,7 +344,9 @@ export default {
     ROOT = api.root
     DIR = path.join(ROOT, '.prism', 'issues')
     emitter = api
+    apiRef = api
     await ensure()
+    if (api.models && api.models.onChanged) api.models.onChanged(() => api.emit('models', {}))
   },
   async stop() {},
   handlers: {
@@ -240,7 +358,13 @@ export default {
     resolve: (a) => resolve(a),
     reopen: (a) => reopen(a),
     recentCommits: () => recentCommits(),
-    labels: () => labels()
+    labels: () => labels(),
+    models: () => models(),
+    reviewer: async () => ({ key: await reviewer() }),
+    setReviewer: (a) => setReviewer(a),
+    review: (a) => review(a),
+    cancelReview: (a) => cancelReview(a),
+    reviews: () => [...reviews.values()]
   },
   tools: [
     { name: 'issue_list', description: 'The project\'s issues (local only): status open, resolved or all; optional label and search words.',
@@ -258,6 +382,9 @@ export default {
     { name: 'issue_resolve', description: 'Mark an issue resolved, with the project commit that fixed it (its hash) and a short note.',
       parameters: { type: 'object', properties: { id: { type: 'number' }, commit: { type: 'string' }, text: { type: 'string' }, by: { type: 'string' } }, required: ['id'] },
       async execute(a) { const i = await resolve({ by: 'Claude', ...a }); return `Issue ${i.id} resolved${i.fixed_by ? ' by ' + i.fixed_by : ''}.` } },
+    { name: 'issue_review', description: 'Have the second-opinion model (chosen in the panel) review the fix of an issue now. Its review arrives as a note on the issue, with the label "review: concerns" if it has any: answer each concern in a note (fix it, or say why it is fine).',
+      parameters: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] },
+      async execute(a) { const r = await review(a); return r.started ? `Reviewing issue ${a.id}'s fix with ${r.label}: its review will be a note on the issue.` : r.reason } },
     { name: 'issue_reopen', description: 'Open a resolved issue again, saying why.',
       parameters: { type: 'object', properties: { id: { type: 'number' }, text: { type: 'string' }, by: { type: 'string' } }, required: ['id'] },
       async execute(a) { await reopen({ by: 'Claude', ...a }); return `Issue ${a.id} is open again.` } }
