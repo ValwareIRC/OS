@@ -24,6 +24,11 @@ void pci_write16(const struct pci_dev *d, uint8_t off, uint16_t v) {
 }
 
 static void probe_bars(struct pci_dev *d) {
+    /* Its decoding off while its windows are measured: writing all-ones to a window moves it over the whole
+     * address space for a moment, which with decoding on lands it on top of RAM and other devices (under Windows'
+     * hypervisor a 64-bit one made QEMU stop; on a real computer it can catch someone else's accesses). */
+    uint32_t cmd = pci_read32(d, 0x04);
+    pci_write32(d, 0x04, cmd & 0xfffcu);
     for (int i = 0; i < 6; i++) {
         uint8_t off = (uint8_t)(0x10 + i * 4);
         uint32_t orig = pci_read32(d, off);
@@ -53,6 +58,7 @@ static void probe_bars(struct pci_dev *d) {
         if (is64)
             i++; /* the next slot holds the high half */
     }
+    pci_write32(d, 0x04, cmd & 0xffffu); /* (as it was; the status half's bits are cleared by writing 1: left 0) */
 }
 
 static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {

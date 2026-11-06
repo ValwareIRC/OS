@@ -11,10 +11,11 @@ W, H = 1600, 900
 class Vm:
     def __init__(self, out, replies, alive="proactive=0\n", design=None, qport=4474, aiport=8918, model="fake",
                  design_path=None, disk=None, mind=None, memory="12G",
-                 facet=True):
+                 facet=True, extra=None):
         """disk: a disk image used in snapshot mode (never written); mind: the mind.json to hand over (default:
         tests/fake_ai.py on aiport)."""
         self.out, self.qport, self.aiport, self.disk, self.memory = out, qport, aiport, disk, memory
+        self.extra = extra or []  # more QEMU arguments (devices to test: USB, NVMe)
         self.facet = facet  # False: no design handed over (the one saved on the disk is used)
         self.script = os.path.join(out, "replies.json")
         json.dump(replies, open(self.script, "w"))
@@ -83,6 +84,7 @@ class Vm:
             qargs += ["-drive", "id=disk0,file=" + self.disk.replace(os.sep, "/").replace(",", ",,") +
                       ",format=raw,if=none" + ("" if os.environ.get("DISK_RW") else ",snapshot=on"),
                       "-device", "ide-hd,drive=disk0,bus=ide.0"]
+        qargs += self.extra
         self.qemu = subprocess.Popen(qargs, stdout=subprocess.DEVNULL,
                                      stderr=open(os.path.join(self.out, "qemu.err"), "w"))
         for _ in range(100):

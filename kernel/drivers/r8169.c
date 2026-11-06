@@ -159,20 +159,20 @@ static void bring_up(struct pci_dev *pd) {
     }
     for (int i = 0; i < 6; i++) /* its address, as the firmware loaded it */
         r->nif.mac[i] = mmio_read8(r->mmio + REG_MAC0 + i);
-    uint64_t rx_phys, tx_phys;
+    uint64_t rx_phys = 0, tx_phys = 0;
     r->rx = dma(sizeof(struct desc) * NRX, &rx_phys);
     r->tx = dma(sizeof(struct desc) * NTX, &tx_phys);
     if (!r->rx || !r->tx)
         return;
     for (int i = 0; i < NRX; i++) {
-        uint64_t p;
+        uint64_t p = 0;
         if (!(r->rx_buf[i] = dma(BUF, &p)))
             return;
         r->rx[i].addr = p;
         r->rx[i].opts1 = DESC_OWN | (i == NRX - 1 ? DESC_EOR : 0) | BUF;
     }
     for (int i = 0; i < NTX; i++) {
-        uint64_t p;
+        uint64_t p = 0;
         if (!(r->tx_buf[i] = dma(BUF, &p)))
             return;
         r->tx[i].addr = p;

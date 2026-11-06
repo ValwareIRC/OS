@@ -221,20 +221,24 @@ int blkdev_register(struct blkdev *d) {
 /* Starting with the save slots' header (userland/shell/store.c), or, in a virtual machine only, blank in its first
  * 64 KiB (a new virtual disk). On a real computer a blank disk is never taken: it may be one someone just wiped,
  * or one they mean for something else; this system writes only to a disk already marked as its own. */
+#define OURS_BUF 4096
 static bool disk_is_ours(struct blkdev *d) {
-    static uint8_t buf[4096];
-    for (uint64_t off = 0; off < 65536; off += sizeof buf) {
-        if (blkdev_read(d, buf, sizeof buf, off) != (int64_t)sizeof buf)
-            return false;
-        if (off == 0 && !memcmp(buf, "LUMENSTORE1", 11))
-            return true;
-        if (!arch_virtual_machine())
-            return false;
-        for (size_t i = 0; i < sizeof buf; i++)
-            if (buf[i])
-                return false;
+    uint8_t *buf = kmalloc(OURS_BUF); /* (its own: a USB stick is looked at by its thread while the start looks too) */
+    bool ours = buf != NULL;
+    for (uint64_t off = 0; ours && off < 65536; off += OURS_BUF) {
+        if (blkdev_read(d, buf, OURS_BUF, off) != (int64_t)OURS_BUF) {
+            ours = false;
+        } else if (off == 0 && !memcmp(buf, "LUMENSTORE1", 11)) {
+            break;
+        } else if (!arch_virtual_machine()) {
+            ours = false;
+        } else {
+            for (size_t i = 0; i < OURS_BUF && ours; i++)
+                ours = !buf[i];
+        }
     }
-    return true;
+    kfree(buf);
+    return ours;
 }
 
 /* A disk found after the start (a USB stick plugged in): registered read-only by its driver, then made writable

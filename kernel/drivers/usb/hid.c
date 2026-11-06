@@ -85,6 +85,7 @@ struct hid {
     int nkeys;
     uint8_t buttons;
     bool pointer, keyboard;
+    bool heard; /* its first report logged (only that one came: never what it said) */
     struct usb_endpoint ep;
 };
 
@@ -216,9 +217,12 @@ static uint16_t key_of(uint16_t page, uint32_t usage) {
 }
 
 static void report(struct usb_device *d, void *arg, const uint8_t *data, int len) {
-    (void)d;
     struct hid *h = arg;
     uint8_t id = 0;
+    if (!h->heard) {
+        h->heard = true;
+        kprintf("usb: %s: its first input came\n", d->name);
+    }
     if (h->ids && len > 0) {
         id = data[0];
         data++, len--;
