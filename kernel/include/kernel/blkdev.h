@@ -49,5 +49,7 @@ struct blkdev *blkdev_add_part(struct blkdev *parent, uint64_t first, uint64_t s
 /* Probes the storage controllers on the PCI bus (after pci_init). */
 void storage_init(void);
 int blkdev_count(void); /* whole disks found (partitions not counted) */
+/* A disk found later (USB): register it read-only, then this makes it writable only if it is this system's. */
+void blkdev_claim_if_ours(struct blkdev *d);
 void ahci_init(void);
 void virtio_blk_init(void);

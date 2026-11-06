@@ -10,6 +10,7 @@
 #include <kernel/platform.h>
 #include <kernel/proc.h>
 #include <kernel/sched.h>
+#include <kernel/usb.h>
 #include <kernel/vfs.h>
 
 /* ---- Limine requests (placed in their own section, see linker.ld) ---- */
@@ -593,6 +594,7 @@ static void init_main(void *arg) {
     pci_init(); /* before input_init, since we find virtio input devices on PCI */
     fbdev_init();
     input_init();
+    usb_init(); /* drivers/usb: keyboards, mice, sticks (its own thread: nothing waits for it) */
     struct limine_file *initrd = find_module("initrd.cpio");
     if (!initrd) {
         kprintf("no initrd module: kernel-only boot\n");

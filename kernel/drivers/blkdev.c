@@ -237,6 +237,14 @@ static bool disk_is_ours(struct blkdev *d) {
     return true;
 }
 
+/* A disk found after the start (a USB stick plugged in): registered read-only by its driver, then made writable
+ * only if it is this system's. */
+void blkdev_claim_if_ours(struct blkdev *d) {
+    bool ours = disk_is_ours(d); /* (read while it is still read-only: nothing can be written meanwhile) */
+    d->readonly = !ours;
+    kprintf("storage: %s (%s): %s\n", d->name, d->model, ours ? "this system's disk" : "not this system's: left untouched, read-only");
+}
+
 int blkdev_count(void) {
     int n = 0;
     for (struct blkdev *d = disks; d; d = d->next)
