@@ -133,6 +133,7 @@ uint64_t vmm_unmap_page(uint64_t *pml4, uint64_t virt); /* (4 KiB mappings; TLBs
  * tables and device registers outside the memory map). Pages already mapped
  * are left alone. `uncached` selects strong-uncacheable for device MMIO. */
 void vmm_map_mmio(uint64_t phys, uint64_t len, bool uncached);
+void *vmm_ioremap(uint64_t phys, uint64_t len); /* uncached, at an address of its own; kept for good */
 
 /* Kernel heap. */
 void heap_init(void);

@@ -18,6 +18,9 @@ struct pci_dev *pci_get(int index);
 struct pci_dev *pci_find(uint16_t vendor, uint16_t device);
 uint32_t pci_read32(const struct pci_dev *d, uint8_t off);
 void pci_write32(const struct pci_dev *d, uint8_t off, uint32_t v);
+/* anywhere in the 4 KiB of PCIe config space (past 256: all ones where there is no extended space) */
+uint32_t pci_cfg_read32(const struct pci_dev *d, uint16_t off);
+void pci_cfg_write32(const struct pci_dev *d, uint16_t off, uint32_t v);
 uint16_t pci_read16(const struct pci_dev *d, uint8_t off);
 void pci_write16(const struct pci_dev *d, uint8_t off, uint16_t v);
 /* Enables memory/I-O decoding and bus mastering (DMA). */

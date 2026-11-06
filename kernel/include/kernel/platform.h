@@ -18,8 +18,9 @@ int64_t platform_rtc_read(void);
 void platform_reboot(void);
 void platform_poweroff(void);
 void platform_test_exit(uint8_t code);
-uint32_t platform_pci_cfg_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off);
-void platform_pci_cfg_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off, uint32_t v);
+/* (off: 0..4095; past 255 is PCIe's extended space, which reads as all ones where there is none) */
+uint32_t platform_pci_cfg_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off);
+void platform_pci_cfg_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v);
 /* Legacy PCI I/O BAR access, `size` bytes (1, 2 or 4) at `port`. */
 uint32_t platform_pci_io_read(uint16_t port, unsigned size);
 void platform_pci_io_write(uint16_t port, unsigned size, uint32_t v);

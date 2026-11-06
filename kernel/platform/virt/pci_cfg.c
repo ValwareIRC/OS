@@ -8,17 +8,17 @@
  * space is memory, mapped the first time we touch it. PCI I/O space is a
  * memory window too. */
 
-static volatile uint32_t *cfg(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off) {
+static volatile uint32_t *cfg(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
     uint64_t phys = VIRT_PCIE_ECAM | (uint64_t)bus << 20 | (uint64_t)dev << 15 | (uint64_t)fn << 12;
     vmm_map_mmio(phys, 0x1000, true);
-    return phys_to_virt(phys + (off & 0xfc));
+    return phys_to_virt(phys + (off & 0xffc));
 }
 
-uint32_t platform_pci_cfg_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off) {
+uint32_t platform_pci_cfg_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off) {
     return mmio_read32(cfg(bus, dev, fn, off));
 }
 
-void platform_pci_cfg_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off, uint32_t v) {
+void platform_pci_cfg_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint16_t off, uint32_t v) {
     mmio_write32(cfg(bus, dev, fn, off), v);
 }
 

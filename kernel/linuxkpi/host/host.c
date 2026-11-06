@@ -118,22 +118,24 @@ uint32_t kpi_host_pci_read(int i, int off, int width) {
     struct pci_dev *d = pci_get(i);
     if (!d)
         return ~0u;
-    uint32_t v = pci_read32(d, (uint8_t)(off & ~3));
+    if (off < 0 || off >= 4096)
+        return ~0u;
+    uint32_t v = pci_cfg_read32(d, (uint16_t)(off & ~3));
     v >>= (off & 3) * 8;
     return width == 4 ? v : width == 2 ? (v & 0xffff) : (v & 0xff);
 }
 void kpi_host_pci_write(int i, int off, int width, uint32_t v) {
     struct pci_dev *d = pci_get(i);
-    if (!d)
+    if (!d || off < 0 || off >= 4096)
         return;
     if (width == 4) {
-        pci_write32(d, (uint8_t)off, v);
+        pci_cfg_write32(d, (uint16_t)off, v);
         return;
     }
-    uint32_t w = pci_read32(d, (uint8_t)(off & ~3));
+    uint32_t w = pci_cfg_read32(d, (uint16_t)(off & ~3));
     int shift = (off & 3) * 8;
     uint32_t mask = (width == 2 ? 0xffffu : 0xffu) << shift;
-    pci_write32(d, (uint8_t)(off & ~3), (w & ~mask) | ((v << shift) & mask));
+    pci_cfg_write32(d, (uint16_t)(off & ~3), (w & ~mask) | ((v << shift) & mask));
 }
 void kpi_host_pci_enable(int i) {
     struct pci_dev *d = pci_get(i);

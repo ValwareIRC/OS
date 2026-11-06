@@ -11,6 +11,8 @@ static int ndevs;
 
 uint32_t pci_read32(const struct pci_dev *d, uint8_t off) { return platform_pci_cfg_read32(d->bus, d->dev, d->fn, off); }
 void pci_write32(const struct pci_dev *d, uint8_t off, uint32_t v) { platform_pci_cfg_write32(d->bus, d->dev, d->fn, off, v); }
+uint32_t pci_cfg_read32(const struct pci_dev *d, uint16_t off) { return platform_pci_cfg_read32(d->bus, d->dev, d->fn, off); }
+void pci_cfg_write32(const struct pci_dev *d, uint16_t off, uint32_t v) { platform_pci_cfg_write32(d->bus, d->dev, d->fn, off, v); }
 
 uint16_t pci_read16(const struct pci_dev *d, uint8_t off) {
     return (uint16_t)(pci_read32(d, off & ~3) >> ((off & 2) * 8));

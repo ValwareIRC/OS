@@ -106,6 +106,23 @@ void vmm_map_mmio(uint64_t phys, uint64_t len, bool uncached) {
     spin_unlock_irqrestore(&kernel_map_lock, f);
 }
 
+/* Device memory at addresses of its own, uncached (the direct map may hold the same range cached: reserved memory
+ * is direct-mapped on x86). Never unmapped: for small windows kept for good (config space). */
+#define IOREMAP_BASE 0xffffc80000000000ULL
+static uint64_t ioremap_next = IOREMAP_BASE;
+
+void *vmm_ioremap(uint64_t phys, uint64_t len) {
+    uint64_t base = ALIGN_DOWN(phys, PAGE_SIZE), pages = (ALIGN_UP(phys + len, PAGE_SIZE) - base) / PAGE_SIZE;
+    uint64_t f = spin_lock_irqsave(&kernel_map_lock);
+    uint64_t v = ioremap_next;
+    ioremap_next += (pages + 1) * PAGE_SIZE; /* (and a guard page) */
+    for (uint64_t i = 0; i < pages; i++)
+        if (!vmm_map(kernel_pml4, v + i * PAGE_SIZE, base + i * PAGE_SIZE, PG_WRITE | PG_GLOBAL | PG_UNCACHED))
+            panic("vmm: cannot map device page %lx", base + i * PAGE_SIZE);
+    spin_unlock_irqrestore(&kernel_map_lock, f);
+    return (void *)(v + (phys - base));
+}
+
 static void map_kernel_range(uint64_t phys_base, uint64_t virt_base, char *start, char *end, uint64_t flags) {
     for (uint64_t v = ALIGN_DOWN((uint64_t)start, PAGE_SIZE); v < (uint64_t)end; v += PAGE_SIZE)
         if (!vmm_map(kernel_pml4, v, v - virt_base + phys_base, flags | PG_GLOBAL))
