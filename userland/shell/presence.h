@@ -18,7 +18,9 @@ int presence_fds(int *fds, int max);
  * light is drawn instead) */
 bool presence_draw_home(canvas *c, rect r, bool active);
 /* its own frame in a corner, when the design has no orb big enough */
-void presence_draw_corner(canvas *c);
+/* pointer_free: nothing is in front of the desktop under the pointer (no window, no menu): only then may it be
+ * taken hold of (a drag already going keeps on over windows). */
+void presence_draw_corner(canvas *c, bool pointer_free);
 /* its portrait in a design's <avatar>: shape circle|rect, tint none|codec */
 bool presence_draw_avatar(canvas *c, rect r, bool active, const char *shape, const char *tint, const char *shot);
 /* runs and removes its body's tags in a reply: [[act:...]] [[mood:...]] [[figure:...]] */

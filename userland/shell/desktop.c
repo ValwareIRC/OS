@@ -3535,7 +3535,7 @@ void desktop_draw(void) {
             }
         }
     }
-    presence_draw_corner(A.frame); /* its face, when the design has nowhere for it */
+    presence_draw_corner(A.frame, top < 0 && !over_ui); /* its face, when the design has nowhere for it */
     input_state saved = A.in;
     int focused = focused_window();
     for (int i = 0; i < n; i++) {

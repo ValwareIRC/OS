@@ -542,7 +542,7 @@ static struct {
     int px, py;          /* the press */
 } H;
 
-void presence_draw_corner(canvas *c) {
+void presence_draw_corner(canvas *c, bool pointer_free) {
     if ((P.mode == PRESENCE_LIGHT && !model_mode()) || P.pid < 0 || !P.ready || A.now - orb_home_at < 400)
         return;
     rect pl;
@@ -564,7 +564,9 @@ void presence_draw_corner(canvas *c) {
     /* taken hold of: dragged about; a click without moving opens the conversation */
     float cx = r.x + side * 0.5f, cy = r.y + side * 0.5f;
     float dx = A.in.mx - cx, dy = A.in.my - cy;
-    bool over = dx * dx + dy * dy <= side * side * 0.25f;
+    /* (only where nothing is in front of it: it is drawn under the windows, and a press meant for a browser over
+     * it took it, brought it forward and kept the window's own buttons from being pressed) */
+    bool over = pointer_free && dx * dx + dy * dy <= side * side * 0.25f;
     if (A.in.pressed && over && !H.dragging) {
         H.dragging = true, H.moved = false;
         H.gx = A.in.mx - r.x, H.gy = A.in.my - r.y, H.px = A.in.mx, H.py = A.in.my;
