@@ -206,7 +206,7 @@ static struct medium_file base_file;
 
 static bool unpack_from_medium(const char *path, uint64_t size, const void *index, uint64_t index_len,
                                bool *lazily) {
-    if (!medium_find(path, size, &base_file)) {
+    if (!medium_find_wait(path, size, &base_file, 20000)) {
         kprintf("medium: %s isn't on any drive the kernel can read: the base system is missing\n", path);
         return false;
     }

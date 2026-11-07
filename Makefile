@@ -149,14 +149,15 @@ iso: kernel $(ISO_MODULES) $(BASE_IDX) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/bu
 	mkdir -p $(BUILD)/iso_root/boot/limine $(BUILD)/iso_root/EFI/BOOT
 	cp $(KERNEL) $(BUILD)/iso_root/boot/kernel.elf
 	cp $(INITRD) $(BUILD)/iso_root/boot/initrd.cpio
-	# The big files twice over, by firmware (limine.conf: $${FW_TYPE}): with UEFI (a real computer, from a
-	# USB stick) the files themselves, loaded by the bootloader; with BIOS (a virtual machine) a line saying
-	# where each is on the disc, read by the kernel, many times faster (kernel/main.c, drivers/medium.c).
+	# The big files: in boot/UEFI, and in boot/BIOS a line saying where each is on the medium, which is what the
+	# boot menu loads, with either firmware: the kernel reads them from the disc or the USB stick as they are used
+	# (kernel/main.c, drivers/medium.c), many times faster than the firmware, and without all of them in memory at
+	# the start (a real PC from a USB stick ran out: the base system, the model and NVIDIA's files, whole).
 	mkdir -p $(BUILD)/iso_root/boot/UEFI $(BUILD)/iso_root/boot/BIOS
 	[ ! -s $(BASE_CPIO) ] || { cp $(BASE_CPIO) $(BUILD)/iso_root/boot/UEFI/base.cpio && \
 		printf 'OS-LAZY /boot/UEFI/base.cpio %s\n' "$$(stat -c %s $(BASE_CPIO))" > $(BUILD)/iso_root/boot/BIOS/base.cpio && \
 		cat $(BASE_IDX) >> $(BUILD)/iso_root/boot/BIOS/base.cpio; }
-	cp boot/limine.conf $(BUILD)/iso_root/boot/limine/
+	sed 's/$${FW_TYPE}/BIOS/' boot/limine.conf > $(BUILD)/iso_root/boot/limine/limine.conf
 	[ -s $(BASE_CPIO) ] || sed -i '/base.cpio/d' $(BUILD)/iso_root/boot/limine/limine.conf
 	# The one model that comes with the system, for when there is no
 	# internet (others are downloaded; scripts/get-builtin-model.sh fetches
@@ -168,14 +169,14 @@ iso: kernel $(ISO_MODULES) $(BASE_IDX) $(LIMINE_DIR) $(wildcard $(BUILD)/mind/bu
 		for part in $(BUILD)/iso_root/boot/UEFI/mind.gguf.*; do \
 			name=$$(basename $$part); \
 			printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$part)" > $(BUILD)/iso_root/boot/BIOS/$$name; \
-			printf '    module_path: boot():/boot/$${FW_TYPE}/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
+			printf '    module_path: boot():/boot/BIOS/%s\n    module_string: /usr/share/os/mind/model.gguf\n' \
 				"$$name" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
 		done; \
 	fi
 	for fw in $(NV_FW); do \
 		name=nvfw-$$(basename $$fw); cp $$fw $(BUILD)/iso_root/boot/UEFI/$$name; \
 		printf 'OS-LAZY /boot/UEFI/%s %s\n' "$$name" "$$(stat -c %s $$fw)" > $(BUILD)/iso_root/boot/BIOS/$$name; \
-		printf '    module_path: boot():/boot/$${FW_TYPE}/%s\n    module_string: /lib/firmware/nvidia/$(NV_VERSION)/%s\n' \
+		printf '    module_path: boot():/boot/BIOS/%s\n    module_string: /lib/firmware/nvidia/$(NV_VERSION)/%s\n' \
 			"$$name" "$$(basename $$fw)" >> $(BUILD)/iso_root/boot/limine/limine.conf; \
 	done
 	cp $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin \

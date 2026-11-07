@@ -2,6 +2,7 @@
 #include <kernel/lib.h>
 #include <kernel/medium.h>
 #include <kernel/mm.h>
+#include <kernel/proc.h>
 #include <kernel/sched.h>
 #include <linux/abi.h>
 
@@ -160,6 +161,21 @@ bool medium_find(const char *path, uint64_t size, struct medium_file *f) {
             return true;
         }
     return false;
+}
+
+bool medium_find_wait(const char *path, uint64_t size, struct medium_file *f, uint64_t ms) {
+    uint64_t end = time_monotonic_ns() + ms * 1000000ull;
+    bool said = false;
+    for (;;) {
+        if (medium_find(path, size, f))
+            return true;
+        if (time_monotonic_ns() >= end)
+            return false;
+        if (!said)
+            kprintf("medium: waiting for the drive with %s (a USB stick is found a moment after the start)\n", path);
+        said = true;
+        thread_sleep_ms(100);
+    }
 }
 
 int medium_read(const struct medium_file *f, uint64_t off, void *buf, size_t n) {

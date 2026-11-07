@@ -1,6 +1,7 @@
 #include <kernel/arch.h>
 #include <kernel/blkdev.h>
 #include <kernel/lib.h>
+#include <kernel/medium.h>
 #include <kernel/mm.h>
 #include <kernel/proc.h>
 #include <kernel/sched.h>
@@ -262,7 +263,29 @@ static bool disk_is_ours(struct blkdev *d) {
 
 /* A disk found after the start (a USB stick plugged in): registered read-only by its driver, then made writable
  * only if it is this system's. */
+/* A USB stick the system's image was written to (Rufus in DD mode, dd): its start is the image's ISO 9660 file
+ * system, as on a disc. The kernel reads the big files from it as they are used (drivers/medium.c), as from a disc
+ * in a virtual machine, rather than the firmware loading them all into memory at the start. */
+static int stick_read(void *drv, uint32_t lba, uint32_t count, void *buf) {
+    int64_t n = blkdev_read(drv, buf, (size_t)count * 2048, (uint64_t)lba * 2048);
+    return n == (int64_t)count * 2048 ? 0 : -EIO;
+}
+
+static void offer_as_medium(struct blkdev *d) {
+    uint8_t *pvd = kmalloc(2048);
+    if (!pvd)
+        return;
+    bool iso = blkdev_read(d, pvd, 2048, 16 * 2048) == 2048 && pvd[0] == 1 && !memcmp(pvd + 1, "CD001", 5);
+    kfree(pvd);
+    if (!iso)
+        return;
+    uint64_t blocks = disk_bytes(d) / 2048;
+    optical_register(d->name, stick_read, d, blocks > 0xffffffffu ? 0xffffffffu : (uint32_t)blocks);
+    kprintf("storage: %s holds a system image: its files can be read from it\n", d->name);
+}
+
 void blkdev_claim_if_ours(struct blkdev *d) {
+    offer_as_medium(d);
     bool ours = disk_is_ours(d); /* (read while it is still read-only: nothing can be written meanwhile) */
     d->readonly = !ours;
     kprintf("storage: %s (%s): %s\n", d->name, d->model, ours ? "this system's disk" : "not this system's: left untouched, read-only");

@@ -70,8 +70,13 @@ class Vm:
                  "-cdrom", os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso")).replace(os.sep, "/")]
         iso = os.environ.get("ISO", os.path.join(ROOT, "build", "os.iso"))
         if os.path.basename(iso) == "dev.iso":  # the development discs: the big files on a second one
-            qargs += ["-drive", "id=big,file=" + os.path.join(os.path.dirname(iso), "big.iso").replace(os.sep, "/") +
-                      ",media=cdrom,if=none,readonly=on", "-device", "ide-cd,drive=big,bus=ide.3"]
+            big = os.path.join(os.path.dirname(iso), "big.iso").replace(os.sep, "/")
+            if os.environ.get("BIG_ON_USB"):  # as on a real PC: the big files on a USB stick the image was written to
+                qargs += ["-device", "qemu-xhci,id=xhcibig", "-drive", "id=big,file=" + big +
+                          ",format=raw,if=none,readonly=on", "-device", "usb-storage,bus=xhcibig.0,drive=big"]
+            else:
+                qargs += ["-drive", "id=big,file=" + big + ",media=cdrom,if=none,readonly=on",
+                          "-device", "ide-cd,drive=big,bus=ide.3"]
         if os.environ.get("HANGDUMP"):  # every minute, what each thread is doing (kernel/proc/proc.c)
             qargs += ["-fw_cfg", "name=opt/os/hangdump,string=1"]
         if os.environ.get("PERFWATCH"):  # every 10 s, who used the processors (kernel/proc/proc.c)

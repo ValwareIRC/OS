@@ -20,6 +20,8 @@ struct medium_file {
 
 /* The file at `path` (as on the ISO 9660 image, Rock Ridge names) whose size is `size`, on any optical drive. */
 bool medium_find(const char *path, uint64_t size, struct medium_file *f);
+/* As medium_find, waiting up to `ms` for a drive that has it (a USB stick is found a moment after the start) */
+bool medium_find_wait(const char *path, uint64_t size, struct medium_file *f, uint64_t ms);
 /* `n` bytes of the file from `off` (a multiple of 2048) into `buf`, which has room for `n` rounded up to 2048.
  * 0 or a negative errno. */
 int medium_read(const struct medium_file *f, uint64_t off, void *buf, size_t n);
