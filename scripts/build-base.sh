@@ -284,12 +284,15 @@ build_one() {
     e2fsprogs) auto_build e2fsprogs --disable-nls --disable-fuse2fs --disable-defrag --disable-imager --disable-debugfs --disable-uuidd --disable-libuuid --disable-libblkid --without-systemd-unit-dir --with-udev-rules-dir=no --with-crond-dir=no ;;
     flatpak-system) flatpak_system ;;
     prism-app) prism_app ;;
+    nvidia) # NVIDIA's nvidia-smi and CUDA libraries (scripts/add-nvidia-userspace.sh), when its package is unpacked
+        if [ -d "${NV_PKG_DIR:-}" ]; then BASE_DIR="$OUT" bash "$ROOT/scripts/add-nvidia-userspace.sh" "$NV_PKG_DIR"
+        else echo "nvidia: no NV_PKG_DIR (NVIDIA-Linux-x86_64-VERSION.run --extract-only --target DIR): left out"; fi ;;
     *) echo "build-base: unknown component $1" >&2; exit 1 ;;
     esac
     echo "build-base: $1 done"
 }
 
-ALL="platform host-etc bubblewrap dbus xdg-dbus-proxy libxmlb libfyaml appstream ostree fuse flatpak xdg-desktop-portal os-portal os-a11y os-record llama-server voice pulseaudio e2fsprogs flatpak-system prism-app"
+ALL="platform host-etc bubblewrap dbus xdg-dbus-proxy libxmlb libfyaml appstream ostree fuse flatpak xdg-desktop-portal os-portal os-a11y os-record llama-server voice pulseaudio e2fsprogs flatpak-system prism-app nvidia"
 for c in ${*:-$ALL}; do
     build_one "$c"
 done
