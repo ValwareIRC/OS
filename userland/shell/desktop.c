@@ -3230,6 +3230,11 @@ void desktop_adopt(fm_doc *doc, const design *d, bool first) {
 
 void desktop_open_window(int w) { open_window(w); }
 
+bool desktop_window_in_use(void) {
+    int f = focused_window();
+    return f >= 0 && f != WIN_COMPANION;
+}
+
 void companion_tick(void) { companion_update(); }
 
 void desktop_enter(void) {
@@ -3377,7 +3382,7 @@ void desktop_draw(void) {
     if (!desktop_seen)
         desktop_seen = A.now;
     if (A.now - desktop_seen > 20000 && A.provider && !A.companion.pending && !senses_typing() &&
-        !senses_fullscreen() && persona_wants_chat()) {
+        !senses_fullscreen() && !desktop_window_in_use() && persona_wants_chat()) {
         open_window(WIN_COMPANION);
         A.win[WIN_COMPANION].minimized = false;
         companion_prompt("(You realise you know what they like on their screen but not much about who they are. "
@@ -3550,7 +3555,7 @@ void desktop_draw(void) {
             A.in.clicked = A.in.pressed = false;
         /* Typing goes to the front window (the one last clicked or opened). */
         bool typable = w == WIN_COMPANION || w == WIN_NOTES || w == WIN_TERMINAL || w == WIN_FILES || w == WIN_SETTINGS ||
-                       w == WIN_PREVIEW;
+                       w == WIN_PREVIEW || A.win[w].fx; /* (Facet apps too: their fields take the typing, fxwin.c) */
         bool keyboard_owner = !keys_to_ui && !kbd_view[0] && typable && (w == focused || (focused < 0 && w == WIN_COMPANION));
         if (!keyboard_owner)
             A.in.nkeys = 0;

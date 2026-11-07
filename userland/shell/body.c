@@ -93,6 +93,8 @@ static void bring_it_up(void) {
         Q.shown_at = A.now;
     if (A.now - Q.shown_at < 4000 || A.companion.pending) /* a moment to take their space in first */
         return;
+    if (desktop_window_in_use()) /* (not over something they are using: when they are back) */
+        return;
     Q.done = true;
     settings_set_int("body_asked", 1);
     LOG("body: asking how it should look\n");

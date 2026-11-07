@@ -376,6 +376,11 @@ static void path_for(char *out, size_t n, const char *title) {
         const char *base = strrchr(N.path, '/'), *dot = strrchr(base ? base : N.path, '.');
         snprintf(ext, sizeof ext, "%s", dot && strlen(dot) < sizeof ext ? dot : "");
     }
+    /* a title that ends in it already (Messenger.facet: only .txt comes off a title) isn't given it twice, or
+     * the note would be saved as a new file beside its own (Messenger.facet.facet) */
+    size_t tl = strlen(title), el = strlen(ext);
+    if (el && tl > el && !strcasecmp(title + tl - el, ext))
+        ext[0] = 0;
     for (int k = 1; k < 100; k++) {
         if (k == 1)
             snprintf(out, n, "%s/%s%s", dir, title, ext);

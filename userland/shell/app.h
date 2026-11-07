@@ -261,6 +261,9 @@ bool desktop_app_frame_put(rect *out);
  * old one. `first`: the end of onboarding, the desktop arrives. */
 void desktop_adopt(struct fm_doc *doc, const design *d, bool first);
 void desktop_open_window(int w);
+/* Another window (not the companion's) is in front: they are using something. Nothing of the companion's own
+ * accord opens over it, so the keyboard stays theirs. */
+bool desktop_window_in_use(void);
 /* One frame of the whole OS; and frames with `draw` over everything until *done (main.c). */
 void main_frame(void);
 void main_modal(void (*draw)(void), const bool *done);

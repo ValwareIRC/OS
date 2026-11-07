@@ -41,6 +41,7 @@ typedef struct {
     size_t len, cap;
     bool used, secret;
     text_edit ed; /* caret, selection, undo (textedit.h) */
+    char *app_said; /* the app's value for it last frame: a change is the app's doing (Todo clearing its draft) */
 } field;
 
 struct fxwin {
@@ -724,8 +725,19 @@ static void draw_inputs(struct fxwin *fw, bool focused, bool pointer_here) {
             snprintf(fw->focus, sizeof fw->focus, "%s", o->key);
             fw->autofocused = is_focus = true;
         }
-        if (!is_focus) /* not being typed in: it shows the app's value */
-            field_set(f, fx_get(o, "value") ? fx_get(o, "value") : "");
+        const char *app_value = fx_get(o, "value") ? fx_get(o, "value") : "";
+        bool app_changed = !f->app_said || strcmp(f->app_said, app_value);
+        if (app_changed) {
+            free(f->app_said);
+            f->app_said = strdup(app_value);
+        }
+        if (!is_focus) { /* not being typed in: it shows the app's value */
+            field_set(f, app_value);
+        } else if (app_changed && f->buf && strcmp(f->buf, app_value)) {
+            /* typed in, and the app changed it itself (not the echo of the typing, which is the same text) */
+            field_set(f, app_value);
+            te_reset(&f->ed, f->buf);
+        }
         if (over && A.in.clicked && !disabled) {
             snprintf(fw->focus, sizeof fw->focus, "%s", o->key ? o->key : "");
             is_focus = true;
@@ -934,8 +946,10 @@ void fxwin_close(struct fxwin *fw) {
     fx_free(fw->app);
     if (fw->doc)
         fm_free(fw->doc);
-    for (int i = 0; i < MAX_FIELDS; i++)
+    for (int i = 0; i < MAX_FIELDS; i++) {
         free(fw->fields[i].buf);
+        free(fw->fields[i].app_said);
+    }
     free(fw->acts);
     free(fw->src);
     free(fw->grants);
