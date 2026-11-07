@@ -114,6 +114,8 @@ int kpi_host_chr_node(const char *path, unsigned major, unsigned minor) {
     return r;
 }
 
+void kpi_host_chr_node_remove(const char *path) { vfs_remove_node(path); }
+
 void kpi_host_poll_wake(kpi_host_file *hf) {
     struct file *f = (struct file *)hf;
     if (ours(f) && f->private)

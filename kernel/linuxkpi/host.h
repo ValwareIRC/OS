@@ -105,6 +105,7 @@ struct kpi_host_chr_ops {
 };
 void kpi_host_chr_init(const struct kpi_host_chr_ops *ops);
 int kpi_host_chr_node(const char *path, unsigned major, unsigned minor); /* (its directories made too) */
+void kpi_host_chr_node_remove(const char *path);
 void kpi_host_poll_wake(kpi_host_file *hf);
 void kpi_host_file_get(kpi_host_file *hf);
 void kpi_host_file_put(kpi_host_file *hf);

@@ -110,6 +110,23 @@ static int count_nvidia_gpus(void) {
     return n;
 }
 
+/* the /dev nodes made, so a device taken away (cdev_del) takes its nodes too */
+struct node { char path[96]; dev_t dev; struct list_head all; };
+static LIST_HEAD(nodes);
+
+static void node_add(const char *path, unsigned major, unsigned minor) {
+    if (kpi_host_chr_node(path, major, minor) < 0)
+        return;
+    struct node *n = kzalloc(sizeof *n, GFP_KERNEL);
+    if (!n)
+        return;
+    strscpy(n->path, path, sizeof n->path);
+    n->dev = MKDEV(major, minor);
+    mutex_lock(&chr_lock);
+    list_add_tail(&n->all, &nodes);
+    mutex_unlock(&chr_lock);
+}
+
 /* the nodes the programs look for (as nvidia-modprobe would make them on Linux) */
 static void make_nodes(const char *name, unsigned major, unsigned first, unsigned count) {
     char path[96];
@@ -117,12 +134,12 @@ static void make_nodes(const char *name, unsigned major, unsigned first, unsigne
         int gpus = count_nvidia_gpus();
         for (unsigned m = first; m < first + count; m++) {
             if (m == 255)
-                kpi_host_chr_node("/dev/nvidiactl", major, m);
+                node_add("/dev/nvidiactl", major, m);
             else if (m == 254)
-                kpi_host_chr_node("/dev/nvidia-modeset", major, m);
+                node_add("/dev/nvidia-modeset", major, m);
             else if ((int)m < gpus) {
                 snprintf(path, sizeof path, "/dev/nvidia%u", m);
-                kpi_host_chr_node(path, major, m);
+                node_add(path, major, m);
             }
         }
         return;
@@ -138,7 +155,7 @@ static void make_nodes(const char *name, unsigned major, unsigned first, unsigne
             snprintf(path, sizeof path, count == 1 ? "/dev/%s" : "/dev/%s%u", name, m);
         if (m > 1 && !strcmp(name, "nvidia-uvm"))
             break;
-        kpi_host_chr_node(path, major, m);
+        node_add(path, major, m);
     }
 }
 
@@ -157,6 +174,13 @@ int cdev_add(struct cdev *c, dev_t dev, unsigned int count) {
 void cdev_del(struct cdev *c) {
     mutex_lock(&chr_lock);
     list_del_init(&c->list);
+    struct node *n, *t;
+    list_for_each_entry_safe(n, t, &nodes, all)
+        if (MAJOR(n->dev) == MAJOR(c->dev) && MINOR(n->dev) >= MINOR(c->dev) && MINOR(n->dev) < MINOR(c->dev) + c->count) {
+            kpi_host_chr_node_remove(n->path);
+            list_del(&n->all);
+            kfree(n);
+        }
     mutex_unlock(&chr_lock);
 }
 
