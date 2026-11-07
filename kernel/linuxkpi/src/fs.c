@@ -144,17 +144,27 @@ static void make_nodes(const char *name, unsigned major, unsigned first, unsigne
         }
         return;
     }
-    for (unsigned m = first; m < first + count && m < first + 64; m++) {
-        if (!strcmp(name, "nvidia-uvm"))
+    /* NVSwitches are a datacentre's (none on a PC): no nodes, as nvidia-modprobe makes none where there are none */
+    if (!strncmp(name, "nvidia-nvswitch", 15))
+        return;
+    for (unsigned m = first; m < first + count; m++) {
+        if (!strcmp(name, "nvidia-uvm")) {
+            if (m > 1)
+                break;
             snprintf(path, sizeof path, m == 0 ? "/dev/nvidia-uvm" : "/dev/nvidia-uvm-tools");
-        else if (!strcmp(name, "nvidia-caps"))
+        } else if (!strcmp(name, "nvidia-caps")) {
+            if (m != 1 && m != 2) /* (the two in use: MIG's config and monitor) */
+                continue;
             snprintf(path, sizeof path, "/dev/nvidia-caps/nvidia-cap%u", m);
-        else if (!strcmp(name, "nvidia-caps-imex-channels"))
+        } else if (!strcmp(name, "nvidia-caps-imex-channels")) {
+            if (m != 0)
+                break;
             snprintf(path, sizeof path, "/dev/nvidia-caps-imex-channels/channel%u", m);
-        else
+        } else {
+            if (m >= first + 4) /* (something not known by name: a few at most) */
+                break;
             snprintf(path, sizeof path, count == 1 ? "/dev/%s" : "/dev/%s%u", name, m);
-        if (m > 1 && !strcmp(name, "nvidia-uvm"))
-            break;
+        }
         node_add(path, major, m);
     }
 }
