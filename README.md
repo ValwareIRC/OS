@@ -68,6 +68,11 @@ make test-persist  # two boots on one disk image: data must survive the power cy
 On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubuntu container and
 `make run` boots it in the Mac's QEMU.
 
+NVIDIA's driver (x86-64; `docs/nvidia/plan.md`) is built in by itself when NVIDIA's open kernel modules are built
+at `NV_SRC` (default `~/osbuild/nvidia-open`, the version in `NV_VERSION`); `LKPI=0` leaves it out. Its GPU firmware
+comes from `NV_FW_DIR`, and `nvidia-smi` and CUDA's libraries from NVIDIA's package of the same version
+(`NV_PKG_DIR=... scripts/build-base.sh nvidia`). Without them the image is built as before, without NVIDIA's parts.
+
 ## Layout
 
 | Path | What |
@@ -122,9 +127,14 @@ On macOS, install Docker and `brew install qemu`: `make` builds in an x86-64 Ubu
 - [x] The companion API (`docs/companion-api.md`): apps such as Prism use the companion's AI, name, face, voice
       and memory, with the person's consent and without ever seeing their keys
 - [x] Real-computer hardware, first part: USB (the xHCI controller, hubs, keyboards, mice, tablets, sticks), NVMe
-      SSDs, Realtek RTL8111/8168 and RTL8125 network chips, and the kernel's log sent to another computer (`netlog`)
-- [ ] Next: NVIDIA's graphics cards for the AI (`docs/nvidia/plan.md`), laptop touchpads, Intel network chips and
-      Wi-Fi, installing to the disk beside Windows, and updates; what still feels unfinished is in `docs/toy-audit.md`
+      SSDs, Realtek RTL8111/8168 and RTL8125 network chips, and the kernel's log sent to another computer (`netlog`);
+      started from a USB stick, the big files are read from the stick as they are used, not loaded at the start
+- [ ] Started: NVIDIA's graphics cards for the AI (`docs/nvidia/plan.md`): NVIDIA's own open driver, built into the kernel
+      through a Linux-shaped layer (`kernel/linuxkpi`), with its GPU firmware, `nvidia-smi` and CUDA's libraries.
+      It starts, finds no card and stops cleanly in virtual machines; it has not yet met a card
+- [ ] Next: the NVIDIA driver on a real card, then CUDA for the built-in model; laptop touchpads, Intel network chips
+      and Wi-Fi, installing to the disk beside Windows, and updates; what still feels unfinished is in
+      `docs/toy-audit.md`
 
 ## The experience (userland/shell)
 
@@ -165,14 +175,16 @@ takes 5 GB).
 - **Another virtual machine** (QEMU, VirtualBox, VMware, Hyper-V...): 64-bit, 20 GB of memory, 8 CPUs, the ISO as
   its CD, an empty disk on SATA/AHCI or virtio so it remembers you (32 GB, sparse), and an Intel PRO/1000 (e1000)
   network adapter. `make run` starts it in QEMU.
-- **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD mode, balenaEtcher, `dd`), or copy its
-  files onto a FAT32 stick for UEFI. Turn off Secure Boot (if Windows uses BitLocker, have its recovery key to
+- **A real PC:** write the ISO to a USB stick with a raw writer (Rufus in DD Image mode, balenaEtcher, `dd`): the
+  system reads its big files from the stick's disc file system, which only a raw copy keeps (not Rufus's ISO mode,
+  nor its files copied onto a FAT32 stick). Windows may then show the stick as several drives: don't format them.
+  Turn off Secure Boot (if Windows uses BitLocker, have its recovery key to
   hand first: changing Secure Boot can make Windows ask for it). On a real computer it only ever writes to a disk
   already marked as its own (a blank one too, but only in a virtual machine); every other drive, including the
   Windows disk and the stick it started from, is read-only to it. Hardware: USB keyboards, mice and sticks, PS/2,
   NVMe, SATA (AHCI) and virtio disks, Intel e1000/82574 and Realtek RTL8111/8168/8125 network chips, Intel HD
-  Audio. Not yet: Wi-Fi, laptop touchpads (most are I2C), Intel's newer network chips, and the graphics card is
-  only used for its firmware's picture. To see what it does as it starts, add `cmdline: verbose netlog` under
+  Audio. Not yet: Wi-Fi, laptop touchpads (most are I2C), Intel's newer network chips; NVIDIA cards have their
+  driver but it is untested on one, and every card is still shown through its firmware's picture. To see what it does as it starts, add `cmdline: verbose netlog` under
   "/Operating System" in `boot/limine/limine.conf` on the stick: `verbose` shows its log on its screen, and
   `netlog` sends it to `scripts/netlog.ps1` on another computer on the same network.
 
@@ -198,3 +210,9 @@ something asks to open a web link and no browser is installed yet, the OS offers
 ## License
 
 MIT (see LICENSE). Files under `kernel/third_party/` keep their own licenses: `limine.h` is BSD Zero Clause, `font8x8_basic.h` is public domain. Libraries fetched at build time (Limine, musl, mbed TLS, stb, Lua, fonts, llama.cpp and others) come under their own licenses.
+
+NVIDIA's parts are not in this repository. When the image is built with them: the driver is NVIDIA's open GPU kernel
+modules (MIT or GPL-2.0, its choice of either), compiled into the kernel; its GPU firmware (`/lib/firmware/nvidia/`)
+and `nvidia-smi` and CUDA's libraries (`/usr`) are NVIDIA's own files, unmodified, under the NVIDIA Driver License
+Agreement, which comes with them (`/lib/firmware/nvidia/VERSION/LICENSE`, `/usr/share/doc/nvidia-VERSION/LICENSE`)
+and allows this for a system under an open source license.
